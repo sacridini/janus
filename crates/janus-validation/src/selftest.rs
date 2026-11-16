@@ -69,6 +69,126 @@ fn run_check(python: &str, dir: &Path, code: &str, rep: &mut String) -> Result<V
 /// cropped): their mapped areas against a pixel-by-pixel count; labels that give the class at each date (an event
 /// where it changed); every estimator, and with Python, zeit.transitions on the project's files (the code of the
 /// Copy Python) for each.
+/// The response "one label per year": the mode, the years and the labels by year written, read back, kept when only
+/// some points are saved again; and the plain project still reading by point.
+fn test_by_year(rep: &mut String, dir: &Path, base: &Project) -> Result<(), &'static str> {
+    let mut y = base.clone();
+    y.path = dir.join("yearly.gpkg").to_string_lossy().into_owned();
+    y.response = Response::PerYear;
+    y.years = vec![2018, 2019, 2020];
+    y.labels.clear();
+    let year = |l: &str, c: i32| YearLabel { label: l.into(), confidence: c, updated: now_iso() };
+    let mut ana = vec![Label::default(); y.points.len()];
+    ana[0].years = [(2018, year("Stable", 3)), (2019, year("Deforestation", 2)), (2020, year(YEAR_NA, 0))].into();
+    ana[0].notes = "burnt".into();
+    ana[1].years = [(2018, year("Stable", 1))].into();
+    let mapping = reference_mapping(&y.maps, &y.label_set);
+    for l in &mut ana {
+        l.rederive(&y.years, &mapping);
+    }
+    if ana[0].label != "Deforestation" || ana[0].date != "2019" || !ana[1].label.is_empty() {
+        return Err("the reference derived from the years");
+    }
+    y.labels.insert("ana".into(), ana.clone());
+    if create_project(&y).is_err() {
+        return Err("createProject (by year) failed");
+    }
+    let back = load_project(&y.path).map_err(|_| "loadProject (by year) failed")?;
+    if back.response != Response::PerYear || back.years != y.years || back.labels["ana"] != ana {
+        return Err("the labels by year read back differ");
+    }
+    // one point saved again leaves the others' years alone
+    let mut again = ana[1].clone();
+    again.years.insert(2019, year(YEAR_NA, 0));
+    save_labels(&y.path, "ana", &[(1, again.clone())], &[]).map_err(|_| "saveLabels (by year) failed")?;
+    let back = load_project(&y.path).map_err(|_| "loadProject (by year) failed")?;
+    if back.labels["ana"][1] != again || back.labels["ana"][0] != ana[0] {
+        return Err("a point saved again changed another's years");
+    }
+    // a project made by point has no years
+    if load_project(&base.path).map_err(|_| "loadProject failed")?.response != Response::PerPoint {
+        return Err("the response of a project without the key is by point");
+    }
+    // a project from before the design has no table for the years: it gets one when a year is first labelled
+    let old = dir.join("old.gpkg").to_string_lossy().into_owned();
+    std::fs::copy(&base.path, &old).map_err(|_| "copying the project")?;
+    {
+        let ds = Dataset::open_ex(
+            &old,
+            gdal::DatasetOptions { open_flags: gdal::GdalOpenFlags::GDAL_OF_UPDATE, ..Default::default() },
+        )
+        .map_err(|_| "opening the copy")?;
+        let _ = ds.execute_sql("DROP TABLE labels_by_year", None, gdal::vector::sql::Dialect::DEFAULT);
+        if ds.layer_by_name("labels_by_year").is_ok() {
+            return Err("the table of years was not dropped");
+        }
+    }
+    let older = load_project(&old).map_err(|_| "loadProject (old) failed")?;
+    if !older.labels["ana"][0].years.is_empty() {
+        return Err("an older project has years");
+    }
+    save_labels(&old, "ana", &[(0, ana[0].clone())], &[]).map_err(|_| "saveLabels (new table) failed")?;
+    if load_project(&old).map_err(|_| "loadProject (old) failed")?.labels["ana"][0].years.len() != 3 {
+        return Err("the years of an older project were not kept");
+    }
+    rep.push_str("  one label per year: written, read back, saved again, table added to an older project\n");
+    Ok(())
+}
+
+/// The label mode "Fraction cover": the mode, the grid's side and the cells painted written, read back, a point saved
+/// again, and a project from before the table getting one when the first cells are painted.
+fn test_fractions(rep: &mut String, dir: &Path, base: &Project) -> Result<(), &'static str> {
+    let mut y = base.clone();
+    y.path = dir.join("fractions.gpkg").to_string_lossy().into_owned();
+    y.fraction = true;
+    y.fraction_n = 4;
+    y.labels.clear();
+    let mut ana = vec![Label::default(); y.points.len()];
+    let mut a = Fractions::new(4);
+    a.set(0, 0, 1);
+    a.set(3, 3, 0);
+    a.updated = now_iso();
+    ana[0].fractions.insert(2019, a.clone());
+    ana[0].fractions.insert(2021, Fractions::new(4));
+    ana[0].fractions.get_mut(&2021).unwrap().set(1, 2, 1);
+    create_project(&y).map_err(|_| "createProject (fractions) failed")?;
+    save_labels(&y.path, "ana", &[(0, ana[0].clone())], &[]).map_err(|_| "saveLabels (fractions) failed")?;
+    let back = load_project(&y.path).map_err(|_| "loadProject (fractions) failed")?;
+    if !back.fraction || back.fraction_n != 4 || back.labels["ana"][0] != ana[0] {
+        return Err("the fractions read back differ");
+    }
+    let mut again = ana[0].clone();
+    again.fractions.remove(&2021);
+    save_labels(&y.path, "ana", &[(0, again.clone())], &[]).map_err(|_| "saveLabels (fractions) failed")?;
+    if load_project(&y.path).map_err(|_| "loadProject failed")?.labels["ana"][0] != again {
+        return Err("a year of fractions cleared came back");
+    }
+    let plain = load_project(&base.path).map_err(|_| "loadProject failed")?;
+    if plain.fraction || plain.fraction_n != crate::DEFAULT_FRACTION_N {
+        return Err("a project without the keys is by class, with the default grid");
+    }
+    let old = dir.join("old_fractions.gpkg").to_string_lossy().into_owned();
+    std::fs::copy(&base.path, &old).map_err(|_| "copying the project")?;
+    {
+        let ds = Dataset::open_ex(
+            &old,
+            gdal::DatasetOptions { open_flags: gdal::GdalOpenFlags::GDAL_OF_UPDATE, ..Default::default() },
+        )
+        .map_err(|_| "opening the copy")?;
+        let _ = ds.execute_sql("DROP TABLE fractions", None, gdal::vector::sql::Dialect::DEFAULT);
+    }
+    let older = load_project(&old).map_err(|_| "loadProject (old) failed")?;
+    if !older.labels["ana"][0].fractions.is_empty() {
+        return Err("an older project has fractions");
+    }
+    save_labels(&old, "ana", &[(0, ana[0].clone())], &[]).map_err(|_| "saveLabels (new table) failed")?;
+    if load_project(&old).map_err(|_| "loadProject (old) failed")?.labels["ana"][0].fractions.len() != 2 {
+        return Err("the fractions of an older project were not kept");
+    }
+    rep.push_str("  fraction cover: mode and cells written, read back, saved again, table added to an older project\n");
+    Ok(())
+}
+
 fn test_transitions(
     rep: &mut String,
     dir: &Path,
@@ -548,6 +668,7 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         seed: 7,
         design: serde_json::json!({"alloc": "proportional"}),
         label_set: ["Stable", "Deforestation", "Can't tell"].map(String::from).to_vec(),
+        label_colors: ["#278c4a", "#d63a34", "#8c919b"].map(String::from).to_vec(),
         ..Default::default()
     };
     pr.strata.row_counts.clear();
@@ -640,6 +761,7 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         || back.id != pr.id
         || back.seed != 7
         || back.label_set != pr.label_set
+        || back.label_colors != pr.label_colors
         || back.maps.len() != 1
         || back.maps[0].mapping != am.mapping
         || back.spec.limit != limit
@@ -674,6 +796,8 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         _ => return Err("readLabels (merge) failed"),
     }
     rep.push_str(&format!("  project: {} points, 2 interpreters, written and read back\n", back.points.len()));
+    test_by_year(rep, &dir, &back)?;
+    test_fractions(rep, &dir, &back)?;
 
     // the estimates of the labelled project, then (with Python) zeit.accuracy on its files
     back.labels.remove(ADJUDICATED);

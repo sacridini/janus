@@ -14,9 +14,8 @@
 <meta property="og:description" content="Every Landsat observation of a Rondônia landscape, modelled band by band: breaks where the forest was cleared, and an image of a cloudy date.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ccdc/02-fit.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / CCDC</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / CCDC</p>
     <p class="eyebrow">Change detection · every Landsat observation</p>
     <h1>CCDC, step by step.</h1>
     <p class="lede">CCDC models every band of every clear Landsat observation with a trend and the seasons, and starts a new model when the land stops looking like the old one. In Janus you see those models over a pixel's series, map the dates and sizes of the breaks, and predict the image of a date the clouds hid.</p>
@@ -88,7 +89,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>125 Landsat 8 and 9 observations, February 2020 to August 2026, of a 30 × 30 km area of central Rondônia (the same landscape as the <a href="landtrendr.html">LandTrendr guide</a>), as Collection 2 Level-2 surface reflectance with the <code>QA_PIXEL</code> band. Each date is a GeoTIFF of seven bands named Blue, Green, Red, NIR, SWIR1, SWIR2 and QA_PIXEL.</p>
       <figure class="fig">
-        <a href="assets/img/ccdc/01-series.jpg"><img src="assets/img/ccdc/01-series.jpg" alt="The Janus window: the last date of the series in SWIR1, NIR and red, forest in green and pasture in pink, three pins, and their NDVI series on the chart with many gaps." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/ccdc/01-series.jpg"><picture><source type="image/webp" srcset="assets/img/ccdc/01-series.webp"><img src="assets/img/ccdc/01-series.jpg" alt="The Janus window: the last date of the series in SWIR1, NIR and red, forest in green and pasture in pink, three pins, and their NDVI series on the chart with many gaps." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The series</b> in SWIR1 / NIR / red (forest green, pasture pink), the chart in NDVI. The gaps are the dates the clouds hid.</figcaption>
       </figure>
       <p>To open it: the folder with <span class="ui">File → Open folder...</span>, then, in the Display panel, NIR as the band and red for the normalized difference (the chart shows the NDVI), and SWIR1 / NIR / red as an RGB composite for the map.</p>
@@ -96,6 +97,17 @@
         <p class="h">Collection 2 digital numbers</p>
         <p>Landsat Collection 2 Level-2 values are digital numbers: reflectance is DN × 0.0000275 − 0.2. CCDC detects them and converts them (<span class="ui">Reflectance units</span>), but an NDVI computed on the DNs themselves is wrong, because of the offset. Set the scale and offset in the files (GDAL's band scale and offset; Janus applies them), or export reflectance.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date, made from a Google Earth Engine stack and its CSV of dates. These commands remake the screenshots after the interface changes.</p>
+        <p class="what">A folder of the Landsat dates, cut to the area (west, south, east, north):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots ccdc folder shots</code><button class="copy" type="button" data-copy="janus --shots ccdc folder shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="quality">
@@ -130,7 +142,7 @@
       <h2><span class="n">05</span>On the chart</h2>
       <p>With <span class="ui">Fit the cursor, pins and ROI series</span> on, each segment is drawn over the series, in what the layer shows (here the NDVI computed from the models' red and NIR), with a vertical line at each break.</p>
       <figure class="fig">
-        <a href="assets/img/ccdc/02-fit.jpg"><img src="assets/img/ccdc/02-fit.jpg" alt="CCDC's window with its bands and parameters; on the chart the NDVI of the cleared pixel, CCDC's segments in magenta and breaks as vertical lines; the Statistics table with the segments and the break." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/ccdc/02-fit.jpg"><picture><source type="image/webp" srcset="assets/img/ccdc/02-fit.webp"><img src="assets/img/ccdc/02-fit.jpg" alt="CCDC's window with its bands and parameters; on the chart the NDVI of the cleared pixel, CCDC's segments in magenta and breaks as vertical lines; the Statistics table with the segments and the break." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The forest cleared in 2022.</b> Three segments; the first break, on 25 June 2022, is the clearing.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -153,6 +165,45 @@
         <a href="assets/img/ccdc/03-thinned-chart.png"><img src="assets/img/ccdc/03-thinned-chart.png" alt="The chart of the opened forest: a forest segment until 2021, a break in 2022 and a segment oscillating between 0.45 and 0.65." loading="lazy"></a>
         <figcaption><b>An opened forest.</b> After the 2022 break, the NDVI stays between forest and pasture.</figcaption>
       </figure>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="ccdc: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-ccdc-janus" aria-controls="pp-ccdc-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-ccdc-python" aria-controls="pp-ccdc-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-ccdc-janus" aria-labelledby="pt-ccdc-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the folder of the 125 Landsat dates with <span class="ui">File → Open folder...</span>. In the Display panel choose NIR as the band and red for the normalized difference, so the chart shows the NDVI; the quality band is found by its name.</li>
+        <li>Drop a pin on the forest cleared in May–June 2022.</li>
+        <li>Open <span class="ui">Tools → Change detection → CCDC</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.</li>
+        <li>The chart draws the segments, and the Statistics table their breaks and magnitudes.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-ccdc-python" aria-labelledby="pt-ccdc-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code><span class="s">"""Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.
+Needs: pip install "zeit-cdts&gt;=3.2.1"
+"""</span>
+<span class="k">import</span> zeit
+
+<span class="c"># Pin 1: column 896, row 186 of the files, its centre at x -63.1191015, y -10.1301365 (EPSG:4326)</span>
+src = <span class="s">"landsat"</span>
+qa = zeit.load_raster(src, band=<span class="n">7</span>, masked=<span class="k">True</span>, pixel=(<span class="n">896</span>, <span class="n">186</span>))  <span class="c"># QA_PIXEL</span>
+bands_cube = zeit.load_raster(
+    src, bands={<span class="s">"blue"</span>: <span class="n">1</span>, <span class="s">"green"</span>: <span class="n">2</span>, <span class="s">"red"</span>: <span class="n">3</span>, <span class="s">"nir"</span>: <span class="n">4</span>, <span class="s">"swir1"</span>: <span class="n">5</span>, <span class="s">"swir2"</span>: <span class="n">6</span>}, scale=<span class="k">True</span>,
+    masked=<span class="k">True</span>, pixel=(<span class="n">896</span>, <span class="n">186</span>)
+)
+result = zeit.ccdc(bands_cube, qa=zeit.qa_to_fmask(qa, <span class="s">"landsat_c2"</span>), scale=<span class="s">'auto'</span>, max_segments=<span class="n">8</span>)
+
+print(result)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/ccdc.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/ccdc.py" download="ccdc.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="run">
@@ -162,13 +213,10 @@
 
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
-      <figure class="fig">
-        <a href="assets/img/ccdc/05-break-date.jpg"><img src="assets/img/ccdc/05-break-date.jpg" alt="The date of the largest break over the visible area, from 2022 in dark blue to 2026 in yellow, over the fields; forest without breaks shows through in green." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Largest break date</b>, 2022 (dark) to 2026 (yellow). The cleared fields of 2022 stand out as blocks; forest without breaks shows through.</figcaption>
-      </figure>
-      <figure class="fig">
-        <a href="assets/img/ccdc/06-magnitude.jpg"><img src="assets/img/ccdc/06-magnitude.jpg" alt="The magnitude of the largest break over the same area, highest in the field cleared in 2022." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Largest break magnitude</b> (reflectance × 10000): the clearing of 2022 is the largest.</figcaption>
+      <figure class="fig swipe">
+        <picture><source type="image/webp" srcset="assets/img/ccdc/05-break-date.webp"><img class="before" data-label="Break date" src="assets/img/ccdc/05-break-date.jpg" alt="The date of the largest break over the visible area, from 2022 in dark blue to 2026 in yellow, over the fields; forest without breaks shows through in green." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/ccdc/06-magnitude.webp"><img class="after" data-label="Break magnitude" src="assets/img/ccdc/06-magnitude.jpg" alt="The magnitude of the largest break over the same area, highest in the field cleared in 2022." width="1680" height="1050" loading="lazy"></picture>
+        <figcaption><b>Drag the divider to compare</b> the date (first image, left) and the magnitude (second image, right) of the largest break, the same view. The date runs from 2022 (dark) to 2026 (yellow), and the cleared fields of 2022 stand out as blocks; the magnitude is in reflectance × 10000, and the clearing of 2022 is the largest.</figcaption>
       </figure>
       <div class="tbl-wrap">
         <table class="tbl">
@@ -189,16 +237,11 @@
     <section id="synthetic">
       <h2><span class="n">08</span>A synthetic image</h2>
       <p>The models describe every band on every day of each segment, so they can give the image of a date that has no observation, or a cloudy one. <span class="ui">Tools → Change detection → CCDC synthetic image</span> runs CCDC and predicts the date in <span class="ui">Date</span> (a decimal year; 0 follows the date on the map): every band, in the series' units, and what the layer shows.</p>
-      <div class="fig-pair">
-        <figure class="fig">
-          <a href="assets/img/ccdc/07-observed.jpg"><img src="assets/img/ccdc/07-observed.jpg" alt="The observed image of 16 January 2025: entirely covered by cloud." width="1680" height="1050" loading="lazy"></a>
-          <figcaption><b>Observed</b>, 16 January 2025: clouds.</figcaption>
-        </figure>
-        <figure class="fig">
-          <a href="assets/img/ccdc/08-synthetic.jpg"><img src="assets/img/ccdc/08-synthetic.jpg" alt="The synthetic NDVI of the same date predicted by CCDC: fields and forest without clouds, with some fields in saturated yellow." width="1680" height="1050" loading="lazy"></a>
-          <figcaption><b>Synthetic NDVI</b> of the same date, from the models.</figcaption>
-        </figure>
-      </div>
+      <figure class="fig swipe">
+        <picture><source type="image/webp" srcset="assets/img/ccdc/07-observed.webp"><img class="before" data-label="Observed" src="assets/img/ccdc/07-observed.jpg" alt="The observed image of 16 January 2025: entirely covered by cloud." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/ccdc/08-synthetic.webp"><img class="after" data-label="Synthetic NDVI" src="assets/img/ccdc/08-synthetic.jpg" alt="The synthetic NDVI of the same date predicted by CCDC: fields and forest without clouds, with some fields in saturated yellow." width="1680" height="1050" loading="lazy"></picture>
+        <figcaption><b>Drag the divider to compare</b> 16 January 2025: observed, entirely under cloud (first image, left), and the NDVI the models predict for the same date (second image, right).</figcaption>
+      </figure>
       <p>The fields and the forest are back; the saturated yellow fields are the caveat above at work: January is in the rainy season, where these models have no observation, and some of their curves overshoot.</p>
     </section>
 
@@ -235,6 +278,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -242,6 +291,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

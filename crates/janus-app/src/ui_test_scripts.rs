@@ -157,6 +157,11 @@ fn same_features(ours: &Path, theirs: &Path, tol: f64) -> Result<usize, String> 
     Ok(a.len())
 }
 
+/// A CSV line's cells, a text's quotes off.
+fn unquoted(line: &str) -> Vec<&str> {
+    line.split(',').map(|c| c.trim_matches('"')).collect()
+}
+
 /// The decimals a number is written with.
 fn decimals(s: &str) -> i32 {
     s.split_once('.').map_or(0, |(_, d)| d.len() as i32)
@@ -172,7 +177,8 @@ fn same_csv(ours: &Path, theirs: &Path, tol: f64) -> Result<usize, String> {
     }
     let mut cells = 0;
     for (k, (x, y)) in la.iter().zip(&lb).enumerate() {
-        let (cx, cy): (Vec<&str>, Vec<&str>) = (x.split(',').collect(), y.split(',').collect());
+        // pandas quotes a text only where it needs it, Janus always: the quotes are not the value
+        let (cx, cy): (Vec<&str>, Vec<&str>) = (unquoted(x), unquoted(y));
         if cx.len() != cy.len() {
             return Err(format!("{}: line {} has {} cells, Janus' {}", theirs.display(), k + 1, cy.len(), cx.len()));
         }

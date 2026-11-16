@@ -102,9 +102,10 @@
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
-  **Copy CSV** of the cursor, pins and ROI series; **Python...**: code that
-  reproduces a pin's or the ROI's series, its statistics and the Zeit tool on
-  the chart, shown in the [Python history](#python-history)'s editor.
+  **Copy CSV** of the cursor, pins and ROI series; **Python...**: a short
+  script that reads a pin's or the ROI's series with Zeit's `load_raster` and
+  makes the calls of the Zeit tools on the chart, shown in the
+  [Python history](#python-history)'s editor.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
@@ -122,7 +123,7 @@
   every feature (a point's pixel, a polygon's mean) of the active or every
   visible layer to a CSV table. See [Vector layers](#vector-layers).
 - **Interpretation** (TimeSync style): go through a vector layer's features
-  one by one (`N` / `Shift+N`), the map centred on each and its series on the
+  one by one (`←` / `→`), the map centred on each and its series on the
   chart, and label them with keys `1`–`9`, a date of change (`D`) and notes;
   saved as you go and exported as GeoPackage, GeoJSON, Shapefile or CSV.
 - **Basemap** (Layers panel → Basemap): satellite imagery or a map under the
@@ -410,7 +411,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Save ROI as vector | View → **Save ROI as vector...** (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (`.gpkg`), GeoJSON (`.geojson`) or shapefile (`.shp`, its text in UTF-8), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with `name`, `layer` and `pixels`; *Open it as a vector layer* adds it to the map. **Alt + click** it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too |
 | Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, labels (a column's values on the map), move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
-| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
+| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up) next / previous feature, `O` the next without a label, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none, `Q` / `W` / `E` the confidence, `Shift+E` another event, `[` / `]` the date on the map; with *Fraction cover* (Validation card): drag over the pixel's cells on an image to paint, right-drag or `X` erases; notes; *Export table...*; with *Response: one label per year* (Validation design or the panel's *Response*): a bar of years (default: the cube's years; or `2018-2023`, `2017, 2019, 2021-2024`, `2000-2020/5`), class and confidence per year, *n/a*, `Tab` / `Shift+Tab` the next / previous year, validated when every year has one; a row per point and year on export |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart; the time bar above the map (play, the date slider, the speed) shows with a series of two dates or more, not with a single image or vector layers alone. Under the slider, each date's **availability**: a bar as tall as the share of the visible area that is valid on that date (no cloud, no gap; of the overview), red under half; the pointer over it gives the share, a click goes to the date |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram) |
@@ -432,7 +433,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Zonal statistics over time | **Zonal statistics over time...** in a vector layer's menu: each feature is a zone (its pixels those whose centre is inside, or every pixel touched; a pixel in several features counts in each), through every date of the active series or a run's map, on every feature or within the ROI: for **values** each date's count, mean, standard deviation, least, percentiles 10, 25, 50, 75, 90 and largest; for **classes** each class's pixels and area (each pixel's true area, as in Areas) at every date and the **transitions** between two dates; for a **map of change dates** the area by year. The zones named by an attribute or their FID. A task writing `zonal_long.csv` (a row per feature and date, and class), `zonal_wide.csv` (a row per feature, a column per date: the statistic chosen, or each class's ha), `transitions.csv`, and a GeoPackage of the features with those columns added, opened as a layer; Analysis → Zonal draws a feature's series; its provenance kept |
 | Reproject, resample, clip | **Tools → Data preparation → Reproject, resample, clip...**: the active series' files (or a run's map) through gdalwarp's own code (the same result as the `gdalwarp` command, whose arguments the window and the task's log show): to **a CRS** (EPSG:4326, ESRI:102033, a PROJ string, a WKT), **the CRS of a layer** or **the grid of a layer** (its CRS, origin, pixel size and extent: the maps aligned pixel to pixel), a pixel size (optionally aligned, `-tap`), resampling near, bilinear, cubic, average, **mode** (the default for classes), min, max or med; the whole layer, the visible area, the ROI or **the polygons of a vector layer** (the pixels outside them without a value, cropped to them); no data, data type; **COG**, GeoTIFF or **virtual** (warped VRTs: nothing written, ready at once). File by file on the processing threads, into a folder that opens as a new series (a task; its provenance kept) |
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
-| Python of a series | Time series panel → **Python...** → a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten); shown in the Python history's editor, to read, change, copy or save |
+| Python of a series | Time series panel → **Python...** → a pin or the ROI: a short script (only `pip install zeit-cdts`) that reads the same series with Zeit's `zeit.load_raster` (the dates, the bands and a window around the pin or the ROI, read lazily: a few lines of xarray for the normalized difference, the quality band's rule and the scale and offset) and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (the pin's or the ROI's mean series; CCDC, S-CCD, NDFI, CODED and Tmask get the bands by role and the Fmask codes); shown in the Python history's editor, to read, change, copy or save |
 | Python history | **Tools → Python history...** (or the palette): every finished run as Python, kept between sessions (`history.jsonl` in Janus' settings folder, the last 5000). See [Python history](#python-history) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default, and not kept open from one session to the next): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
@@ -785,10 +786,11 @@ Each tool window has:
   parameters...** (the tool's window with them and the same scope; on the same
   series, the scope *The run's window* is the very window it ran on, even if
   the ROI has moved since), **Python of the run...** (the run's code in the
-  Python history's editor: a Zeit tool's `rerun.py` reads the series over the
-  run's window from its files, makes the same Zeit calls with the same
-  parameters and writes every map they return as a GeoTIFF, numpy, rasterio,
-  xarray and zeit-cdts; Reproject, resample, clip, Rasterize, Polygonize,
+  Python history's editor: a Zeit tool's `rerun.py` is a few lines of zeit-cdts:
+  `zeit.load_raster` reads the series over the run's window from its files, the
+  tool's call has the parameters that are not Zeit's defaults, and
+  `zeit.save_raster` writes every map it returns (a folder of GeoTIFFs for a
+  result of several maps); Reproject, resample, clip, Rasterize, Polygonize,
   Zonal statistics, Regularize, Build series and the calculator's simple
   expressions have a `rerun.py` too, see [Python history](#python-history))
   and **Open folder**.
@@ -808,24 +810,40 @@ series and scope, the run's folder and files). Then it has one of two kinds of c
 
 - **A script** (`rerun.py`, also written beside the run): a Zeit tool's run
   reads the series over the run's window and makes the same Zeit calls with
-  the same parameters. Reproject, resample, clip calls `gdal.Warp` with the
-  same gdalwarp options, file by file. Rasterize burns the same features with
-  the same values on the same grid through `gdal.RasterizeLayer`. Polygonize
-  traces the same polygons with `rasterio.features.shapes` (the same
-  simplification, the minimum area through Zeit's sieve) and measures their
-  geodesic areas and perimeters with pyproj, into a GeoPackage of the same
-  columns. Zonal statistics burns each feature alone and writes the same long
-  and wide tables (and the transitions), pixel areas as Janus measures them.
-  Regularize reads the series as Janus does and makes the same composites
-  (median, medoid; clearest date approximately) and fills (linear, Whittaker)
-  in numpy. Build series calls `gdal.BuildVRT` (and `gdal.Translate` for COGs)
-  with the same grid. The calculator's expressions without reductions over
-  time or stages, on layers of the same grid, read the inputs as Janus' VRTs
-  read them and compute the expression in numpy, date by date. Each script
-  writes its files in a `python` folder of the run, and the UI self-test checks
-  that they equal Janus' own (rasters value for value, GeoPackages feature for
-  feature, tables cell for cell; the calculator within 1e-5, as Janus computes
-  in float32).
+  the same parameters. The other tools' scripts are as short as Zeit lets
+  them be, because it does the work (`zeit.load_raster` reads, warps, scales
+  and masks, `zeit.save_raster` writes), and carry only the branches their run
+  took and the arguments that are not Zeit's defaults. They ask for
+  `pip install "zeit-cdts>=3.2"` in their first lines. Reproject, resample, clip
+  is `load_raster(file, crs=, res=, tap=, extent=, cutline=, nodata=, dtype=,
+  resampling=)` and `save_raster` for each file (`nodata="source"` leaves the
+  cells outside the footprint as gdalwarp leaves them: 0, or the file's no
+  data); only an extent together with a cutline, an extent in another CRS than
+  the result's, a new CRS with an extent or a cutline and no pixel size, or a
+  resampling or type Zeit does not have stay `gdal.Warp` with gdalwarp's
+  options (that script needs GDAL's Python bindings). Rasterize is
+  `zeit.rasterize` on the series' first file's grid and `save_raster`, a text
+  attribute with its class names and the Tableau 20 colours as Janus writes
+  them. Polygonize is `zeit.polygonize` (the same polygons and simplification,
+  the minimum area through `mmu_sieve`, geodesic areas and perimeters, the
+  mean of another map) into a GeoPackage of the same columns. Zonal statistics
+  is `zeit.zonal_stats` or `zeit.zonal_areas` (each feature burned alone, the
+  transitions) and `to_csv`: the same tables, pixel areas as Janus measures
+  them. Regularize is `zeit.regularize_time_series` (median, medoid or
+  clearest; gaps filled linearly or by a Whittaker curve, up to a largest gap)
+  over the series read by `load_raster` of its files on their dates (bands by
+  role, `scale=True` for each band's own scale and offset, the quality band
+  with `qa=` and `qa_rule=`, `zeit.normalized_difference`); an expression
+  stays numpy, date by date. Build series is `zeit.build_vrt` (tiles mosaicked,
+  bands stacked and named, the Sentinel-2 wavelengths), with no GDAL bindings.
+  The calculator's expressions without reductions over time or stages, on
+  layers of the same grid, read the inputs with `load_raster` as Janus' VRTs
+  read them (each band's scale and offset applied with `scale=True`) and
+  compute the expression in numpy, date by date, written by `save_raster`. Each
+  script writes its files in a `python` folder of the run, and the UI self-test
+  checks that they equal Janus' own (rasters value for value, GeoPackages
+  feature for feature, tables cell for cell; the calculator within 1e-5, as
+  Janus computes in float32).
 - **The run as data** (*as data* in the list), for the tools that have no
   script yet: the parameters, inputs, window and outputs as Python values,
   with the equivalent command when there is one.
@@ -910,9 +928,10 @@ layers, all named by their step (`Temporal metrics: Mean`); the active layer doe
 not change.
 
 **Copy Python** copies one script that does in Zeit what the chain does on this
-series and scope, even before it runs: the series read once from its files, each
-step's call (those of the tools' own scripts; the steps after Interpolate and
-Standardize read the variable `analysis`) and every result written as a GeoTIFF.
+series and scope, even before it runs: the series read once with `zeit.load_raster`,
+each step's call (those of the tools' own scripts; the steps after Interpolate and
+Standardize read the variable `analysis`) and every result written with
+`zeit.save_raster`, named by its step.
 It is the same script the run keeps as the folder's `rerun.py`.
 
 **Use in Classification** (a menu of the series the chain wrote: the interpolated,
@@ -1003,9 +1022,9 @@ the preview off** removes its layers, the swipe and its folder, and so does runn
 the chain, another tool's preview or closing the series.
 
 **Copy Python** copies one script that does in Zeit what the chain does on this
-series and scope, even before it runs: the series read once from its files, NBAR's
-call, then the adjustment's, Tasseled Cap's and ImproPhe's, each from the tools' own
-scripts, and every result written as a GeoTIFF under its step's name. Where the chain
+series and scope, even before it runs: Zeit's `load_raster` reads the series, then NBAR's
+call, the adjustment's, Tasseled Cap's and ImproPhe's, each as the tools' own
+scripts write them, and every result written with `save_raster` under its step's name. Where the chain
 assembles the per-band series, the script has a DataArray `harmonized` (NBAR's
 result, or the adjustment's with its ten bands renamed by role): the steps after
 read their bands from it and the quality band and the dates from the raw series, as
@@ -1474,16 +1493,32 @@ their band names (`A00`, `A01`...), and opens the **Embeddings** panel. Zeit's
 change detection tools are disabled on them (an embedding has no seasonal
 signal), as Zeit itself refuses them.
 
+**Compact copies.** Janus also reads the int8 copies Zeit writes with
+`zeit.save_raster(emb, path, compact=True)` (`--compact` in `zeit embeddings`),
+a GeoTIFF or COG a quarter of the size, tagged `ZEIT_EMBEDDING_ENCODING`
+(`aef-int8` for AlphaEarth, `scaled-int8` for TESSERA and the rest). They open
+as the float32 file of the same cube: the same dates and dimension bands (the
+`scaled-int8` file's per-date scale bands are not shown), and the map and the
+Embeddings panel get Zeit's decoded float32 values, NaN where there is no
+embedding; a folder of single-date files (a file a year) opens as a series. What
+reads the files band by band (the calculator, Zeit's tools, Copy Python, zonal
+statistics, warp) refuses them with a message to save float32 in Zeit. A file
+with an encoding this Janus does not know is refused with a message to update
+Janus. Janus writes them too: tick **Compact (int8)** in the download (below).
+
 **Adding them over any series.** In the **Layers** panel, *Embeddings*: pick the
 source, the years and the cell size (10 m native; coarser cells are the mean of
 the 10 m vectors), the visible area or the ROI, and **Add embeddings**. The size
-is estimated first (Int16, D values per pixel and year) and very large areas are
+is estimated first (Int16, or Int8 when compact; D values per pixel and year) and very large areas are
 refused. Janus downloads them itself, no Python needed, in the background (a bar on the map tells the year and
 the time left; **Tools → Tasks** has its log) and writes one GeoTIFF per year
 under `%LOCALAPPDATA%\Janus\results\embeddings`; the layer is added on top,
 reprojected if the series is in another CRS, while the series you were studying
 stays active. The first AlphaEarth download fetches its file index (78 MB, once
 a month).
+**Compact (int8)**, off by default, writes Zeit's compact copy of each year instead of Int16
+(about half the size, the size shown is for it); the Embeddings views read it, the
+calculator and the Zeit tools do not.
 
 **Views** (Embeddings panel):
 
@@ -1656,16 +1691,23 @@ read as longitude and latitude).
   one by one, as TimeSync does with Landsat. The map goes to each one (zoomed
   in to at least the *zoom on each* setting; a polygon whole) and its series is
   on the chart: a point gets a pin, a polygon becomes the ROI.
-  - `N` / `Shift+N` (or Page Down / Page Up, or the arrows in the panel): next
-    / previous feature; *Skip labelled* goes to those without a label only;
-    *Next after a label* moves on by itself.
+  - `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up): previous / next
+    feature; `O` (or *next open* in the panel) goes to the next one without a
+    label; the *Skip labelled* checkbox makes the arrows pass the labelled
+    features; *Next after a label* moves on by itself. In a validation project
+    *Mine to do* narrows the list to the points you have not labelled. The
+    panel's cards (Point, Validation, Keys), keys and navigation follow
+    Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
+    *Validation & uncertainty → Interpretation layout* arranges the window for
+    it (done once by itself at the first interpretation of a run).
   - `1`–`9`: a label of the label set (Stable forest, Deforestation,
     Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data,
     Other by default; edit it under *Label set*); `0` clears it.
-  - `D`: the date of the change is the date on the map (go to it with `←`/`→`
-    or a click on the chart); `Shift+D` clears it. *Notes* for anything else.
-  - `Shift+1` / `Shift+2` / `Shift+3`: the label's *confidence* (low, medium,
-    high). `E` adds another *event* at the map's date (the label chosen under
+  - `D`: the date of the change is the date on the map (go to it with `[` / `]`
+    or a click on the chart; with no interpretation going, the arrows do it);
+    `Shift+D` clears it. *Notes* for anything else.
+  - `Q` / `W` / `E` (or `Shift+1` / `Shift+2` / `Shift+3`): the label's
+    *confidence* (low, medium, high). `Shift+E` adds another *event* at the map's date (the label chosen under
     *Other events*, else the feature's label): a point degraded, then cleared,
     keeps both.
   - **Chips** (Validation & uncertainty → Chips, or *Chips* in the panel): the feature at
@@ -1673,7 +1715,43 @@ read as longitude and latitude).
     colours (or its RGB composite), the feature's pixel outlined; *one per
     year* keeps the date nearest the map's day of the year. Click a chip to
     show its date on the map, double click to make it the date of the change.
-    The next features' chips are read ahead.
+    The next features' chips are read ahead. `G` shows and hides the grid.
+    The cube's cards have a band combination (Map, RGB, CIR, SWIR).
+  - **High-resolution imagery** (top of the Chips panel; *Imagery settings*
+    turns it off): one card a year from the Esri World Imagery Wayback archive
+    (the latest image inside the *phenology months*, 150 m wide by default),
+    with the point's pixel (yellow), its 3 x 3 subgrid, the neighbouring
+    pixels (dashed) and the exact point (red dot). The WAYBACK badge marks the
+    source, `+n` more images of the year; where Wayback has no tiles at the
+    finest zoom (often in rural areas) the card is from a coarser zoom and its
+    caption says so. `Ctrl` + wheel zooms every card, a drag pans them all; a
+    click opens the **lightbox** with every image of the year (`←` / `→` the
+    image, `↑` / `↓` the year, `Esc` closes). The *Cache* card shows the points
+    read ahead (*Prefetch ±n*), *Offline (cache only)* sends no request to Esri
+    and *Download all points* fetches every point of the layer in the
+    background, so that the sample can be interpreted offline. The images are
+    Esri's (attribution: Esri, Maxar, Earthstar Geographics, and the GIS User
+    Community); their terms of use apply.
+  - **One label per year** (*Response* in the panel, as Validation Viewer's):
+    the Validation card has a bar of years, each with its class, confidence
+    and *n/a*; `Tab` / `Shift+Tab` go to the next / previous year and the map to
+    its date. A point is validated when every year has an answer. Export adds
+    a row per point and year (CSV) or `v_class_<year>` / `v_conf_<year>`.
+  - **Fraction cover** (the Validation card's *Label mode*, as Validation
+    Viewer's): an n x n grid (2 to 10, 5 by default, kept in the project or the
+    labels file) in the pixel, drawn over the chips, the Wayback cards and the
+    lightbox, its painted cells filled in the class's colour. Pick the class
+    (`1`–`9` or a click) and drag over the cells to paint them; right-drag or
+    `X` (the cell under the cursor) erases; outside the pixel, or with `Shift`,
+    a drag pans. The fractions belong to the year of the image painted over.
+    The card shows the share and cells of each class of the year painted last,
+    "k of n² cells labelled" and *Clear year*. A point is validated when some
+    year has every cell painted (or a class label); with no class label its
+    reference is the majority class of the latest year painted. Export adds
+    `frac_<class>`, `frac_n`, `frac_labelled` and `frac_year` and a
+    `<name>_fractions.csv` with a row per point and year (the validation report
+    writes `<project>_fractions.csv` and `labels_fractions.gpkg`). Follows
+    Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
   - The labels are saved a second after each change (in Janus' data folder,
     by file and layer): starting the interpretation of the same file again
     resumes it at the first feature without a label.
@@ -1735,7 +1813,8 @@ disagreement, adjudicated), so the reference is not swayed by the maps.
 Labels describe the ground, not the map: the class, the date of the change,
 the confidence, other events, notes. They are written to the GeoPackage a
 second after each change. *Mine to do* lists the points you have not
-labelled.
+labelled; *Reveal the map after labelling* (while blind) lets the Point card
+show the map's class once the point has your label.
 
 **Accuracy** (updated with every label):
 

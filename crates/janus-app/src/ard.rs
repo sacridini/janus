@@ -792,21 +792,16 @@ pub(crate) fn run_chain(
     Ok(Chain { result: JobResult { outputs, window: base.window }, skipped })
 }
 
-/// The script's variable that holds the harmonized series once a step has made it: a DataArray (time, band, y, x) whose
-/// bands are named by role, which is what `assemble` writes as VRTs in the chain.
-const HARMONIZED_VAR: &str = "harmonized";
-
-/// The line that makes `harmonized` out of the result `var` of a step that writes a series for each band (what
-/// `assemble` does with the files): NBAR's bands are named by role already; the adjustment's ten are renamed as
-/// `HARMONIZED` has them.
-fn harmonized_line(id: &str, var: &str) -> Option<String> {
+/// What makes the script's `harmonized` of the result of a step (`{}` stands for it): a DataArray (time, band, y, x)
+/// whose bands are named by role, which is what `assemble` writes as VRTs in the chain. NBAR's bands are named by role
+/// already; the adjustment's ten are renamed as `HARMONIZED` has them.
+fn harmonizes(id: &str) -> Option<String> {
     match id {
-        "nbar" => Some(format!("{HARMONIZED_VAR} = {var}  # the harmonized series: NBAR's bands, named by role")),
+        "nbar" => Some("{}".into()),
         "spectral_adjust" => {
             let list = |v: Vec<&str>| v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
             Some(format!(
-                "{HARMONIZED_VAR} = {var}.sel(band=[{}]).assign_coords(band=[{}])  # the harmonized series: Zeit's \
-                 bands named by role",
+                "{{}}.sel(band=[{}]).assign_coords(band=[{}])",
                 list(HARMONIZED.iter().map(|h| h.0).collect()),
                 list(HARMONIZED.iter().map(|h| h.1).collect())
             ))
@@ -815,59 +810,55 @@ fn harmonized_line(id: &str, var: &str) -> Option<String> {
     }
 }
 
-/// The chain as one Python script, what `run_chain` does in Zeit: the series read once from its files over the window,
-/// each step's call (`janus_zeit::python::calls`, those of each tool's own rerun.py, with the inputs that
-/// `python::input_lines` makes) with its results numbered along (`result1`, `result2`...), and every result written as
-/// a GeoTIFF in `out_dir` under its step's name. What `assemble` does between the steps (the per-band series made one
-/// series of several bands a date) is in Python a DataArray `harmonized` of NBAR's result, or of the adjustment's with
-/// its bands renamed by role; the steps after read the bands from it and the quality band and dates from the raw
-/// series, as the chain's VRTs carry them. `skipped` are the steps the series cannot take (`left_out`).
+/// The chain as one Python script, what `run_chain` does in Zeit: Zeit reads the series over the window, each step's
+/// call (`janus_zeit::python::pixel_script`, as the tools' own rerun.py), and every result is written with
+/// `save_raster` under `out_dir`, named by its step. What `assemble` does between the steps (the per-band series made
+/// one series of several bands a date) is in Python a DataArray `harmonized` of NBAR's result, or of the adjustment's
+/// with its bands renamed by role; the steps after read the bands from it, and the quality band and dates from the
+/// raw series, as the chain's VRTs carry them. `skipped` are the steps the series cannot take (`left_out`).
 pub(crate) fn chain_code(
     steps: &[ChainStep],
     skipped: &[(String, String)],
     input: &ArdInput,
     out_dir: &str,
 ) -> Result<String, String> {
-    use std::fmt::Write as _;
     let base = &input.chain;
-    let info = &base.info;
-    let mut o = crate::python::script_head(info, "the Analysis-ready data chain", false, base.window);
-    let (mut results, mut harmonized, mut names) = (0usize, false, vec![]);
+    let mut tools = vec![];
+    let mut chain = vec![];
+    let mut harmonized = false;
     for (k, step) in steps.iter().enumerate() {
         let tool = step.tool;
-        if let Some((_, why)) = skipped.iter().find(|(t, _)| *t == tool.id) {
-            let _ = writeln!(o, "\n# {}: left out ({why})", tool.name);
-            continue;
-        }
-        let threads = Some(base.threads as i64);
-        let (code, inputs) = crate::python::tool_calls(info, tool, &step.params, &base.roles, threads)?;
-        let other = input.coarse.as_ref().filter(|_| tool.id == "improphe").map(|c| &*c.1);
-        let from = harmonized.then_some(HARMONIZED_VAR);
-        let lines = crate::python::input_lines(
-            info,
-            tool,
-            &step.params,
-            &base.roles,
-            other,
-            base.window,
-            &code,
-            &inputs,
-            from,
-        )?;
-        let (code, n) = crate::chain::number_results(&code, results, &format!("{:02}_{}", k + 1, tool.id), &mut names);
-        let reads = if harmonized { "the harmonized series" } else { "the series" };
-        let _ = writeln!(o, "\n# {}. {}, on {reads}\n{lines}{code}", k + 1, tool.name);
-        if let Some(line) = harmonized_line(&tool.id, &format!("result{}", results + 1)) {
-            let _ = writeln!(o, "{line}");
-            harmonized = true;
-        }
-        results += n;
+        let params = janus_zeit::Params::with_defaults(&tool.id, &step.params)
+            .ok_or_else(|| format!("{}: its parameters are not the tool's", tool.name))?;
+        let why = skipped.iter().find(|(t, _)| *t == tool.id).map(|(_, w)| w.clone());
+        let makes = if why.is_none() { harmonizes(&tool.id) } else { None };
+        chain.push(janus_zeit::python::Step {
+            name: format!("{:02}_{}", k + 1, tool.id),
+            reads_harmonized: harmonized && tool.id != "nbar",
+            harmonizes: makes.clone(),
+            skipped: why,
+            ..Default::default()
+        });
+        harmonized |= makes.is_some();
+        tools.push((tool.id.clone(), params));
     }
-    if results == 0 {
-        return Err("no step can run".into());
-    }
-    o += &crate::python::save_code(out_dir, &names);
-    Ok(o)
+    let path = |p: &str| crate::provenance::absolute(p);
+    let spec = janus_zeit::python::Spec {
+        info: &base.info,
+        version: env!("CARGO_PKG_VERSION"),
+        name: &base.name,
+        target: janus_zeit::python::Target::Run {
+            window: base.window,
+            out_dir: out_dir.to_string(),
+            what: "the Analysis-ready data chain".into(),
+        },
+        roles: &base.roles,
+        tools: &tools,
+        path: &path,
+        other: input.coarse.as_ref().map(|c| &*c.1),
+        chain: &chain,
+    };
+    janus_zeit::python::pixel_script(&spec)
 }
 
 /// The folder of a preview in the work folder `base`.
@@ -1779,7 +1770,7 @@ mod tests {
 
     /// The Python of the chain has each tool's call once, NBAR's on the series' files and the others' on the harmonized
     /// series (a DataArray of NBAR's result, then of the adjustment's with its bands named by role), the results
-    /// numbered along and written under their step's name; a step left out is a comment.
+    /// named by their step and written under its name; a step left out is a comment.
     #[test]
     fn the_chain_script_has_each_call_once_on_the_series_the_step_reads() {
         let base = std::env::temp_dir().join("janus-ard-test-code");
@@ -1788,7 +1779,8 @@ mod tests {
         let window = [1, 1, W - 1, H - 1];
         let mut inp = input(&raw, roles(&raw), window);
         let steps = [step("nbar"), step("spectral_adjust"), step("tasseled_cap")];
-        let code = chain_code(&steps, &[], &inp, "OUT").unwrap();
+        // long calls are broken over lines: read them as one
+        let code = chain_code(&steps, &[], &inp, "OUT").unwrap().replace("(\n    ", "(");
         for call in
             ["zeit.nbar(nbar_cube, angles,", "zeit.spectral_adjust(clear_cube,", "zeit.tasseled_cap(clear_cube,"]
         {
@@ -1796,42 +1788,46 @@ mod tests {
         }
         let at = |s: &str| code.find(s).unwrap_or_else(|| panic!("{s}\n{code}"));
         let order = [
-            at("result1 = zeit.nbar(nbar_cube"),
-            at("harmonized = result1  #"),
-            at("result2 = zeit.spectral_adjust(clear_cube"),
-            at("harmonized = result2.sel(band=[\"blue\", \"green\", \"red\", \"rededge1\""),
-            at("result3 = zeit.tasseled_cap(clear_cube"),
-            at("os.makedirs(out_dir"),
+            at("nbar_nbar = zeit.nbar(nbar_cube"),
+            at("harmonized = nbar_nbar  #"),
+            at("spectral_adjust_result = zeit.spectral_adjust(clear_cube"),
+            at("harmonized = spectral_adjust_result.sel(band=[\"blue\", \"green\", \"red\", \"rededge1\""),
+            at("tasseled_cap_result = zeit.tasseled_cap(clear_cube"),
+            at("out_dir = "),
         ];
         assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-        // the two steps after NBAR read the bands from the harmonized series, NBAR's own from the files
-        assert_eq!(code.matches("raw = {r: harmonized.sel(band=r).values for r in order}").count(), 2, "{code}");
-        assert!(!code.contains("roles[r], window) for layer in layers]) for r in order}"), "{code}");
+        // the two steps after NBAR read the bands from the harmonized series, NBAR's own from the files; Zeit reads them
+        assert_eq!(code.matches("bands_cube = harmonized").count(), 2, "{code}");
+        // (the quality band, NBAR's bands and its angle bands; no bands_cube of the files)
+        assert_eq!(code.matches("zeit.load_raster(").count(), 3, "{code}");
+        assert!(!code.contains("bands_cube = zeit.load_raster("), "{code}");
+        assert!(!code.contains("rasterio") && !code.contains("n_jobs"), "{code}");
         assert!(code.contains("\"nir\", \"nir broad\", \"swir1\", \"swir2\"])"), "{code}");
         for name in ["01_nbar", "02_spectral_adjust", "03_tasseled_cap"] {
             assert!(code.contains(name), "{name}");
         }
         // a step left out: a comment, and the one after reads what the ones before left
         let part = chain_code(&steps, &[("spectral_adjust".into(), "why".into())], &inp, "OUT").unwrap();
+        let part = part.replace("(\n    ", "(");
+        assert!(part.contains("left out (why)"), "{part}");
         assert!(
-            part.contains("# Spectral adjustment to Sentinel-2A: left out (why)") || part.contains("left out (why)")
+            !part.contains("zeit.spectral_adjust(")
+                && part.contains("tasseled_cap_result = zeit.tasseled_cap(clear_cube")
         );
-        assert!(!part.contains("zeit.spectral_adjust(") && part.contains("result2 = zeit.tasseled_cap(clear_cube"));
-        assert!(part.contains("harmonized.sel(band=r)"), "{part}");
+        assert_eq!(part.matches("bands_cube = harmonized").count(), 1, "{part}");
         // Tasseled Cap on the files when no step has harmonized the series
         let tc = chain_code(&[step("tasseled_cap")], &[], &inp, "OUT").unwrap();
-        assert!(tc.contains("read(layer[0], roles[r], window)") && !tc.contains("harmonized"), "{tc}");
+        assert!(tc.contains("bands_cube = zeit.load_raster(") && !tc.contains("harmonized"), "{tc}");
         let all: Vec<(String, String)> = steps.iter().map(|s| (s.tool.id.clone(), "why".into())).collect();
         assert!(chain_code(&steps, &all, &inp, "OUT").is_err());
         // ImproPhe: the harmonized series is its fine one, the coarse one is read from its files
         inp.coarse = Some(("coarse".into(), coarse));
         let steps = [step("nbar"), step("spectral_adjust"), step("improphe")];
-        let code = chain_code(&steps, &[], &inp, "OUT").unwrap();
-        assert!(code.contains("fine_raw = np.asarray(harmonized.values)"), "{code}");
-        assert!(code.contains("[str(b) for b in harmonized.band.values]"), "{code}");
-        assert!(code.contains("usable(q, qa_rule)") && code.contains("coarse_files = [("), "{code}");
+        let code = chain_code(&steps, &[], &inp, "OUT").unwrap().replace("(\n    ", "(");
+        assert!(code.contains("fine_cube = harmonized"), "{code}");
+        assert!(code.contains("coarse_cube = zeit.load_raster(coarse_src"), "{code}");
         assert_eq!(code.matches("zeit.improphe(coarse_cube, fine_cube").count(), 1);
-        assert!(code.contains("result3 = zeit.improphe("), "{code}");
+        assert!(code.contains("improphe_result = zeit.improphe("), "{code}");
         // without a coarse series ImproPhe cannot be in the script (the chain leaves it out)
         inp.coarse = None;
         assert!(chain_code(&steps, &[], &inp, "OUT").is_err());
@@ -1889,13 +1885,19 @@ mod tests {
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
         );
-        // the script's bands by step (its files start with the step's folder name)
-        let files: Vec<(String, Vec<Vec<f32>>)> = std::fs::read_dir(&out)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_some_and(|e| e == "tif"))
-            .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), read(&p.to_string_lossy())))
-            .collect();
+        // the script's bands by step (its files, or the folders of them, start with the step's folder name)
+        fn tifs_of(dir: &Path, rel: &str, out: &mut Vec<(String, Vec<Vec<f32>>)>) {
+            for e in std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()) {
+                let name = format!("{rel}{}", e.file_name().unwrap().to_string_lossy());
+                if e.is_dir() {
+                    tifs_of(&e, &format!("{name}/"), out);
+                } else if e.extension().is_some_and(|x| x == "tif") {
+                    out.push((name, read(&e.to_string_lossy())));
+                }
+            }
+        }
+        let mut files: Vec<(String, Vec<Vec<f32>>)> = vec![];
+        tifs_of(&out, "", &mut files);
         // the values are reflectance x 10000 (or sums of it): float32 steps of 1e-3 at the largest, so the difference is
         // judged against the value or 1000, whichever is larger
         let close = |a: f32, b: f32| (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-6 * b.abs().max(1000.0);
@@ -1908,7 +1910,7 @@ mod tests {
                 // a band of the script's files of the step with the chain's values
                 let hit = files
                     .iter()
-                    .filter(|f| f.0.starts_with(&format!("{step}_")))
+                    .filter(|f| f.0.starts_with(&step))
                     .flat_map(|f| &f.1)
                     .find(|g| g.len() == w.len() && g.iter().zip(w).all(|(&a, &b)| close(a, b)));
                 let Some(g) = hit else {
@@ -1921,7 +1923,7 @@ mod tests {
                     };
                     let nearest = files
                         .iter()
-                        .filter(|f| f.0.starts_with(&format!("{step}_")))
+                        .filter(|f| f.0.starts_with(&step))
                         .flat_map(|f| &f.1)
                         .filter(|g| g.len() == w.len())
                         .map(|g| (gap(g), g.iter().filter(|v| v.is_finite()).count()))

@@ -14,9 +14,8 @@
 <meta property="og:description" content="41 years of Landsat in north-eastern Brazil: a quarter of the pixels are significantly greening, and the region is not. Why, and how to test a region's trend.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/trend-test/04-test.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Trend test</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Trend test</p>
     <p class="eyebrow">Trends · regions and classes</p>
     <h1>Is the region really trending?</h1>
     <p class="lede">A map of the pixels with a significant trend is not evidence that a region is greening or browning. The AR(1) trend tests one pixel's series. The Trend test, by PARTS (Ives et al. 2021), tests a whole region, or each class of a land-cover map, with p-values that account for neighbouring pixels moving together. This guide explains both from the start, on 41 years of Landsat.</p>
@@ -112,13 +113,38 @@
         <p class="h">Fill values</p>
         <p>Before testing trends, check that water, the sea and the outside of the scene are no data, not 0. A layer's <span class="ui">Display</span> panel shows its nodata value, and GDAL's <code>gdalbuildvrt -srcnodata 0</code> or <code>gdal_edit -a_nodata 0</code> sets one.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own, not downloaded: 41 annual Landsat medoid composites of Sergipe and Alagoas, 1985–2025 (<code>landsat_medoid_YYYY.tif</code>, EPSG:4326, 0 over the sea with no nodata declared). These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code> from the folder <code>out</code>, in a window of 1600 × 950. The panels are crops of them (the boxes are listed in the site's README).</p>
+        <p class="what">VRTs with 0 as no data in <code>out/series</code>, and the zones by distance to the sea in <code>out/zones.tif</code>:</p>
+        <div class="cmd"><code>python tools/make_parts_guide.py data SERIES out</code><button class="copy" type="button" data-copy="python tools/make_parts_guide.py data SERIES out">Copy</button></div>
+        <p class="what"><code>ar_pixel.png</code>, the AR(1) trend at a pixel:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --screenshot ar_pixel.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --screenshot ar_pixel.png">Copy</button></div>
+        <p class="what"><code>ar_pixel_d.png</code>, the same with the map in its own window, for the panels:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --detach-map --screenshot ar_pixel_d.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --detach-map --screenshot ar_pixel_d.png">Copy</button></div>
+        <p class="what"><code>ar_map.png</code>, the run over the ROI:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot ar_map.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot ar_map.png">Copy</button></div>
+        <p class="what"><code>ar_roi_d.png</code>, the ROI's mean, for its panel:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --roi 1000,500,1700,1200 --view 1350,850,0.6 --detach-map --screenshot ar_roi_d.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --roi 1000,500,1700,1200 --view 1350,850,0.6 --detach-map --screenshot ar_roi_d.png">Copy</button></div>
+        <p class="what"><code>roi.png</code>, the trend test on the ROI:</p>
+        <div class="cmd"><code>janus out/series --interface modern --roi 1000,500,1700,1200 --view 1350,850,0.6 --analysis trend,run --screenshot roi.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --roi 1000,500,1700,1200 --view 1350,850,0.6 --analysis trend,run --screenshot roi.png">Copy</button></div>
+        <p class="what"><code>classes.png</code>, the test by classes:</p>
+        <div class="cmd"><code>janus out/series --layer out/zones.tif --interface modern --analysis trend,run,classes --screenshot classes.png</code><button class="copy" type="button" data-copy="janus out/series --layer out/zones.tif --interface modern --analysis trend,run,classes --screenshot classes.png">Copy</button></div>
+        <p class="what"><code>classes_d.png</code>, the same with the map in its own window, for the table:</p>
+        <div class="cmd"><code>janus out/series --layer out/zones.tif --interface modern --detach-map --analysis trend,run,classes --screenshot classes_d.png</code><button class="copy" type="button" data-copy="janus out/series --layer out/zones.tif --interface modern --detach-map --analysis trend,run,classes --screenshot classes_d.png">Copy</button></div>
+        <p class="what">The figures that explain the method (<code>01-problem.png</code>, <code>05-correlation.png</code>, <code>06-partitions.png</code>, <code>07-calibration.png</code>), made on simulated maps; about 3 minutes:</p>
+        <div class="cmd"><code>python tools/make_parts_guide.py figures site/assets/img/trend-test</code><button class="copy" type="button" data-copy="python tools/make_parts_guide.py figures site/assets/img/trend-test">Copy</button></div>
+        </div>
+      </details>
     </section>
 
     <section id="pixel">
       <h2><span class="n">03</span>One pixel: the AR(1) trend</h2>
       <p><span class="ui">Tools → Temporal dynamics → AR(1) trend</span> fits each series on the chart (the cursor, the pins and the ROI mean) with a straight line whose errors follow an AR(1) process, by REML, as remotePARTS's <code>fitAR</code>. The line is drawn on the chart and its test goes into the <span class="ui">Statistics</span> table.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/02-ar-pixel.jpg"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/02-ar-pixel.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/02-ar-pixel.webp"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>A pin near the river.</b> The index was high in the late 1980s, then low for decades.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -144,13 +170,47 @@
           </tbody>
         </table>
       </div>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="ar_trend: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-trend-test-janus" aria-controls="pp-trend-test-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-trend-test-python" aria-controls="pp-trend-test-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-trend-test-janus" aria-labelledby="pt-trend-test-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the 41 annual composites with <span class="ui">File → Open folder...</span> (<code>landsat_medoid_1985</code> to <code>landsat_medoid_2025</code>, with 0 declared as no data).</li>
+        <li>Drop a pin near the river, on pixel 1426, 1199.</li>
+        <li>Open <span class="ui">Tools → Temporal dynamics → AR(1) trend</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The window stays at its defaults.</li>
+        <li>The chart draws the AR(1) line next to the OLS one, and the Statistics table gives the slope, its standard error and ρ.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-trend-test-python" aria-labelledby="pt-trend-test-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code><span class="s">"""Janus 1.17.0 (2026-11-07): pin 1 of series, reproduced outside Janus with Zeit.
+Needs: pip install "zeit-cdts&gt;=3.2"
+"""</span>
+<span class="k">import</span> zeit
+
+<span class="c"># Pin 1: column 1426, row 1199 of the files, its centre at x -38.0325580887, y -9.460742162 (EPSG:4326)</span>
+series = zeit.load_raster(<span class="s">"series"</span>, masked=<span class="k">True</span>, pixel=(<span class="n">1426</span>, <span class="n">1199</span>))
+result = zeit.ar_trend(series, time=<span class="s">'year'</span>, min_valid=<span class="n">4</span>)
+
+print(result)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/trend-test.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/trend-test.py" download="trend-test.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="map">
       <h2><span class="n">04</span>The map of trends</h2>
       <p>The same window runs on the image (<span class="ui">Run on the raster</span>): whole image, visible area or ROI. Over an ROI of 700 × 700 pixels (21 km across), the run took 2 seconds. The first map shows the slope where it is significant. The others are the slope, the p-value, t, the standard error, ρ, the intercept and the residual SD.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/03-ar-map.jpg"><img src="assets/img/trend-test/03-ar-map.jpg" alt="The significant slope over a 700 by 700 pixel ROI: many patches of significant greening, a few of browning; the Tasks window with the run done in 2 seconds; the ROI mean series on the chart rising slowly with large year-to-year swings." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/03-ar-map.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/03-ar-map.webp"><img src="assets/img/trend-test/03-ar-map.jpg" alt="The significant slope over a 700 by 700 pixel ROI: many patches of significant greening, a few of browning; the Tasks window with the run done in 2 seconds; the ROI mean series on the chart rising slowly with large year-to-year swings." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The significant slope in the ROI.</b> Patches of significant greening cover about a quarter of the ROI. Below, the ROI mean series swings from year to year far more than it rises.</figcaption>
       </figure>
       <p>A quarter of the ROI is significantly greening, and the usual next sentence would be "the area is greening". The ROI mean series on the chart suggests caution: it rises by 0.0013 per year (<span class="ui">OLS trend</span>), but its year-to-year swings are much larger. Its own AR(1) test, in the Statistics table, does not support a trend:</p>
@@ -165,7 +225,7 @@
       <h2><span class="n">05</span>The Trend test</h2>
       <p><span class="ui">View → Analysis</span>, tab <span class="ui">Trend test</span>. Choose the <span class="ui">Region</span> (the ROI, the visible area or the whole image), leave <span class="ui">Classes</span> at <em>None (the region's mean)</em>, and press <span class="ui">Run the test</span>. The test runs on a thread, with its progress and a Cancel button. Here it took 13 to 17 seconds on a 20-thread CPU.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/04-test.jpg"><img src="assets/img/trend-test/04-test.jpg" alt="The ROI over the image and, in the Analysis panel's Trend test tab, the region's result: 490000 pixels, trend 0.001538 per year, SE 0.001536, t 1.002, p 0.3165, 26% of pixels significantly up." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/04-test.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/04-test.webp"><img src="assets/img/trend-test/04-test.jpg" alt="The ROI over the image and, in the Analysis panel's Trend test tab, the region's result: 490000 pixels, trend 0.001538 per year, SE 0.001536, t 1.002, p 0.3165, 26% of pixels significantly up." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The Trend test on the ROI</b>, next to the ROI mean's statistics.</figcaption>
       </figure>
       <figure class="fig">
@@ -232,7 +292,7 @@
       <p>With a categorical layer open on the same grid (a land-cover map, zones), choose it under <span class="ui">Classes</span>. Each class gets its own mean trend, tested against 0, and a last line says whether the classes' trends differ. The layer's class names and colours come from its legend (<span class="ui">Display → Categorical (classes)</span>). Pixels outside every class are left out.</p>
       <p>Here, the zones are the distance to the sea, made by <code>tools/make_parts_guide.py data</code>: coastal (under 40 km), transition (40 to 100 km) and interior (beyond 100 km), with water as no class. The region is the whole image.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/08-classes.jpg"><img src="assets/img/trend-test/08-classes.jpg" alt="The zones layer over the whole image, three bands of distance to the sea in shades of teal, and the Trend test with Classes set to zones." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/08-classes.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/08-classes.webp"><img src="assets/img/trend-test/08-classes.jpg" alt="The zones layer over the whole image, three bands of distance to the sea in shades of teal, and the Trend test with Classes set to zones." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Zones by distance to the sea</b>, and the Trend test by class over the whole image.</figcaption>
       </figure>
       <figure class="fig">
@@ -346,6 +406,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -353,6 +419,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

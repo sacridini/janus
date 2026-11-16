@@ -46,6 +46,8 @@ pub struct MapView {
     pub touched: bool,
     /// the map's size on the screen (points), last frame
     pub canvas: [f32; 2],
+    /// the main map's top left corner on the screen (points), last frame (the clips' pointer)
+    pub canvas_min: [f32; 2],
     /// what the target holds: the mode, dates, range, colormap, the image's place and the tiles on the GPU
     drawn: Option<DrawKey>,
     pub dirty: bool,
@@ -213,6 +215,7 @@ impl State {
         let m = &mut self.map;
         if main {
             m.canvas = [rect.width(), rect.height()];
+            m.canvas_min = [rect.min.x, rect.min.y];
         }
         // the whole image with a margin, as the C++'s fitView (of the main map's canvas)
         let [cw, ch] = if m.canvas[0] > 0.0 { m.canvas } else { [rect.width(), rect.height()] };
@@ -361,7 +364,7 @@ impl State {
         let inside =
             pointer.filter(|[x, y]| *x >= 0.0 && *y >= 0.0 && *x < w && *y < h).map(|[x, y]| (x as usize, y as usize));
         let view = (m.center, m.scale);
-        if inside.is_some() && !self.opts.scripted() {
+        if inside.is_some() && (!self.opts.scripted() || self.shots_clip_on()) {
             self.set_hover(inside);
         }
         // a click drops a pin; the right button removes the one under the cursor; Delete the last one

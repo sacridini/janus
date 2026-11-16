@@ -14,9 +14,8 @@
 <meta property="og:description" content="A foundation model's encodings of 1.2 million Landsat pixels of Rondônia, and a land cover map from a classifier trained on them in 13 seconds.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/presto/04-embeddings.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Presto</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Presto</p>
     <p class="eyebrow">Foundation model · a year of a series</p>
     <h1>Presto, step by step.</h1>
     <p class="lede">Presto has seen the monthly series of millions of pixels around the world. It turns a year of a pixel into 128 numbers that say what the pixel is like; Janus runs it on your series, shows the encodings as an embedding layer, and trains a small classifier on them in seconds.</p>
@@ -85,6 +86,19 @@
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
       <p>The data of the <a href="deep-learning.html">deep learning guide</a>: the Landsat 8/9 series of Rondônia (125 dates, 2020–2026, 30 m) and 1250 samples of MapBiomas 2022 in five classes.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: the Landsat folder of the CCDC guide (Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date, made from a Google Earth Engine stack and its CSV of dates), with labels from MapBiomas 2022 (collection 8, Amazon) in a folder <code>labels</code> next to it. These commands remake the screenshots after the interface changes.</p>
+        <p class="what">A folder of the Landsat dates, cut to the area (west, south, east, north):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08">Copy</button></div>
+        <p class="what">The MapBiomas 2022 labels (collection 8, Amazon), cut to the Landsat grid, in a folder <code>labels</code> next to the Landsat folder:</p>
+        <div class="cmd"><code>python tools/make_guide_data.py labels MAPBIOMAS.tif LANDSAT/ls_2020-02-04.tif labels</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py labels MAPBIOMAS.tif LANDSAT/ls_2020-02-04.tif labels">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots presto folder shots</code><button class="copy" type="button" data-copy="janus --shots presto folder shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="inputs">
@@ -115,7 +129,7 @@
         <figcaption><b>Tasks</b>: the classifier, then the embeddings.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/presto/04-embeddings.jpg"><img src="assets/img/presto/04-embeddings.jpg" alt="The first three principal components of Presto's embeddings as RGB: forest in blue and purple, pasture in red, the rivers and the fields of the northeast in green; the Embeddings panel with the components' shares of the variance." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/presto/04-embeddings.jpg"><picture><source type="image/webp" srcset="assets/img/presto/04-embeddings.webp"><img src="assets/img/presto/04-embeddings.jpg" alt="The first three principal components of Presto's embeddings as RGB: forest in blue and purple, pasture in red, the rivers and the fields of the northeast in green; the Embeddings panel with the components' shares of the variance." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Presto's embeddings</b> of 2025, the first three principal components as red, green and blue.</figcaption>
       </figure>
       <p>Nothing was said to Presto about these classes, yet the components already part forest, pasture, rivers and fields: the encodings carry what the year of each pixel was like. The first component alone holds 68% of the variance, the first three 91%. From the <span class="ui">Embeddings</span> panel, <span class="ui">Similarity to a reference</span> shows the places like a pin or the ROI, and with embeddings of two years, <span class="ui">Change between years</span> maps where a place stopped being like itself and <span class="ui">Direction of change</span> what it became, in one colour per kind of change. <span class="ui">Classes from pins</span> fits a logistic regression on the embeddings of a few pins or of the ROI in milliseconds: a class map of every year, its areas and the transitions between years.</p>
@@ -125,7 +139,7 @@
       <h2><span class="n">06</span>The class map</h2>
       <p><span class="ui">Apply</span> on the whole image: the classifier on every pixel's encoding, 195 seconds; the class, its probability and its uncertainty as layers, as with the other networks.</p>
       <figure class="fig">
-        <a href="assets/img/presto/05-class.jpg"><img src="assets/img/presto/05-class.jpg" alt="Presto's class map of the whole image: forest, pasture, water, the town and the agriculture of the northeast." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/presto/05-class.jpg"><picture><source type="image/webp" srcset="assets/img/presto/05-class.webp"><img src="assets/img/presto/05-class.jpg" alt="Presto's class map of the whole image: forest, pasture, water, the town and the agriculture of the northeast." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Presto's class map</b>, from the monthly composites of 2025.</figcaption>
       </figure>
     </section>
@@ -162,6 +176,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -169,6 +189,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

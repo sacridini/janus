@@ -50,7 +50,7 @@ impl LayerJobs {
 pub(crate) fn step_input(info: &CubeInfo, t: usize) -> Option<(String, BandSelection)> {
     let l = info.layers.get(t)?;
     let one_file = info.layers.iter().all(|x| x.path == l.path);
-    if info.multidim || l.band_base != 0 || (one_file && info.bands_per_date > 1) {
+    if info.multidim || info.encoding.is_some() || l.band_base != 0 || (one_file && info.bands_per_date > 1) {
         return None;
     }
     if one_file {

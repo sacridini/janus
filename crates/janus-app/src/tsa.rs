@@ -445,50 +445,53 @@ pub(crate) fn left_out(steps: &[ChainStep], info: &CubeInfo) -> Vec<(String, Str
     steps.iter().filter_map(|s| problem(s.tool, info, regular).map(|why| (s.tool.id.clone(), why))).collect()
 }
 
-/// The chain as one Python script, what `run_chain` does in Zeit: the series read once from its files over the
-/// window, the steps' calls (`janus_zeit::python::calls`, those of each tool's own rerun.py) with their results
-/// numbered along (`result1`, `result2`...), the steps on the analysis series reading the variable `analysis` that
-/// Interpolate and Standardize leave, and every result written as a GeoTIFF in `out_dir`. `skipped` are the steps
-/// the series cannot take (`left_out`, or what `run_chain` reported).
+/// The chain as one Python script, what `run_chain` does in Zeit: the series read once over the window, the steps'
+/// calls (`janus_zeit::python::pixel_script`, as the tools' own rerun.py), the steps on the analysis series reading
+/// the variable `analysis` that Interpolate and Standardize leave, and every result written with `save_raster` under
+/// `out_dir`, named by its step. `skipped` are the steps the series cannot take (`left_out`, or what `run_chain`
+/// reported).
 pub(crate) fn chain_code(
     steps: &[ChainStep],
     skipped: &[(String, String)],
     input: &ChainInput,
     out_dir: &str,
 ) -> Result<String, String> {
-    use std::fmt::Write as _;
-    let info = &input.info;
-    let mut o = crate::python::script_head(info, "the Time series analysis chain", false, input.window);
-    o += &crate::python::series_line(info);
-    let (mut results, mut analysis, mut names) = (0usize, false, vec![]);
+    let mut tools = vec![];
+    let mut chain = vec![];
+    let mut analysis = false;
     for (k, step) in steps.iter().enumerate() {
         let tool = step.tool;
-        if let Some((_, why)) = skipped.iter().find(|(t, _)| *t == tool.id) {
-            let _ = writeln!(o, "\n# {}: left out ({why})", tool.name);
-            continue;
-        }
-        let (code, inputs) =
-            crate::python::tool_calls(info, tool, &step.params, &input.roles, Some(input.threads as i64))?;
-        // the steps' calls all read the series (a DataArray); the ones on the analysis series read `analysis`
-        let from = if RAW_STEPS.contains(&tool.id.as_str()) || !analysis { "series" } else { "analysis" };
-        let code = code.replace("(series,", &format!("({from},"));
-        if inputs != ["series"] || !code.contains(&format!("({from},")) {
-            return Err(format!("{}: its Python does not read the series alone", tool.name));
-        }
-        let (code, n) = crate::chain::number_results(&code, results, &format!("{:02}_{}", k + 1, tool.id), &mut names);
-        let reads = if from == "series" { "the series" } else { "the analysis series" };
-        let _ = writeln!(o, "\n# {}. {}, on {reads}\n{code}", k + 1, tool.name);
-        if ANALYSIS_STEPS.contains(&tool.id.as_str()) {
-            let _ = writeln!(o, "analysis = result{}  # the analysis series: the steps below read it", results + 1);
-            analysis = true;
-        }
-        results += n;
+        let params = janus_zeit::Params::with_defaults(&tool.id, &step.params)
+            .ok_or_else(|| format!("{}: its parameters are not the tool's", tool.name))?;
+        let why = skipped.iter().find(|(t, _)| *t == tool.id).map(|(_, w)| w.clone());
+        let leaves = why.is_none() && ANALYSIS_STEPS.contains(&tool.id.as_str());
+        chain.push(janus_zeit::python::Step {
+            name: format!("{:02}_{}", k + 1, tool.id),
+            reads_analysis: analysis && !RAW_STEPS.contains(&tool.id.as_str()),
+            leaves_analysis: leaves,
+            skipped: why,
+            ..Default::default()
+        });
+        analysis |= leaves;
+        tools.push((tool.id.clone(), params));
     }
-    if results == 0 {
-        return Err("no step can run".into());
-    }
-    o += &crate::python::save_code(out_dir, &names);
-    Ok(o)
+    let path = |p: &str| crate::provenance::absolute(p);
+    let spec = janus_zeit::python::Spec {
+        info: &input.info,
+        version: env!("CARGO_PKG_VERSION"),
+        name: &input.name,
+        target: janus_zeit::python::Target::Run {
+            window: input.window,
+            out_dir: out_dir.to_string(),
+            what: "the Time series analysis chain".into(),
+        },
+        roles: &input.roles,
+        tools: &tools,
+        path: &path,
+        other: None,
+        chain: &chain,
+    };
+    janus_zeit::python::pixel_script(&spec)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1302,14 +1305,7 @@ threads: {}
         let written = Arc::new(Mutex::new(vec![]));
         self.tsa.series_out = written.clone();
         self.tsa.use_series = 0;
-        let start = JobStart {
-            title,
-            tool: JOB_TOOL,
-            thread: "zeit-tsa",
-            cube: info.id,
-            root: root.clone(),
-            log_head,
-        };
+        let start = JobStart { title, tool: JOB_TOOL, thread: "zeit-tsa", cube: info.id, root: root.clone(), log_head };
         spawn_job(&mut self.zeit.jobs, start, written, ctx, move |progress, cancel| {
             run_chain(&steps, &input, &root, progress, cancel)
         });
@@ -1471,51 +1467,47 @@ mod tests {
         let base = std::env::temp_dir().join("janus-tsa-test-script");
         let info = series(&base.join("series"));
         let steps: Vec<ChainStep> = FIVE.iter().map(|id| step(id)).collect();
-        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
+        // long calls are broken over lines: read them as one
+        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap().replace("(\n    ", "(");
         let count = |s: &str| code.matches(s).count();
         // each call once; Interpolate on the series read, the others on the analysis series it leaves
-        assert_eq!(count("zeit.interpolate(series, "), 1, "{code}");
-        assert_eq!(count("zeit.standardize(analysis, "), 1, "{code}");
-        assert_eq!(count("zeit.temporal_metrics(analysis, "), 2, "{code}");
-        assert_eq!(count(", by='year'"), 1, "{code}");
-        assert_eq!(count("zeit.polar_metrics(analysis, "), 1, "{code}");
-        assert_eq!(count("(series,"), 1, "{code}");
-        // the results numbered along, the analysis series chained (Interpolate's, then Standardize's)
-        for (k, call) in
-            ["interpolate", "standardize", "temporal_metrics", "temporal_metrics", "polar_metrics"].iter().enumerate()
-        {
-            assert_eq!(count(&format!("result{} = zeit.{call}(", k + 1)), 1, "result{}: {code}", k + 1);
-        }
-        assert_eq!(count("analysis = result1"), 1, "{code}");
-        assert_eq!(count("analysis = result2"), 1, "{code}");
-        assert_eq!(count("analysis = result"), 2, "{code}");
-        // the series is read once, the files written under the step's name
-        assert_eq!(count("layers = ["), 1, "{code}");
-        assert!(code.contains("\"result5\": \"05_polar_metrics\""), "{code}");
-        assert!(code.contains("names.get(key, key)"), "{code}");
-        // a step with two results (the trend folds first), numbered after the ones before it
+        assert_eq!(count("zeit.interpolate(series"), 1, "{code}");
+        assert_eq!(count("zeit.standardize(analysis"), 1, "{code}");
+        assert_eq!(count("zeit.temporal_metrics(analysis"), 2, "{code}");
+        assert_eq!(count("by='year'"), 1, "{code}");
+        assert_eq!(count("zeit.polar_metrics(analysis"), 1, "{code}");
+        assert_eq!(count("(series"), 1, "{code}");
+        // the results named by their step, the analysis series chained (Interpolate's, then Standardize's)
+        assert_eq!(count("interpolate_result = zeit.interpolate("), 1, "{code}");
+        assert_eq!(count("standardize_result = zeit.standardize("), 1, "{code}");
+        assert_eq!(count("temporal_metrics_result = zeit.temporal_metrics("), 1, "{code}");
+        assert_eq!(count("fold_result = zeit.temporal_metrics("), 1, "{code}");
+        assert_eq!(count("analysis = interpolate_result"), 1, "{code}");
+        assert_eq!(count("analysis = standardize_result"), 1, "{code}");
+        assert_eq!(count("analysis = "), 2, "{code}");
+        // the series is read once, with Zeit; the files are written under the step's name
+        assert_eq!(count("zeit.load_raster("), 1, "{code}");
+        assert!(!code.contains("rasterio") && !code.contains("n_jobs"), "{code}");
+        assert!(code.contains("f\"{out_dir}/05_polar_metrics\")"), "{code}");
+        // a step with two results (the trend folds first), each written under the step's name
         let steps: Vec<ChainStep> =
             ["interpolate", "linear_trend", "polar_metrics"].iter().map(|id| step(id)).collect();
-        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
-        assert!(code.contains("result2 = zeit.temporal_metrics(analysis, "), "{code}");
-        assert!(code.contains("result3 = zeit.linear_trend(result2, "), "{code}");
-        assert!(code.contains("result4 = zeit.polar_metrics(analysis, "), "{code}");
+        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap().replace("(\n    ", "(");
+        assert!(code.contains("linear_trend_folded = zeit.temporal_metrics(analysis"), "{code}");
+        assert!(code.contains("linear_trend_trend = zeit.linear_trend(linear_trend_folded"), "{code}");
+        assert!(code.contains("polar_metrics_result = zeit.polar_metrics(analysis"), "{code}");
+        assert!(code.contains("f\"{out_dir}/02_linear_trend_trend\")"), "{code}");
         // a step left out is said so; none left is an error
         let code =
             chain_code(&steps, &[("polar_metrics".into(), "why".into())], &input(&info, [0, 0, W, H]), "OUT").unwrap();
         assert!(code.contains("): left out (why)") && !code.contains("zeit.polar_metrics"), "{code}");
         let all: Vec<(String, String)> = steps.iter().map(|s| (s.tool.id.clone(), String::new())).collect();
         assert!(chain_code(&steps, &all, &input(&info, [0, 0, W, H]), "OUT").is_err());
-        // every step on: past ten results, each name assigned once and none mangled (result1 is a prefix of
-        // result12)
+        // every step on: each result assigned once
         let steps: Vec<ChainStep> = STEPS.iter().map(|s| step(s.0)).collect();
         let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
-        let n = (1..100).take_while(|k| code.contains(&format!("result{k} = "))).count();
-        assert!(n >= 10, "{n} results: {code}");
-        for k in 1..=n {
-            assert_eq!(code.matches(&format!("result{k} = ")).count(), 1, "result{k}: {code}");
-        }
-        assert!(!code.contains(&format!("result{} = ", n + 1)) && !code.contains('\u{1}'), "{code}");
+        let saves = code.matches("zeit.save_raster(").count();
+        assert!(saves >= 10, "{saves} results: {code}");
     }
 
     /// The chain's script run in Zeit (the Python of JANUS_PYTHON, with zeit, rasterio and xarray; the test is left
@@ -1560,13 +1552,19 @@ mod tests {
             String::from_utf8_lossy(&run.stdout),
             String::from_utf8_lossy(&run.stderr)
         );
-        // the script's bands by step (its files start with the step's folder name)
-        let files: Vec<(String, Vec<Vec<f32>>)> = std::fs::read_dir(&out)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_some_and(|e| e == "tif"))
-            .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), read(&p.to_string_lossy()).0))
-            .collect();
+        // the script's bands by step (its files, or the folders of them, start with the step's folder name)
+        fn tifs(dir: &Path, rel: &str, out: &mut Vec<(String, Vec<Vec<f32>>)>) {
+            for e in std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()) {
+                let name = format!("{rel}{}", e.file_name().unwrap().to_string_lossy());
+                if e.is_dir() {
+                    tifs(&e, &format!("{name}/"), out);
+                } else if e.extension().is_some_and(|x| x == "tif") {
+                    out.push((name, read(&e.to_string_lossy()).0));
+                }
+            }
+        }
+        let mut files: Vec<(String, Vec<Vec<f32>>)> = vec![];
+        tifs(&out, "", &mut files);
         let close = |a: f32, b: f32| (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-4 * b.abs().max(1.0);
         let (mut bands, mut values, mut worst) = (0, 0, 0f32);
         for o in &chain.result.outputs {
@@ -1577,7 +1575,7 @@ mod tests {
                 // a band of the script's files of the step with the chain's values
                 let hit = files
                     .iter()
-                    .filter(|f| f.0.starts_with(&format!("{step}_")))
+                    .filter(|f| f.0.starts_with(&step))
                     .flat_map(|f| &f.1)
                     .find(|g| g.len() == w.len() && g.iter().zip(w).all(|(&a, &b)| close(a, b)));
                 let Some(g) = hit else {

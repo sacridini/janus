@@ -299,7 +299,8 @@ impl State {
                     } else {
                         0
                     };
-                    self.emb_download = crate::emb_download::DownloadUi { source: 0, y0: 2023, y1: 2024, res: 0, area };
+                    self.emb_download =
+                        crate::emb_download::DownloadUi { source: 0, y0: 2023, y1: 2024, res: 0, area, compact: false };
                     let (ll, wm, hm) = match self.embedding_bounds(area) {
                         Ok(b) => b,
                         Err(e) => return fail(&format!("bounds: {e}")),

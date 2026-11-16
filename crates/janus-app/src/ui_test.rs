@@ -14,6 +14,8 @@ use janus_gpu::Mode;
 mod alerts;
 #[path = "ui_test_animation.rs"]
 mod animation;
+#[path = "ui_test_ard.rs"]
+mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
 #[path = "ui_test_fullres.rs"]
@@ -26,8 +28,6 @@ mod misc;
 mod roi;
 #[path = "ui_test_scripts.rs"]
 mod scripts_check;
-#[path = "ui_test_ard.rs"]
-mod ard;
 #[path = "ui_test_tsa.rs"]
 mod tsa;
 #[path = "ui_test_validation.rs"]
@@ -826,8 +826,10 @@ impl State {
                     return None;
                 }
                 next(st, "the season: the mean and the observations in it match the CPU");
-                if std::env::var_os("JANUS_PYTHON").is_none() && run_python("values = [0.0]").is_err() {
-                    println!("    Copy Python: skipped (no Python with zeit and rasterio; JANUS_PYTHON names one)");
+                if std::env::var_os("JANUS_PYTHON").is_none()
+                    && run_python("import zeit\nimport numpy as np\nseries = np.zeros(1)").is_err()
+                {
+                    println!("    Copy Python: skipped (no Python with zeit; JANUS_PYTHON names one)");
                     return self.test_open_d(st, &input, t0, ctx);
                 }
                 // Copy Python (the C++'s stages 150-152): a pin on the cloudy half, Mann-Kendall on the chart
@@ -857,11 +859,11 @@ impl State {
                 let Some(nan) = same(&pin.values, &v, 1e-6) else {
                     return fail("the pin's code should read the pin's series");
                 };
-                if !code.contains("zeit.mann_kendall(series") {
-                    return fail("the code should call Mann-Kendall");
+                if !code.contains("zeit.mann_kendall(") || !code.contains("zeit.load_raster(") {
+                    return fail("the code should read the series with Zeit and call Mann-Kendall");
                 }
                 println!(
-                    "    pin: {} dates as in Janus ({nan} masked by Fmask), zeit.mann_kendall(series, ...) ran",
+                    "    pin: {} dates as in Janus ({nan} masked by Fmask), zeit.load_raster and zeit.mann_kendall ran",
                     v.len()
                 );
                 if nan == 0 {
@@ -921,16 +923,23 @@ impl State {
                     return None;
                 }
                 let code = self.python_snippet(crate::python::Which::Pin(pin.id))?;
-                let check = format!("{code}\nassert int(result1[\"n_segments\"].values.ravel()[0]) >= 1\n");
+                // the code has the bands, not the series on the chart: the first band at each date is what it reads
+                let check = format!(
+                    "{code}\nassert int(result[\"n_segments\"].values.ravel()[0]) >= 1\n\
+                     series = bands_cube.isel(band=0)\n"
+                );
                 let v = match run_python(&check) {
                     Ok(v) => v,
                     Err(e) => return fail(&format!("the CCDC code should run and fit segments: {e}")),
                 };
-                if same(&pin.values, &v, 1e-6).is_none() {
-                    return fail("the CCDC code should read the pin's series");
+                if v.len() != pin.values.len() {
+                    return fail("the CCDC code should read the pin's dates");
                 }
-                if !code.contains("zeit.ccdc(bands_cube, qa=fmask") {
-                    return fail("the code should call zeit.ccdc on the bands and their Fmask codes");
+                if !code.contains("zeit.ccdc(")
+                    || !code.contains("qa=zeit.qa_to_fmask(")
+                    || !code.contains("zeit.load_raster(")
+                {
+                    return fail("the code should read the bands with Zeit and call zeit.ccdc with their Fmask codes");
                 }
                 println!("    CCDC: the bands by role in reflectance x 10000 and the Fmask codes; zeit.ccdc ran");
                 self.zeit.fit_only(None);
@@ -1309,7 +1318,8 @@ impl State {
             return Err("reflectances are not classes");
         }
         // the tools on a series in time are not offered, those on a spectrum (unmixing) are
-        let on_series = janus_zeit::manifest().tools.iter().filter(|t| t.input.as_deref() != Some("layers"));
+        let on_series =
+            janus_zeit::manifest().tools.iter().filter(|t| !matches!(t.input.as_deref(), Some("layers" | "folder")));
         for t in on_series {
             if crate::zeit::applicability(t, info).is_none() != (t.requires.time == "spectrum") {
                 return Err("the Zeit tools work along time, not on a spectrum (but the spectrum's own)");
@@ -1704,7 +1714,7 @@ impl State {
                 let mut reader = janus_cube::CubeReader::new(info.clone());
                 let mut buf = vec![0f32; w * h];
                 let (mut inside, mut worst) = (0, 0f32);
-                for t in 0..info.t() {
+                for (t, per) in r.per_t.iter().enumerate().take(info.t()) {
                     if !reader.read_window(t, (x0, y0, w, h), &mut buf, (w, h)) {
                         return fail("B cannot be read");
                     }
@@ -1716,7 +1726,7 @@ impl State {
                         .collect();
                     inside = v.len();
                     let e = janus_cube::stats::sample_stats(&mut v);
-                    let g = r.per_t[t].get()?;
+                    let g = per.get()?;
                     if e.n != g.n {
                         return fail("the ROI's pixel count on B differs from the pixels inside");
                     }
@@ -1765,7 +1775,7 @@ impl State {
                         Ok(v) => v,
                         Err(e) => return fail(&format!("the polygon's code should run: {e}")),
                     };
-                    if !code.contains("rasterize(") || same(&self.series.roi.mean, &v, 1e-5).is_none() {
+                    if !code.contains("polygon") || same(&self.series.roi.mean, &v, 1e-5).is_none() {
                         return fail("the polygon's code should give the ROI's mean at every date");
                     }
                     println!("    Copy Python of the L: its mean at {} dates as in Janus", v.len());
@@ -1835,7 +1845,8 @@ fn run_python(code: &str) -> Result<Vec<f64>, String> {
     let _ = std::fs::create_dir_all(&dir);
     let script = dir.join("snippet.py");
     let text = format!(
-        "import zeit, rasterio\n{code}\nimport json, math\n\
+        "{code}\nimport json, math\nimport numpy as np\n\
+         values = np.asarray(getattr(series, \"values\", series)).ravel()\n\
          print(\"JANUS_CHECK \" + json.dumps([float(v) if math.isfinite(v) else None for v in values]))\n"
     );
     std::fs::write(&script, text).map_err(|e| e.to_string())?;

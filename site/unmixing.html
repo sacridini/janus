@@ -14,9 +14,8 @@
 <meta property="og:description" content="Three pins, three endmembers: how much forest, soil and water is in each Landsat pixel of Rondônia, date by date, and in each EnMAP pixel of the Wadden Sea coast.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/unmixing/04-forest-2026.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Spectral unmixing</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Spectral unmixing</p>
     <p class="eyebrow">Multiband series · hyperspectral scenes</p>
     <h1>Spectral unmixing, step by step.</h1>
     <p class="lede">A 30 m pixel is rarely one thing: part canopy, part soil, part shadow. Spectral unmixing finds how much of each pure material, or <em>endmember</em>, makes up the pixel's spectrum. Janus does it for every date of a multiband series and for every pixel of a hyperspectral scene, with endmembers taken from pins on the map.</p>
@@ -159,18 +160,13 @@
           </table>
         </div>
       </div>
-      <div class="fig-pair">
-        <figure class="fig">
-          <a href="assets/img/unmixing/04-forest-2026.jpg"><img src="assets/img/unmixing/04-forest-2026.jpg" alt="The forest fraction on 23 August 2026 over the whole image, 0 in dark purple to 1 in yellow: forest blocks and strips along the streams in yellow, pastures in blue and green, the rivers dark." loading="lazy"></a>
-          <figcaption><b>Forest fraction</b>, 23 August 2026.</figcaption>
-        </figure>
-        <figure class="fig">
-          <a href="assets/img/unmixing/05-soil-2026.jpg"><img src="assets/img/unmixing/05-soil-2026.jpg" alt="The soil fraction on the same date: dark over the forest, green and yellow over the pastures, bright yellow over a block of bare fields near the top." loading="lazy"></a>
-          <figcaption><b>Soil fraction</b>, the same date: the cleared fields stand out.</figcaption>
-        </figure>
-      </div>
+      <figure class="fig swipe">
+        <picture><source type="image/webp" srcset="assets/img/unmixing/04-forest-2026.webp"><img class="before" data-label="Forest fraction" src="assets/img/unmixing/04-forest-2026.jpg" alt="The forest fraction on 23 August 2026 over the whole image, 0 in dark purple to 1 in yellow: forest blocks and strips along the streams in yellow, pastures in blue and green, the rivers dark." loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/unmixing/05-soil-2026.webp"><img class="after" data-label="Soil fraction" src="assets/img/unmixing/05-soil-2026.jpg" alt="The soil fraction on the same date: dark over the forest, green and yellow over the pastures, bright yellow over a block of bare fields near the top." loading="lazy"></picture>
+        <figcaption><b>Drag the divider to compare</b> the forest fraction (first image, left) and the soil fraction (second image, right) of 23 August 2026, the same view: the cleared fields stand out in the soil fraction.</figcaption>
+      </figure>
       <figure class="fig">
-        <a href="assets/img/unmixing/06-rmse.jpg"><img src="assets/img/unmixing/06-rmse.jpg" alt="The mean RMSE from 0.007 to 0.042 reflectance: low over the forest and the water, high over many pastures." width="939" height="564" loading="lazy"></a>
+        <a href="assets/img/unmixing/06-rmse.jpg"><picture><source type="image/webp" srcset="assets/img/unmixing/06-rmse.webp"><img src="assets/img/unmixing/06-rmse.jpg" alt="The mean RMSE from 0.007 to 0.042 reflectance: low over the forest and the water, high over many pastures." width="939" height="564" loading="lazy"></picture></a>
         <figcaption><b>Mean RMSE</b>, 0.007 to 0.042: low on the forest and the water, high on the pastures the three endmembers describe worst.</figcaption>
       </figure>
       <p>The fraction series are series like any other: open <a href="landtrendr.html">LandTrendr</a> or <a href="bfast.html">BFAST</a> on the forest fraction to date the clearings, or the soil fraction to find when fields were bare. They are large (a few hundred MB each here): run on the <span class="ui">Visible area</span> or an <span class="ui">ROI</span> while choosing the endmembers.</p>
@@ -216,11 +212,11 @@
       <p>The rebuilt spectrum follows the pixel's over the whole range, with an RMSE of 0.0066 reflectance. The water endmember is nearly black beyond the visible, so on land it acts as <strong>shade</strong>: it takes the darkness of the pixel (wet soil, shadows, ditches) rather than standing water. Name it so when reading the maps.</p>
       <p>Run on the whole scene, the tool took 9 seconds for its 1.7 million pixels of 218 bands. Each fraction and the RMSE are maps in the Layers panel, layers of their own:</p>
       <figure class="fig">
-        <a href="assets/img/unmixing/11-spectrum-vegetation.jpg"><img src="assets/img/unmixing/11-spectrum-vegetation.jpg" alt="The vegetation fraction over the coast, 0 in purple to 1 in yellow: the sea and the mudflats at 0, the fields a patchwork of yellow (green crops) and purple (bare or harvested), the grassland of the south in green and yellow." width="1040" height="572" loading="lazy"></a>
+        <a href="assets/img/unmixing/11-spectrum-vegetation.jpg"><picture><source type="image/webp" srcset="assets/img/unmixing/11-spectrum-vegetation.webp"><img src="assets/img/unmixing/11-spectrum-vegetation.jpg" alt="The vegetation fraction over the coast, 0 in purple to 1 in yellow: the sea and the mudflats at 0, the fields a patchwork of yellow (green crops) and purple (bare or harvested), the grassland of the south in green and yellow." width="1040" height="572" loading="lazy"></picture></a>
         <figcaption><b>Vegetation fraction</b>: green crops in yellow, harvested and bare fields in purple.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/unmixing/12-spectrum-rmse.jpg"><img src="assets/img/unmixing/12-spectrum-rmse.jpg" alt="The RMSE from 0.001 to 0.121 reflectance: low over the sea and many fields, high in yellow over a set of fields scattered over the farmland." width="1040" height="572" loading="lazy"></a>
+        <a href="assets/img/unmixing/12-spectrum-rmse.jpg"><picture><source type="image/webp" srcset="assets/img/unmixing/12-spectrum-rmse.webp"><img src="assets/img/unmixing/12-spectrum-rmse.jpg" alt="The RMSE from 0.001 to 0.121 reflectance: low over the sea and many fields, high in yellow over a set of fields scattered over the farmland." width="1040" height="572" loading="lazy"></picture></a>
         <figcaption><b>RMSE</b>: the bright fields are a cover none of the three endmembers describes. Drop a pin on one, look at its spectrum, and add it as an endmember.</figcaption>
       </figure>
     </section>
@@ -276,6 +272,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -283,6 +285,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

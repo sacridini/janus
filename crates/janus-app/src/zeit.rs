@@ -215,6 +215,9 @@ pub fn applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
     if tool.input.as_deref() == Some("layers") {
         return None; // runs on result maps, whatever the series
     }
+    if tool.input.as_deref() == Some("folder") {
+        return None; // runs on a folder, with no series open
+    }
     if janus_embed::embedding_meta(info).is {
         // as Zeit itself, which refuses such cubes
         return Some(
@@ -851,7 +854,9 @@ impl State {
         let info = self.session.as_ref().map(|s| s.info.clone());
         let roles = self.active_roles();
         let (needed, optional) = tool_roles(tool);
+        let folder = tool.input.as_deref() == Some("folder");
         let mut why = match &info {
+            _ if folder => None,
             None => Some("no series is open".to_string()),
             Some(i) => applicability(tool, i),
         };
@@ -951,7 +956,7 @@ impl State {
                  chart's legend, and its numbers are\nadded to the Statistics table. Other tools can be fitted too.",
             );
         }
-        if tool.modes.iter().any(|m| m == "raster") && self.session.is_some() {
+        if tool.modes.iter().any(|m| m == "raster") && (self.session.is_some() || folder) {
             self.raster_run_ui(ui, tool, why.is_some());
         }
     }
@@ -1049,6 +1054,10 @@ impl State {
                         help(ui.label(&p.label));
                         changed |= multi_param_ui(ui, p, v);
                     }
+                    "file" | "folder" => {
+                        help(ui.label(&p.label));
+                        changed |= path_param_ui(ui, p, v);
+                    }
                     "layers" => {
                         ui.end_row();
                         changed |= layers_param_ui(ui, p, v, &results);
@@ -1093,6 +1102,38 @@ fn multi_toggled(options: &[String], chosen: &[&str], option: &str, on: bool) ->
             .filter(|o| if o.as_str() == option { on } else { chosen.contains(&o.as_str()) })
             .collect::<Vec<_>>()
     )
+}
+
+/// A "file" or "folder" parameter: the path as text, and a button to pick it (a raster file, or a folder: a `.SAFE`
+/// product is one). Value: the path, "" for none.
+fn path_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value) -> bool {
+    let mut changed = false;
+    let mut x = v.as_str().unwrap_or("").to_string();
+    ui.horizontal(|ui| {
+        let edit = egui::TextEdit::singleline(&mut x).desired_width(crate::fit::scaled(ui, 170.0));
+        if ui.add(edit).on_hover_text(&p.help).changed() {
+            changed = true;
+        }
+        if ui.button("Browse...").on_hover_text(&p.help).clicked() {
+            let picked = if p.kind == "folder" {
+                rfd::FileDialog::new().pick_folder()
+            } else {
+                rfd::FileDialog::new().add_filter("Raster", &["tif", "tiff", "vrt", "img", "jp2"]).pick_file()
+            };
+            if let Some(f) = picked {
+                x = f.to_string_lossy().into_owned();
+                changed = true;
+            }
+        }
+        if !x.is_empty() && ui.small_button("x").on_hover_text("Clear").clicked() {
+            x.clear();
+            changed = true;
+        }
+    });
+    if changed {
+        *v = json!(x);
+    }
+    changed
 }
 
 /// A "multi" parameter (an enum of which several are chosen): a menu whose entries are checkboxes. Value: the
@@ -1810,6 +1851,10 @@ impl State {
 
     /// A raster run of the tool (scope, output folder, Run).
     pub(crate) fn raster_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
+        if tool.input.as_deref() == Some("folder") {
+            self.folder_run_ui(ui, tool);
+            return;
+        }
         if self.session.is_none() {
             return;
         }
@@ -1902,6 +1947,32 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         }
         ui.weak(format!("Runs in the background on {threads} threads; see Tools > Tasks."));
         self.preview_ui(ui, tool, unavailable);
+    }
+
+    /// The run of a tool on a folder (Level 1C to surface reflectance): no series, window nor preview; the output folder, the
+    /// threads, the memory a scene needs, Run.
+    fn folder_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool) {
+        crate::panels::section(ui, "Run");
+        let params = self.zeit.params(tool).clone();
+        let given = Params::with_defaults(&tool.id, &params).unwrap_or_default();
+        let ready = !given.str("input").trim().is_empty();
+        ui.weak("Each .SAFE folder, one at a time, to a subfolder named after the product; the reflectance opens as a layer.");
+        ui.weak(format!(
+            "A scene needs about {:.0} GiB of memory (a whole tile).",
+            janus_zeit::level2_tool::gib(&given)
+        ));
+        self.output_folder_ui(ui);
+        let mut own = self.zeit.tools.get(&tool.id).and_then(|u| u.threads);
+        let threads = self.threads_ui(ui, &mut own);
+        self.zeit.tools.entry(tool.id.clone()).or_default().threads = own;
+        if ui.add_enabled(ready, egui::Button::new("Run").min_size(egui::vec2(ui.available_width(), 0.0))).clicked() {
+            self.run_tool(tool, &ui.ctx().clone());
+        }
+        if ready {
+            ui.weak(format!("Runs in the background on {threads} threads; see Tools > Tasks."));
+        } else {
+            ui.weak("Choose the Level 1C folder above.");
+        }
     }
 
     /// Preview and Auto-preview: the tool on the ROI or a small window at the centre of the view, its maps as
@@ -2026,6 +2097,26 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
     /// A run's spec on the active series (or, for a tool on maps, on its first map's grid): the spec without its
     /// output folder, the series its results go under, what it runs on, and the series' name.
     fn job_spec(&mut self, tool: &'static Tool) -> Result<(janus_zeit::job::JobSpec, u64, String, String), String> {
+        if tool.input.as_deref() == Some("folder") {
+            // no series: the parameters are the input (checked here, so a mistake is said before the run starts)
+            let params: BTreeMap<String, Value> = self.zeit.params(tool).clone();
+            let given = Params::with_defaults(&tool.id, &params).unwrap_or_default();
+            let scenes = janus_zeit::level2_tool::scenes(given.str("input"))?;
+            let threads = self.zeit.tools.get(&tool.id).and_then(|u| u.threads).unwrap_or(self.processing_threads());
+            janus_zeit::level2_tool::options(&given, threads)?;
+            let name = janus_zeit::level2_tool::product_name(&scenes[0]);
+            let scope = match scenes.len() {
+                1 => name.clone(),
+                n => format!("{n} scenes"),
+            };
+            let spec = janus_zeit::job::JobSpec {
+                tool: tool.id.clone(),
+                params,
+                threads: (threads > 0).then_some(threads as i64),
+                ..Default::default()
+            };
+            return Ok((spec, 0, scope, name));
+        }
         let info = self.session.as_ref().ok_or("no series is open")?.info.clone();
         let inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
         let name = series_name(&info, &inputs);
@@ -2105,6 +2196,18 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let mut p = Provenance::start("zeit", &tool.id, &tool.name);
         p.set_params(&params);
         p.scope = scope_name.to_string();
+        if tool.input.as_deref() == Some("folder") {
+            // no series: Zeit's calls on each scene of the folder
+            p.threads = spec.threads;
+            let to = out.join("python").to_string_lossy().into_owned();
+            match crate::python::folder_code(tool, &params, &to) {
+                Ok(code) if std::fs::write(out.join(SCRIPT), &code).is_ok() => p.python = SCRIPT.into(),
+                Ok(_) => p.python_note = format!("{SCRIPT} could not be written"),
+                Err(e) => p.python_note = e,
+            }
+            self.begin_provenance(out, p);
+            return;
+        }
         p.scope_index = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
         p.window = spec.window;
         p.threads = spec.threads;
@@ -2133,7 +2236,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                         .insert("coarse".into(), json!({ "name": other_name, "inputs": inputs, "dates": other.t() }));
                 }
                 let other = coarse.as_ref().map(|c| &*c.1);
-                match crate::python::run_code(&info, tool, &params, &roles, other, window, spec.threads, &to) {
+                match crate::python::run_code(&info, tool, &params, &roles, other, window, &to) {
                     Ok(code) if std::fs::write(out.join(SCRIPT), &code).is_ok() => p.python = SCRIPT.into(),
                     Ok(_) => p.python_note = format!("{SCRIPT} could not be written"),
                     Err(e) => p.python_note = e,
@@ -2171,7 +2274,11 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         }
         let window = spec.window.unwrap_or_default();
         spec.output_dir = out.to_string_lossy().to_string();
-        let title = format!("{} - {scope_name} ({} x {} px)", tool.name, window[2] - window[0], window[3] - window[1]);
+        let title = if tool.input.as_deref() == Some("folder") {
+            format!("{} - {scope_name}", tool.name)
+        } else {
+            format!("{} - {scope_name} ({} x {} px)", tool.name, window[2] - window[0], window[3] - window[1])
+        };
         // the spec (what the bridge was given) and the log beside the maps
         let spec_path = out.join("job.json");
         let _ = std::fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap_or_default());
@@ -2482,7 +2589,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         }
         self.upgrade_results(ctx);
         // series outputs join as layers, one at a time; the series being studied stays active
-        if !self.zeit.series_to_open.is_empty() && self.opening.is_none() && !self.layers.is_empty() {
+        if !self.zeit.series_to_open.is_empty() && self.opening.is_none() {
             let (path, hidden) = self.zeit.series_to_open.remove(0);
             self.zeit.keep_active = Some(self.active);
             self.zeit.open_hidden = hidden;

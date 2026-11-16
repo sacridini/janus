@@ -156,10 +156,12 @@ impl State {
                 p.params.insert(k.into(), v);
             }
             p.python_note = "gdal_rasterize -a <attribute> (or -burn 1) -te -ts on the series' grid".into();
-            // its Python: the same features, values and grid burned by GDAL
-            let code = crate::scripts::rasterize(&path, &opts, &format!("{stem}.tif"), &folder);
-            if std::fs::write(folder.join(crate::provenance::SCRIPT), code).is_ok() {
-                p.python = crate::provenance::SCRIPT.into();
+            // its Python: zeit.rasterize on the series' first file's grid, when the series is on it
+            let like = self.session.as_ref().and_then(|s| s.info.layers.first()).map(|l| l.path.clone());
+            if let Some(code) =
+                like.and_then(|like| crate::scripts::rasterize(&path, &opts, &like, &format!("{stem}.tif"), &folder))
+            {
+                crate::scripts::attach(&folder, &mut p, code);
             }
             self.begin_provenance(&folder, p);
         }
@@ -266,6 +268,7 @@ impl State {
         let i = (0..self.layers.len())
             .find(|&i| i != self.active && self.layer_session(i).is_some_and(|s| s.info.id == cube))?;
         let info = &self.layer_session(i)?.info;
+        info.require_float_bands("A mask").ok()?;
         let l = info.layers.get(self.layers[i].disp.t.min(info.t() - 1))?;
         let path =
             if l.band <= 1 { l.path.clone() } else { format!("vrt://{}?bands={}", l.path.replace('\\', "/"), l.band) };

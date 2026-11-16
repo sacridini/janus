@@ -457,22 +457,19 @@ impl State {
                     Err(e) => return fail(&format!("Copy Python: {e}")),
                 };
                 let count = |s: &str| code.matches(s).count();
-                if count("result1 = zeit.spectral_adjust(clear_cube, ") != 1
-                    || count("result2 = zeit.tasseled_cap(clear_cube, ") != 1
+                if count("spectral_adjust_result = zeit.spectral_adjust(") != 1
+                    || count("tasseled_cap_result = zeit.tasseled_cap(") != 1
                     || count("zeit.nbar(") != 0
                     || count("left out (") != 1
-                    || count("harmonized = result1.sel(band=[") != 1
-                    || count("raw = {r: harmonized.sel(band=r).values for r in order}") != 1
-                    || count(
-                        "raw = {r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in order}",
-                    ) != 1
+                    || count("harmonized = spectral_adjust_result.sel(band=[") != 1
+                    || count("bands_cube = harmonized") != 1
+                    || count("bands_cube = zeit.load_raster(") != 1
                 {
                     return fail(&format!("Copy Python should have each step's call, on the right series:\n{code}"));
                 }
                 // the folder's own script has the same calls
                 let root_script = std::fs::read_to_string(st.ard.root.join(SCRIPT)).unwrap_or_default();
-                let calls: Vec<&str> =
-                    code.lines().filter(|l| l.starts_with("result") && l.contains(" = zeit.")).collect();
+                let calls: Vec<&str> = code.lines().filter(|l| l.contains("_result = zeit.")).collect();
                 if calls.len() != 2 || calls.iter().any(|l| !root_script.contains(l)) {
                     return fail("the chain's rerun.py should hold the calls Copy Python gives");
                 }

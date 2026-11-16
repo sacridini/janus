@@ -125,7 +125,7 @@ fn pixel_run_rows_and_lines() {
     assert!(segment.y.iter().flatten().count() > 12);
 
     let (code, inputs) = calls("sccd", &p, &input).unwrap();
-    assert!(code.starts_with("result1 = zeit.sccd(bands_cube.sel("), "{code}");
+    assert!(code.starts_with("result1 = zeit.sccd(bands_cube, qa=fmask, "), "{code}");
     assert!(code.contains("conse=6, prob_threshold=0.99, outlier_prob=0.99999, max_angle=30"), "{code}");
     assert_eq!(inputs, vec!["bands_cube", "fmask"]);
 

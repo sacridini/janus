@@ -37,14 +37,17 @@ mod fields_ui;
 mod files;
 mod fit;
 mod folds_ui;
+mod fraction;
 mod gif;
 mod golden;
 mod groups;
 mod harmonize_ui;
+mod highres;
 mod histogram;
 mod history;
 mod inbox;
 mod labels;
+mod labels_year;
 mod layers;
 mod layout_audit;
 mod map;
@@ -82,6 +85,7 @@ mod session;
 mod settings;
 mod shots;
 mod shots_alerts;
+mod shots_clips;
 mod shots_layout;
 mod shots_ml;
 mod shots_validation;
@@ -252,7 +256,10 @@ Developer options:
                       (IN from tools/make_tutorial_data.py), alerts (the same IN; DETER and GLAD-S2 fetched),
                       landtrendr, ccdc, coded (tools/make_guide_data.py),
                       bfast, phenology (an EVI series); layout (IN any series: every panel, window and menu at
-                      font sizes of 10 to 28 px, the texts that do not fit their place in OUT/report.txt)
+                      font sizes of 10 to 28 px, the texts that do not fit their place in OUT/report.txt);
+                      clip-explore, clip-detect (landtrendr's IN), clip-prove (validation's IN): every frame of a
+                      stretch at 30 per second of the clip's time in OUT/<clip>/frame_NNNNN.png, with the tour's
+                      pointer drawn (tools/make_clips.py)
   Self-tests (tools/make_selftest_data.py makes their inputs):
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
                       estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read

@@ -345,7 +345,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1674,7 +1674,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2793,7 +2793,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3346,7 +3346,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4613,7 +4613,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "janus-app"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "ab_glyph",
  "earcut",
@@ -4648,7 +4648,7 @@ dependencies = [
 
 [[package]]
 name = "janus-cache"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "bytemuck",
  "gdal",
@@ -4662,7 +4662,7 @@ dependencies = [
 
 [[package]]
 name = "janus-cube"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4674,7 +4674,7 @@ dependencies = [
 
 [[package]]
 name = "janus-embed"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4688,7 +4688,7 @@ dependencies = [
 
 [[package]]
 name = "janus-gdal"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal-sys",
  "libc",
@@ -4696,7 +4696,7 @@ dependencies = [
 
 [[package]]
 name = "janus-geo"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4709,7 +4709,7 @@ dependencies = [
 
 [[package]]
 name = "janus-gpu"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "bytemuck",
  "pollster 0.4.0",
@@ -4718,7 +4718,7 @@ dependencies = [
 
 [[package]]
 name = "janus-ml"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "burn",
  "gdal",
@@ -4733,7 +4733,7 @@ dependencies = [
 
 [[package]]
 name = "janus-session"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "janus-cache",
@@ -4743,7 +4743,7 @@ dependencies = [
 
 [[package]]
 name = "janus-validation"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4755,7 +4755,7 @@ dependencies = [
 
 [[package]]
 name = "janus-zeit"
-version = "1.16.0"
+version = "1.18.0"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -5494,7 +5494,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6469,6 +6469,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "primal-check"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08"
+dependencies = [
+ "num-integer",
+]
+
+[[package]]
 name = "private-gemm-x86"
 version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7082,6 +7091,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustfft"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21db5f9893e91f41798c88680037dba611ca6674703c1a18601b01a72c8adb89"
+dependencies = [
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "primal-check",
+ "strength_reduce",
+ "transpose",
+]
+
+[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7104,7 +7127,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7595,6 +7618,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strength_reduce"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7748,10 +7777,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8084,6 +8113,16 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "transpose"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
+dependencies = [
+ "num-integer",
+ "strength_reduce",
 ]
 
 [[package]]
@@ -9068,7 +9107,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9661,10 +9700,11 @@ dependencies = [
 [[package]]
 name = "zeit-core"
 version = "1.7.0"
-source = "git+https://github.com/sacridini/zeit-cdts?rev=f20ff435fef366913b287163c3daa738ed166254#f20ff435fef366913b287163c3daa738ed166254"
+source = "git+https://github.com/sacridini/zeit-cdts?rev=b98da665875d05e92b85e61c72677d57ec07d698#b98da665875d05e92b85e61c72677d57ec07d698"
 dependencies = [
  "faer",
  "rayon",
+ "rustfft",
 ]
 
 [[package]]

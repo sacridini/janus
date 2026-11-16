@@ -66,7 +66,7 @@ impl State {
                     (self.layers[i].session.as_ref().map(|s| s.info.clone())?, self.layers[i].disp.t)
                 };
                 let l = info.layers.get(t.min(info.t().saturating_sub(1)))?;
-                if info.multidim || info.remote {
+                if info.multidim || info.remote || info.encoding.is_some() {
                     return None;
                 }
                 let name = if info.t() > 1 {

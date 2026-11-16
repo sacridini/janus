@@ -93,6 +93,18 @@ impl State {
         }
     }
 
+    /// A file on a layer's grid (a series' first date, a run's map): what Zeit's `like=` takes.
+    fn layer_file(&self, sel: Sel) -> Option<String> {
+        match sel {
+            Sel::Series(id) => {
+                let i = (0..self.layers.len()).find(|&i| self.layer_session(i).is_some_and(|s| s.info.id == id))?;
+                Some(self.layer_session(i)?.info.layers.first()?.path.clone())
+            }
+            Sel::Result(id) => self.zeit.results.iter().find(|r| r.id == id).map(|r| r.path.clone()),
+            Sel::Vector(_) => None,
+        }
+    }
+
     /// The layers whose CRS or grid can be the target.
     fn grid_layers(&self) -> Vec<(Sel, String)> {
         let mut v: Vec<(Sel, String)> = (0..self.layers.len())
@@ -375,6 +387,12 @@ impl State {
             }
         };
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        if self.warp.source.is_none()
+            && let Err(e) = info.require_float_bands("Warp")
+        {
+            self.warp.status = e;
+            return;
+        }
         let series = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let (files, what) = match self.warp.source.and_then(|id| self.zeit.results.iter().find(|r| r.id == id)) {
             Some(r) => (vec![r.path.clone()], r.name.clone()),
@@ -410,7 +428,8 @@ impl State {
             p.params.insert("files".into(), serde_json::json!(files));
             p.python_note = format!("gdalwarp {args} <file> <output>, file by file");
             // its Python: gdal.Warp with the same options, file by file
-            let code = crate::scripts::warp(&files, &opts.args().unwrap_or_default(), opts.format.extension(), &folder);
+            let like = self.warp.layer.and_then(|s| self.layer_file(s));
+            let code = crate::scripts::warp(&files, &opts, like.as_deref(), &folder);
             if std::fs::write(folder.join(crate::provenance::SCRIPT), code).is_ok() {
                 p.python = crate::provenance::SCRIPT.into();
             }

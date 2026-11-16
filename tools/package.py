@@ -38,7 +38,7 @@ from pathlib import Path
 import notices
 
 ROOT = Path(__file__).resolve().parent.parent
-PLUGINS = ["gdal_netCDF", "gdal_HDF5"]
+PLUGINS = ["gdal_netCDF", "gdal_HDF5", "gdal_JP2OpenJPEG"]
 # the files copied from GDAL's environment (their notices: the conda packages they come from)
 SHIPPED = []
 # --strict-notices
@@ -159,7 +159,7 @@ def windows(args, ver, exe_dir):
 
     plugins = [p for p in (prefix / "lib" / "gdalplugins" / f"{n}.dll" for n in PLUGINS) if p.exists()]
     if len(plugins) < len(PLUGINS):
-        print("package: warning: a GDAL plugin is missing (conda install libgdal-netcdf libgdal-hdf5)")
+        print("package: warning: a GDAL plugin is missing (conda install libgdal-netcdf libgdal-hdf5 libgdal-jp2openjpeg)")
 
     def find(name):
         for d in bins:

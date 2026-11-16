@@ -174,6 +174,7 @@ impl State {
             w: info.width,
             h: info.height,
         };
+        info.require_float_bands("Zonal statistics")?;
         let name = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let mut meta = ZonalMeta { title: name, ..Default::default() };
         for (v, n) in &info.class_names {
@@ -433,7 +434,7 @@ impl State {
             }
             p.python_note = "rasterstats.zonal_stats(vector, map, stats=..., categorical=...) per date".into();
             let names: Vec<(i64, String)> = meta.names.iter().map(|(k, n)| (*k, n.clone())).collect();
-            let code = crate::scripts::zonal(&path, &grid, &sources, &opts, stat, &names, &folder);
+            let code = crate::scripts::zonal(&path, &sources, &opts, stat, &names, &folder);
             crate::scripts::attach(&folder, &mut p, code);
             self.begin_provenance(&folder, p);
         }
@@ -580,8 +581,8 @@ impl State {
                 .selected_text(id(z))
                 .width(crate::fit::scaled(ui, 180.0))
                 .show_ui(ui, |ui| {
-                    for k in 0..zones {
-                        ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), t.pixels[k]));
+                    for (k, px) in t.pixels.iter().enumerate().take(zones) {
+                        ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), px));
                     }
                 });
             self.zonal.zone = pick;

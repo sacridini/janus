@@ -28,6 +28,9 @@ pub use interpolate::grid_days as interpolate_days;
 pub mod job;
 mod kmeans;
 mod landtrendr;
+pub mod level2;
+pub mod level2_run;
+pub mod level2_tool;
 pub mod manifest;
 mod mann_kendall;
 mod nbar;
@@ -64,11 +67,11 @@ pub mod upstream;
 pub mod warp;
 pub mod zonal;
 
-/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 3.0.0, GPL-3.0-or-later, the parts from GPL-2-only code rewritten).
-pub const ZEIT_VERSION: &str = "3.0.0";
+/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 3.6.0, GPL-3.0-or-later, the parts from GPL-2-only code rewritten).
+pub const ZEIT_VERSION: &str = "3.6.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "f20ff435fef366913b287163c3daa738ed166254";
+pub const ZEIT_CORE_REV: &str = "b98da665875d05e92b85e61c72677d57ec07d698";
 
 pub use manifest::{CATEGORIES, CLASSIFICATION, DATA_PREPARATION, Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};

@@ -1,0 +1,140 @@
+{
+  "beast": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 306, row 913 of the files, its centre at x -63.3442980178, y -10.2209863869 (EPSG:4326)\nseries = zeit.load_raster(\"LT_Stack_NDVI_Rondonia.tif\", masked=True, pixel=(306, 913))\nresult = zeit.beast(\n    series, season='none', tcp_minmax=(0, 10), scp_minmax=(0, 10), torder_minmax=(0, 1),\n    samples=2000, chains=2\n)\n\nprint(result)\n",
+    "pixel": [
+      306,
+      913
+    ],
+    "steps": [
+      "Open the annual stack of the LandTrendr guide with <span class=\"ui\">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>.",
+      "Drop pin 1 on pixel 306, 913.",
+      "Open <span class=\"ui\">Tools → Change detection → BEAST (Bayesian changepoints)</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.",
+      "The chart draws the model and the probability of a changepoint in each year."
+    ],
+    "tool": "beast"
+  },
+  "bfast": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 435, row 153 of the files, its centre at x 3572625, y 2648625 (EPSG:3035)\nseries = zeit.load_raster(\n    \"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif\", masked=True, pixel=(435, 153)\n)\nseries = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band\nresult = zeit.bfast(series)\n\nprint(result)\n",
+    "pixel": [
+      435,
+      153
+    ],
+    "steps": [
+      "Open the MODIS EVI stack with <span class=\"ui\">File → Open</span>: one GeoTIFF with a band per date, named <code>EVI_2001_01_01</code> and so on.",
+      "Drop a pin on pixel 435, 153, a field with EVI of about 0.42 a year until 2012 and about 0.3 since.",
+      "Open <span class=\"ui\">Tools → Change detection → BFAST</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the trend and the season with their breaks; the Statistics table lists them."
+    ],
+    "tool": "bfast"
+  },
+  "bfast-lite": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 435, row 153 of the files, its centre at x 3572625, y 2648625 (EPSG:3035)\nseries = zeit.load_raster(\n    \"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif\", masked=True, pixel=(435, 153)\n)\nseries = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band\nresult = zeit.bfast_lite(series)\n\nprint(result)\n",
+    "pixel": [
+      435,
+      153
+    ],
+    "steps": [
+      "With the EVI stack open and the pin on pixel 435, 153, open <span class=\"ui\">Tools → Change detection → BFAST Lite</span>.",
+      "Tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.",
+      "The chart draws the trend and the breaks of the single model BFAST Lite fits."
+    ],
+    "tool": "bfast_lite"
+  },
+  "bfast-monitor": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 435, row 153 of the files, its centre at x 3572625, y 2648625 (EPSG:3035)\nseries = zeit.load_raster(\n    \"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif\", masked=True, pixel=(435, 153)\n)\nseries = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band\nresult = zeit.bfast_monitor(series, 2009.9782608695652, start_time=2001.0, frequency=23)\n\nprint(result)\n",
+    "pixel": [
+      435,
+      153
+    ],
+    "steps": [
+      "With the EVI stack open and the pin on pixel 435, 153, open <span class=\"ui\">Tools → Change detection → BFAST Monitor</span>.",
+      "Set <span class=\"ui\">Monitoring starts</span> to 2010 and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>.",
+      "The chart draws the stable history before 2010 and the monitoring period after it, with the break BFAST Monitor finds."
+    ],
+    "tool": "bfast_monitor"
+  },
+  "ccdc": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2.1\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 896, row 186 of the files, its centre at x -63.1191015, y -10.1301365 (EPSG:4326)\nsrc = \"landsat\"\nqa = zeit.load_raster(src, band=7, masked=True, pixel=(896, 186))  # QA_PIXEL\nbands_cube = zeit.load_raster(\n    src, bands={\"blue\": 1, \"green\": 2, \"red\": 3, \"nir\": 4, \"swir1\": 5, \"swir2\": 6}, scale=True,\n    masked=True, pixel=(896, 186)\n)\nresult = zeit.ccdc(bands_cube, qa=zeit.qa_to_fmask(qa, \"landsat_c2\"), scale='auto', max_segments=8)\n\nprint(result)\n",
+    "pixel": [
+      896,
+      186
+    ],
+    "steps": [
+      "Open the folder of the 125 Landsat dates with <span class=\"ui\">File → Open folder...</span>. In the Display panel choose NIR as the band and red for the normalized difference, so the chart shows the NDVI; the quality band is found by its name.",
+      "Drop a pin on the forest cleared in May–June 2022.",
+      "Open <span class=\"ui\">Tools → Change detection → CCDC</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the segments, and the Statistics table their breaks and magnitudes."
+    ],
+    "tool": "ccdc"
+  },
+  "coded": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2.1\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 896, row 186 of the files, its centre at x -63.1191015, y -10.1301365 (EPSG:4326)\nsrc = \"landsat\"\nqa = zeit.load_raster(src, band=7, masked=True, pixel=(896, 186))  # QA_PIXEL\nbands_cube = zeit.load_raster(\n    src, bands={\"blue\": 1, \"green\": 2, \"red\": 3, \"nir\": 4, \"swir1\": 5, \"swir2\": 6}, scale=True,\n    masked=True, pixel=(896, 186)\n)\nbands_cube = bands_cube.where(zeit.qa_to_fmask(qa, \"landsat_c2\") <= 1)  # only the clear observations (Fmask 0 and 1)\nresult = zeit.coded(bands_cube, start=2022.0, train_years=2.0)\n\nprint(result)\n",
+    "pixel": [
+      896,
+      186
+    ],
+    "steps": [
+      "Open the same folder of Landsat dates (<span class=\"ui\">File → Open folder...</span>), NIR as the band and red for the normalized difference.",
+      "Drop a pin on the forest cleared in May–June 2022.",
+      "Open <span class=\"ui\">Tools → Change detection → CODED (degradation)</span>, set <span class=\"ui\">Monitoring starts</span> to 2022 and <span class=\"ui\">Training years</span> to 2, and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>.",
+      "The chart draws the NDFI and the changes CODED finds on it."
+    ],
+    "tool": "coded"
+  },
+  "landtrendr": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 1272, row 1414 of the files, its centre at x -63.0839662485, y -10.3560031742 (EPSG:4326)\nseries = zeit.load_raster(\"LT_Stack_NDVI_Rondonia.tif\", masked=True, pixel=(1272, 1414))\nfit = zeit.landtrendr(series)\nevents = zeit.extract_events(fit, event_type='loss')\n\nprint(fit)\nprint(events)\n",
+    "pixel": [
+      1272,
+      1414
+    ],
+    "steps": [
+      "Open the annual stack with <span class=\"ui\">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>, a band per year, <code>yr1985</code> to <code>yr2024</code>.",
+      "Click the map on the cleared forest to drop a pin: the pixel the chart and the table follow.",
+      "Open <span class=\"ui\">Tools → Change detection → LandTrendr</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "Read the vertices and segments on the chart and the mapped event in the <strong>Statistics</strong> table."
+    ],
+    "tool": "landtrendr"
+  },
+  "phenology": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport numpy as np\nimport zeit\n\n# Pin 1: column 71, row 319 of the files, its centre at x 3481625, y 2607125 (EPSG:3035)\nseries = zeit.load_raster(\n    \"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif\", masked=True, pixel=(71, 319)\n)\nseries = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band\nvalues = series.values.ravel()\n# the gaps filled linearly (by date index), with weight 0: they pull neither the smoothing nor the curves\nok = np.isfinite(values)\nidx = np.arange(len(values))\nfilled = np.interp(idx, idx[ok], values[ok])\nseries = series.copy(data=filled.reshape(series.shape))\nweights = ok.astype(float).reshape(series.shape)\nresult = zeit.phenology(series, curve='elmore', weights=weights, annual=False, max_seasons=52)\n\nprint(result)\n",
+    "pixel": [
+      71,
+      319
+    ],
+    "steps": [
+      "Open the MODIS EVI stack of the BFAST guide with <span class=\"ui\">File → Open</span>.",
+      "Drop a pin on pixel 71, 319, a field with a strong season every year.",
+      "Open <span class=\"ui\">Tools → Temporal dynamics → Phenology</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the smoothed curve and the seasons; the Statistics table gives their start, peak and end."
+    ],
+    "tool": "phenology"
+  },
+  "sccd": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2.1\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 378, row 778 of the files, its centre at x -63.3251555, y -10.1842055 (EPSG:4326)\nsrc = \"landsat\"\nqa = zeit.load_raster(src, band=7, masked=True, pixel=(378, 778))  # QA_PIXEL\nbands_cube = zeit.load_raster(\n    src, bands={\"blue\": 1, \"green\": 2, \"red\": 3, \"nir\": 4, \"swir1\": 5, \"swir2\": 6}, scale=True,\n    masked=True, pixel=(378, 778)\n)\nresult = zeit.sccd(bands_cube, qa=zeit.qa_to_fmask(qa, \"landsat_c2\"), scale='auto')\n\nprint(result)\n",
+    "pixel": [
+      378,
+      778
+    ],
+    "steps": [
+      "Open the folder of the 125 Landsat dates with <span class=\"ui\">File → Open folder...</span>: NIR as the band and red for the normalized difference. With the QA_PIXEL band in the files, choose it as the <span class=\"ui\">Quality band</span> (Janus finds it by its name).",
+      "Drop a pin on pixel 378, 778, the second pixel of the guide: about 11 km north-west of pin 1.",
+      "Open <span class=\"ui\">Tools → Change detection → S-CCD (stochastic CCDC)</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the model that S-CCD updates with each image, and the Statistics table the state of the pixel at the last date."
+    ],
+    "tool": "sccd"
+  },
+  "trend-test": {
+    "code": "\"\"\"Janus 1.17.0 (2026-11-07): pin 1 of series, reproduced outside Janus with Zeit.\nNeeds: pip install \"zeit-cdts>=3.2\"\n\"\"\"\nimport zeit\n\n# Pin 1: column 1426, row 1199 of the files, its centre at x -38.0325580887, y -9.460742162 (EPSG:4326)\nseries = zeit.load_raster(\"series\", masked=True, pixel=(1426, 1199))\nresult = zeit.ar_trend(series, time='year', min_valid=4)\n\nprint(result)\n",
+    "pixel": [
+      1426,
+      1199
+    ],
+    "steps": [
+      "Open the 41 annual composites with <span class=\"ui\">File → Open folder...</span> (<code>landsat_medoid_1985</code> to <code>landsat_medoid_2025</code>, with 0 declared as no data).",
+      "Drop a pin near the river, on pixel 1426, 1199.",
+      "Open <span class=\"ui\">Tools → Temporal dynamics → AR(1) trend</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The window stays at its defaults.",
+      "The chart draws the AR(1) line next to the OLS one, and the Statistics table gives the slope, its standard error and ρ."
+    ],
+    "tool": "ar_trend"
+  }
+}

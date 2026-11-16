@@ -334,6 +334,11 @@ pub struct ValidationUi {
     /// labels, translations or maps changed
     pub version: u64,
     pub blind: bool,
+    /// blind until labelled: the map's class of a point shown once the point has a label
+    pub reveal: bool,
+    /// the response of a new design: one label per point, or per year (of `design_years`, empty: the cube's)
+    pub design_response: val::Response,
+    pub design_years: String,
     /// files of layers the blind mode hid (shown again after)
     pub(crate) hidden: Vec<String>,
     /// 0 state, 1 stratum, 2 the selected map right or wrong
@@ -416,6 +421,9 @@ impl Default for ValidationUi {
             selected: 0,
             version: 1,
             blind: true,
+            reveal: false,
+            design_response: val::Response::PerPoint,
+            design_years: String::new(),
             hidden: Vec::new(),
             color_by: 0,
             interpret_when_open: false,
@@ -461,7 +469,7 @@ impl ValidationUi {
 
 /// The sample as a vector layer's data: a point per sample, its id the only field (the stratum stays out of sight:
 /// blind interpretation).
-fn samples_data(p: &Project) -> VectorData {
+pub(crate) fn samples_data(p: &Project) -> VectorData {
     VectorData {
         path: p.path.clone(),
         layer: "samples".into(),
@@ -602,7 +610,7 @@ impl State {
                 l.session.as_ref().map(|s| &s.info)
             };
             let Some(info) = info else { continue };
-            if info.spectral || info.geo_transform.is_none() {
+            if info.spectral || info.geo_transform.is_none() || info.encoding.is_some() {
                 continue;
             }
             let t = self.date_of_layer(i);
@@ -858,12 +866,75 @@ impl State {
         } else {
             p.label_set.clone()
         };
+        // projects from before the colours have none: the defaults
+        self.labels.colors = crate::labels::colors_from_hex(&self.labels.classes, &p.label_colors);
         self.labels.entries = vec![Label::default(); p.points.len()];
         if let Some(mine) = p.labels.get(&self.labels.who) {
             for (e, l) in self.labels.entries.iter_mut().zip(mine) {
                 *e = l.clone();
             }
         }
+        // the response: by year, with the project's years (the cube's when it has none yet)
+        self.labels.response = p.response;
+        self.labels.years = p.years.clone();
+        self.labels.fraction = p.fraction;
+        self.labels.fraction_n = p.fraction_n;
+        self.interp_fill_years();
+    }
+
+    /// The label mode "Fraction cover" or its grid changed: kept in the project.
+    pub(crate) fn validation_fraction_changed(&mut self) {
+        let (fraction, n) = (self.labels.fraction, self.labels.fraction_n);
+        let v = &mut self.val;
+        let Some(p) = v.project.as_mut() else { return };
+        if p.fraction == fraction && p.fraction_n == n {
+            return;
+        }
+        (p.fraction, p.fraction_n) = (fraction, n);
+        v.meta_dirty = true;
+        v.version += 1;
+    }
+
+    /// The response or the years of the interpretation changed: kept in the project, the references derived from
+    /// the years of every interpreter made again (and written).
+    pub(crate) fn validation_response_changed(&mut self) {
+        let (response, years) = (self.labels.response, self.labels.years.clone());
+        if self.val.project.is_none() {
+            return;
+        }
+        self.validation_save_labels();
+        let v = &mut self.val;
+        let p = v.project.as_mut().unwrap();
+        if p.response == response && p.years == years {
+            return;
+        }
+        (p.response, p.years) = (response, years);
+        let mapping = val::reference_mapping(&p.maps, &p.label_set);
+        let mut changed: Vec<(String, Vec<(usize, Label)>)> = Vec::new();
+        if p.response == val::Response::PerYear {
+            let py = p.years.clone();
+            for (who, ls) in p.labels.iter_mut() {
+                let mut rows = Vec::new();
+                for (i, l) in ls.iter_mut().enumerate().filter(|(_, l)| !l.years.is_empty()) {
+                    let before = (l.label.clone(), l.date.clone());
+                    l.rederive(&py, &mapping);
+                    if before != (l.label.clone(), l.date.clone()) {
+                        rows.push((i, l.clone()));
+                    }
+                }
+                if !rows.is_empty() {
+                    changed.push((who.clone(), rows));
+                }
+            }
+        }
+        for (who, rows) in changed {
+            let finals: Vec<val::FinalRef> = rows.iter().map(|(i, _)| final_ref(p, *i)).collect();
+            let path = p.path.clone();
+            v.tasks
+                .push_back(Box::new(move || val::save_labels(&path, &who, &rows, &finals).err().unwrap_or_default()));
+        }
+        v.meta_dirty = true;
+        v.version += 1;
     }
 
     /// A label given: into the project (saved a second later).
@@ -903,9 +974,11 @@ impl State {
     /// The label set changed: kept in the project, the new labels' translations guessed for every map.
     pub(crate) fn validation_label_set_changed(&mut self) {
         let classes = self.labels.classes.clone();
+        let colors: Vec<String> = self.labels.colors.iter().map(|&c| crate::labels::color_hex(c)).collect();
         let v = &mut self.val;
         let Some(p) = v.project.as_mut() else { return };
         p.label_set = classes;
+        p.label_colors = colors;
         for k in 0..p.maps.len() {
             let names: Vec<String> = v
                 .data
@@ -923,6 +996,26 @@ impl State {
         }
         v.meta_dirty = true;
         v.version += 1;
+    }
+
+    /// The selected map's class at point `i` and whether the label given to it agrees (None: the label has no
+    /// translation to the map's classes, or a map of events), as the Interpretation panel shows it once the point
+    /// is labelled. None without a map or a value.
+    pub(crate) fn validation_map_class(&self, i: usize, label: &str) -> Option<(String, Option<bool>)> {
+        let p = self.val.project.as_ref()?;
+        let m = p.maps.get(self.val.selected)?;
+        let d = self.val.data.get(self.val.selected).filter(|d| d.values_ready)?;
+        let class = m.rule.class_of(*d.values.get(i)?);
+        if class == val::NONE {
+            return None;
+        }
+        let name = m.rule.class_name(class);
+        let agrees = if m.rule.kind == MapKind::Events || label.is_empty() {
+            None
+        } else {
+            m.mapping.get(label).filter(|t| !t.is_empty()).map(|t| *t == name)
+        };
+        Some((name, agrees))
     }
 
     /// Blind: the maps assessed and the strata are not drawn while interpreting (hidden in the pump); off: shown
@@ -981,19 +1074,20 @@ impl State {
             return (-1, "That file is not a copy of this project (another sample).".into());
         }
         let mut taken = 0;
+        let mapping = val::reference_mapping(&p.maps, &p.label_set);
         for (w, l) in other {
             let n = p.points.len();
             let mine = p.labels.entry(w.clone()).or_default();
             mine.resize(n, Label::default());
             let mut rows = Vec::new();
             for (i, x) in l.iter().enumerate() {
-                if x.is_empty() {
-                    continue;
+                // the newer of each point and, by year, of each year
+                let Some(mut m) = val::merge_label(&mine[i], x) else { continue };
+                if !m.years.is_empty() {
+                    m.rederive(&p.years, &mapping);
                 }
-                if mine[i].is_empty() || x.updated > mine[i].updated {
-                    mine[i] = x.clone();
-                    rows.push((i, x.clone()));
-                }
+                mine[i] = m.clone();
+                rows.push((i, m));
             }
             if rows.is_empty() {
                 continue;
@@ -1348,6 +1442,16 @@ impl State {
             self.val.show_chips = !self.val.show_chips;
             ui.close();
         }
+        if ui
+            .button("Interpretation layout")
+            .on_hover_text(
+                "The panels arranged for interpreting: the Interpretation panel in a column on the right, the chips                  and the map side by side, the time series below",
+            )
+            .clicked()
+        {
+            self.want_interp_layout = true;
+            ui.close();
+        }
         ui.separator();
         if ui.add_enabled(open, egui::Button::new("Accuracy and areas")).clicked() {
             self.val.show = true;
@@ -1472,6 +1576,11 @@ impl State {
                 ui.weak(format!("Labelling as {}", self.labels.who));
             }
             ui.checkbox(&mut blind, "Blind");
+            if self.val.blind {
+                ui.checkbox(&mut self.val.reveal, "Reveal the map after labelling").on_hover_text(
+                    "While blind the map assessed stays hidden; once a point has your label, its panel gives the                      map's class there and whether it agrees",
+                );
+            }
             chips = ui
                 .small_button("Chips")
                 .on_hover_text("The point at every date, around it (Validation & uncertainty > Chips)")
@@ -1495,7 +1604,9 @@ impl State {
         });
         // others' labels of this point (all of them when adjudicating; after one's own label otherwise)
         if let Some(i) = self.labels.current.filter(|&i| i < p.points.len()) {
-            let mine_given = !self.labels.entries.get(i).is_none_or(|e| e.label.is_empty());
+            let mine_given = self.labels.entries.get(i).is_some_and(|e| self.labels.done(e));
+            let by_year = self.labels.by_year();
+            let years = self.labels.years.clone();
             let others: Vec<(&String, &Label)> = p
                 .labels
                 .iter()
@@ -1506,7 +1617,11 @@ impl State {
                 egui::Grid::new("others").striped(true).show(ui, |ui| {
                     for (w, l) in &others {
                         ui.weak(*w);
-                        ui.label(&l.label);
+                        if by_year {
+                            ui.label(crate::labels_year::summary(l, &years));
+                        } else {
+                            ui.label(&l.label);
+                        }
                         ui.label(&l.date);
                         ui.weak(&l.notes);
                         ui.end_row();
@@ -1524,7 +1639,7 @@ impl State {
         }
         if todo {
             let l = &mut self.labels;
-            l.filter = (0..l.entries.len()).filter(|&i| l.entries[i].label.is_empty()).collect();
+            l.filter = (0..l.entries.len()).filter(|&i| !l.done(&l.entries[i])).collect();
             l.filter_name = format!("{} not labelled by {}", l.filter.len(), l.who);
             if let Some(&f) = l.filter.first() {
                 self.interp_go(f);

@@ -77,6 +77,9 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
         if tool.id == "postproc" && !info.file_categorical {
             why = Some("not a categorical series (no colour table, category names or attribute table)".into());
         }
+        if tool.input.as_deref() == Some("folder") {
+            why = Some("runs on a Sentinel-2 Level 1C folder, not on a series (no small L1C fixture)".into());
+        }
         if tool.params.iter().any(|p| p.kind == "series") {
             why = Some("needs a second series (ImproPhe's coarse one, another open layer)".into());
         }

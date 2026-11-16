@@ -1,0 +1,161 @@
+{
+ "title": "LandTrendr demo, annual NDVI, Rondonia (Brazil)",
+ "years": [
+  1985,
+  1986,
+  1987,
+  1988,
+  1989,
+  1990,
+  1991,
+  1992,
+  1993,
+  1994,
+  1995,
+  1996,
+  1997,
+  1998,
+  1999,
+  2000,
+  2001,
+  2002,
+  2003,
+  2004,
+  2005,
+  2006,
+  2007,
+  2008,
+  2009,
+  2010,
+  2011,
+  2012,
+  2013,
+  2014,
+  2015,
+  2016,
+  2017,
+  2018,
+  2019,
+  2020,
+  2021,
+  2022,
+  2023,
+  2024
+ ],
+ "width": 256,
+ "height": 256,
+ "window": {
+  "xoff": 1104,
+  "yoff": 1246,
+  "source": "LT_Stack_NDVI_Rondonia.tif"
+ },
+ "crs": "EPSG:4326",
+ "bounds": {
+  "west": -63.12937608608461,
+  "south": -10.379583950359011,
+  "east": -63.06038547226423,
+  "north": -10.310593336538632
+ },
+ "corners": {
+  "nw": [
+   -63.12937608608461,
+   -10.310593336538632
+  ],
+  "ne": [
+   -63.06038547226423,
+   -10.310593336538632
+  ],
+  "sw": [
+   -63.12937608608461,
+   -10.379583950359011
+  ],
+  "se": [
+   -63.06038547226423,
+   -10.379583950359011
+  ]
+ },
+ "pixel_size": {
+  "x": 0.00026949458523585647,
+  "y": 0.00026949458523585647
+ },
+ "atlas": {
+  "file": "ndvi.png",
+  "columns": 8,
+  "rows": 5,
+  "tile": 256,
+  "tile_of_year": "column = i % 8, row = i // 8, i = year - 1985"
+ },
+ "ndvi_mapping": {
+  "min": -0.2,
+  "max": 1.0,
+  "no_data": 0,
+  "decode": "ndvi = (q - 1) / 254 * (max - min) + min, for q in 1..255"
+ },
+ "lt_bin": {
+  "file": "lt.bin",
+  "endianness": "little",
+  "bytes_per_pixel": 14,
+  "order": "row-major pixels; per pixel 7 vertices of (year - 1985, q) uint8; 255,255 = no vertex",
+  "value_mapping": "same as ndvi_mapping"
+ },
+ "yod": {
+  "file": "yod.png",
+  "decode": "year = 1985 + v, 255 = no event",
+  "year_meaning": "year of the vertex where the greatest loss starts (last observation before the loss)"
+ },
+ "mag": {
+  "file": "mag.png",
+  "decode": "magnitude in NDVI = v / 255 * 1.0 (raw 10000 scale: v / 255 * 10000), 0 = no event",
+  "scale_ndvi": 1.0
+ },
+ "event_filter": {
+  "sort_by": "greatest",
+  "event_type": "loss",
+  "min_magnitude_ndvi": 0.25,
+  "pre_val_threshold_ndvi": 0.75,
+  "note": "extract_events takes the raw x 10000 units of the segmented data: 2500 and 7500"
+ },
+ "grid": {
+  "file": "grid.json",
+  "max_segments": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "spike_threshold": [
+   0.75,
+   0.9,
+   1.0
+  ],
+  "recovery_threshold": [
+   0.25,
+   0.5,
+   1.0
+  ]
+ },
+ "zeit": {
+  "version": "3.1.0",
+  "commit": "7e50ecf"
+ },
+ "landtrendr_parameters": {
+  "direction": "loss",
+  "max_segments": 6,
+  "pval_threshold": 0.05,
+  "recovery_threshold": 0.25,
+  "prevent_fast_recovery": true,
+  "spike_threshold": 0.9,
+  "best_model_proportion": 0.75,
+  "vertex_count_overshoot": 3,
+  "min_observations_needed": 6,
+  "nodata": 0,
+  "scale": "raw Int16 NDVI x 10000, outputs divided by 10000"
+ },
+ "pins_inside": {
+  "clearing": true,
+  "regrowth": false,
+  "forest": false
+ }
+}

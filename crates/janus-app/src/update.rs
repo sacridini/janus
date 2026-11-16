@@ -386,6 +386,12 @@ impl State {
             ui.weak(format!("GDAL {}", janus_cube::gdal_version()));
             ui.weak("GNU General Public License, version 3 or later");
             ui.hyperlink_to("github.com/sacridini/janus", "https://github.com/sacridini/janus");
+            ui.add_space(6.0);
+            ui.weak("The validation's interpretation view is based on Validation Viewer by Dr. Matthias Baumann (HU Berlin)");
+            ui.hyperlink_to(
+                "scm.cms.hu-berlin.de/baumamat/validationviewer",
+                "https://scm.cms.hu-berlin.de/baumamat/validationviewer",
+            );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let check = ui.button("Check for updates...").clicked();

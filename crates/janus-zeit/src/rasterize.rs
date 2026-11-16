@@ -45,7 +45,7 @@ pub struct Rasterized {
 }
 
 /// Tableau 20, the classes' colours.
-const PALETTE: [[u8; 3]; 20] = [
+pub const PALETTE: [[u8; 3]; 20] = [
     [31, 119, 180],
     [255, 127, 14],
     [44, 160, 44],

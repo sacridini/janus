@@ -11,7 +11,7 @@ use std::sync::Arc;
 use egui::{Color32, Ui};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints, Polygon};
 use janus_geo::plane::Polygon as Poly;
-use janus_geo::vectors::{Kind, Placer, VectorData, csv_field};
+use janus_geo::vectors::{Kind, Placer, VectorData, csv_field, write_vector_table};
 use janus_validation as val;
 use val::{Alloc, AssessedMap, MapKind, MapRule, Progress, Project};
 
@@ -269,6 +269,18 @@ impl State {
     /// The sample drawn into a new project at `path` (the strata raster copied beside it).
     pub(crate) fn validation_draw(&mut self, path: &str, spec: val::StrataSpec, ctx: &egui::Context) {
         let who = self.interpreter_name();
+        // the response: by year, the years given (empty: those of the cube's dates)
+        let response = self.val.design_response;
+        let mut years = val::parse_years(&self.val.design_years).unwrap_or_default();
+        if response == val::Response::PerYear && years.is_empty() {
+            let dates: Vec<String> = self
+                .session
+                .as_ref()
+                .map(|s| s.info.layers.iter().map(|l| l.label.clone()).collect())
+                .unwrap_or_default();
+            years = crate::labels_year::cube_years(&dates);
+        }
+        let years = if response == val::Response::PerYear { years } else { Vec::new() };
         let v = &mut self.val;
         let s = &v.strata.strata;
         let abs = std::path::absolute(path).unwrap_or_else(|_| path.into());
@@ -280,6 +292,8 @@ impl State {
             alloc_text += &format!(", at least {} per stratum", v.min_per);
         }
         let mut p = Project {
+            response,
+            years,
             path: abs.to_string_lossy().into_owned(),
             strata_path,
             id: val::new_project_id(),
@@ -767,6 +781,29 @@ impl State {
             "If each stratum's accuracy is as expected: the overall accuracy's standard error and\n\
              the interval of the area of change (a stratum's errors taken as change, or as no change)",
         );
+
+        // --- the response ---
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Response").on_hover_text(
+                "One label per point: a class and the date of the change. One label per year: a class (or n/a)\n\
+                 and a confidence for each year of a list; the point is validated when every year has one.\n\
+                 The estimates read the first year of a change, else the last class.",
+            );
+            ui.selectable_value(&mut v.design_response, val::Response::PerPoint, "one label per point");
+            ui.selectable_value(&mut v.design_response, val::Response::PerYear, "one label per year");
+            if v.design_response == val::Response::PerYear {
+                ui.add(
+                    egui::TextEdit::singleline(&mut v.design_years).desired_width(160.0).hint_text("the cube's years"),
+                )
+                .on_hover_text(
+                    "The years to label: 2018-2023, or 2017, 2019, 2021-2024, or 2000-2020/5 (every 5th).\n\
+                     Empty: the years of the active cube's dates (one each).",
+                );
+                if let Err(e) = val::parse_years(&v.design_years) {
+                    ui.colored_label(crate::theme::error(), e);
+                }
+            }
+        });
 
         // --- draw ---
         let mut draw = false;
@@ -1841,6 +1878,70 @@ impl State {
                 );
             }
             write("design.csv", &csv)?;
+            if p.response == val::Response::PerYear {
+                // one label per year: a row for each point, year and interpreter, and the points as a
+                // GeoPackage with the reference's class and confidence of each year
+                let data = crate::validation::samples_data(p);
+                let pl = Placer::lon_lat(&data);
+                let mut rows: Vec<(usize, crate::labels_year::YearPoint)> = Vec::new();
+                for (who, ls) in &p.labels {
+                    for (i, l) in ls.iter().enumerate().filter(|(_, l)| !l.years.is_empty()) {
+                        let lon_lat = p.points.get(i).and_then(|q| pl.to_lon_lat(q.x, q.y));
+                        let pid = p.points.get(i).map_or(i + 1, |q| q.id as usize).to_string();
+                        rows.push((i, crate::labels_year::YearPoint { pid, lon_lat, interpreter: who, label: l }));
+                    }
+                }
+                rows.sort_by_key(|r| r.0);
+                let rows: Vec<crate::labels_year::YearPoint> = rows.into_iter().map(|r| r.1).collect();
+                write("labels_by_year.csv", &crate::labels_year::by_year_csv(&rows, &p.years, &csv_field))?;
+                let names = crate::labels_year::year_columns(&p.years);
+                let gpkg = dir.join("labels_by_year.gpkg").to_string_lossy().into_owned();
+                write_vector_table(
+                    &gpkg,
+                    &data,
+                    &names,
+                    &|i, k| match val::resolve_year(&p.labels, i, p.years[k / 2]) {
+                        Some(x) if k % 2 == 0 => x.label.clone(),
+                        Some(x) if x.confidence > 0 => x.confidence.to_string(),
+                        _ => String::new(),
+                    },
+                )?;
+            }
+            if p.fraction || crate::fraction::any_fractions(p.labels.values().flatten()) {
+                // fraction cover: a row for each point, year and interpreter, and the points as a GeoPackage with the
+                // fractions of the latest year painted
+                let data = crate::validation::samples_data(p);
+                let pl = Placer::lon_lat(&data);
+                let mut rows: Vec<(usize, crate::labels_year::YearPoint)> = Vec::new();
+                for (who, ls) in &p.labels {
+                    for (i, l) in ls.iter().enumerate().filter(|(_, l)| !l.fractions.is_empty()) {
+                        let lon_lat = p.points.get(i).and_then(|q| pl.to_lon_lat(q.x, q.y));
+                        let pid = p.points.get(i).map_or(i + 1, |q| q.id as usize).to_string();
+                        rows.push((i, crate::labels_year::YearPoint { pid, lon_lat, interpreter: who, label: l }));
+                    }
+                }
+                rows.sort_by_key(|r| r.0);
+                let rows: Vec<crate::labels_year::YearPoint> = rows.into_iter().map(|r| r.1).collect();
+                let stem = std::path::Path::new(&p.path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                write(
+                    &format!("{stem}_fractions.csv"),
+                    &crate::fraction::fractions_csv(&rows, &p.label_set, &csv_field),
+                )?;
+                let names = crate::fraction::frac_columns(&p.label_set);
+                let gpkg = dir.join("labels_fractions.gpkg").to_string_lossy().into_owned();
+                // the adjudicated painting of the point, else the first interpreter's
+                let of = |i: usize| {
+                    let mut who: Vec<&String> = p.labels.keys().collect();
+                    who.sort_by_key(|w| w.as_str() != val::ADJUDICATED);
+                    who.into_iter().find_map(|w| p.labels[w].get(i).filter(|l| !l.fractions.is_empty()))
+                };
+                write_vector_table(&gpkg, &data, &names, &|i, k| {
+                    of(i).map_or(String::new(), |l| crate::fraction::frac_value(l, &p.label_set, k))
+                })?;
+            }
             let mut h = String::from(
                 "<!doctype html><html><head><meta charset=\"utf-8\"><title>Validation report</title><style>\
                  body{font-family:system-ui,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#222}\

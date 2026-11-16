@@ -75,6 +75,7 @@ pub(crate) enum Cmd {
     ValidationPanel,
     InterpretSample,
     Chips,
+    InterpretationLayout,
     Accuracy,
     Applicability,
     Help,
@@ -276,8 +277,11 @@ impl State {
         // Tools
         let info = self.session.as_ref().map(|s| s.info.clone());
         for t in &janus_zeit::manifest().tools {
-            let why =
-                info.as_ref().map_or(Some("open a series first".to_string()), |i| crate::zeit::applicability(t, i));
+            let why = if t.input.as_deref() == Some("folder") {
+                None // runs on a folder, with no series open
+            } else {
+                info.as_ref().map_or(Some("open a series first".to_string()), |i| crate::zeit::applicability(t, i))
+            };
             let mut c = Command {
                 cmd: Cmd::Tool(t.id.clone()),
                 label: format!("{}...", t.name),
@@ -338,6 +342,7 @@ impl State {
         add(Cmd::ValidationPanel, VALIDATION, "Validation panel", "", None);
         add(Cmd::InterpretSample, VALIDATION, "Interpret the sample", "", no_project.clone());
         add(Cmd::Chips, VALIDATION, "Chips", "", None);
+        add(Cmd::InterpretationLayout, VALIDATION, "Interpretation layout", "", None);
         add(Cmd::Accuracy, VALIDATION, "Accuracy and areas", "", no_project);
         add(Cmd::Applicability, VALIDATION, "Area of applicability (AOA)...", "", None);
         // Help
@@ -765,6 +770,7 @@ impl State {
                 self.labels.show = true;
             }
             Cmd::Chips => self.val.show_chips = !self.val.show_chips,
+            Cmd::InterpretationLayout => self.want_interp_layout = true,
             Cmd::Accuracy => {
                 self.val.show = true;
                 self.val.select_tab = Some(1);

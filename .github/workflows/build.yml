@@ -26,13 +26,13 @@ jobs:
       matrix:
         include:
           - os: windows-2022
-            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 libgdal-jp2openjpeg=3.11 numpy
             exe: target/release/janus.exe
           - os: ubuntu-24.04
-            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy pkg-config patchelf
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 libgdal-jp2openjpeg=3.11 numpy pkg-config patchelf
             exe: target/release/janus
           - os: macos-15
-            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy pkg-config
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 libgdal-jp2openjpeg=3.11 numpy pkg-config
             exe: target/release/janus
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -128,7 +128,8 @@ jobs:
           case "$RUNNER_OS" in
             Windows) ;; # the installer is checked by installing it below
             Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && env -u LD_LIBRARY_PATH ./janus-*/janus --selftest-zeit td/serie ;;
-            macOS) m=$(hdiutil attach -nobrowse -readonly "$GITHUB_WORKSPACE"/dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
+            macOS) m="$RUNNER_TEMP/janus_dmg"  # a mount point of ours: the last line of hdiutil's table may name none
+                   hdiutil attach -nobrowse -readonly -mountpoint "$m" "$GITHUB_WORKSPACE"/dist/*.dmg
                    "$m/Janus.app/Contents/MacOS/janus" --selftest-zeit td/serie; rc=$?
                    hdiutil detach "$m"; exit $rc ;;
           esac

@@ -492,10 +492,12 @@ impl State {
                     Ok(c) => c,
                     Err(e) => return fail(&format!("Copy Python: {e}")),
                 };
-                let count = |s: &str| code.matches(s).count();
-                if count("result1 = zeit.interpolate(series, ") != 1
-                    || count("zeit.temporal_metrics(analysis, ") != 2
-                    || count("analysis = result1") != 1
+                // long calls are broken over lines: read them as one
+                let flat = code.replace("(\n    ", "(");
+                let count = |s: &str| flat.matches(s).count();
+                if count("interpolate_result = zeit.interpolate(series") != 1
+                    || count("zeit.temporal_metrics(analysis") != 2
+                    || count("analysis = interpolate_result") != 1
                     || count("by='year'") != 1
                 {
                     return fail(&format!("Copy Python should have each step's call, on the right series:\n{code}"));
@@ -503,7 +505,7 @@ impl State {
                 // the folder's own script has the same calls
                 let root_script = std::fs::read_to_string(st.tsa.root.join(SCRIPT)).unwrap_or_default();
                 let calls: Vec<&str> =
-                    code.lines().filter(|l| l.starts_with("result") && l.contains(" = zeit.")).collect();
+                    code.lines().filter(|l| l.contains(" = zeit.") && !l.contains("load_raster")).collect();
                 if calls.len() != 3 || calls.iter().any(|l| !root_script.contains(l)) {
                     return fail("the chain's rerun.py should hold the calls Copy Python gives");
                 }

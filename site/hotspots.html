@@ -14,9 +14,8 @@
 <meta property="og:description" content="Where forest and cleared land cluster in forty years of a Rondônia frontier, and how the clusters changed: Gi* hot and cold spots and their patterns.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/hotspots/04-detail.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Emerging hot spots</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Emerging hot spots</p>
     <p class="eyebrow">Trend · space and time</p>
     <h1>Emerging hot spots, step by step.</h1>
     <p class="lede">A hot spot is a place where high values cluster more than chance would allow, and a cold spot is the same for low values. Emerging hot spot analysis finds them at every date and then reads each pixel's history: whether it is a hot spot that is new, one that has persisted for decades and is intensifying, or a cold spot that comes and goes. In Janus it runs on the whole series and gives a map of these patterns.</p>
@@ -145,7 +146,7 @@
     <section id="patterns">
       <h2><span class="n">06</span>The patterns</h2>
       <figure class="fig">
-        <a href="assets/img/hotspots/03-pattern.jpg"><img src="assets/img/hotspots/03-pattern.jpg" alt="The pattern map over the whole circle: red for intensifying hot spots on the forest blocks, pink for oscillating hot spots, purple for oscillating cold spots on the cleared land, grey for no pattern." width="872" height="539" loading="lazy"></a>
+        <a href="assets/img/hotspots/03-pattern.jpg"><picture><source type="image/webp" srcset="assets/img/hotspots/03-pattern.webp"><img src="assets/img/hotspots/03-pattern.jpg" alt="The pattern map over the whole circle: red for intensifying hot spots on the forest blocks, pink for oscillating hot spots, purple for oscillating cold spots on the cleared land, grey for no pattern." width="872" height="539" loading="lazy"></picture></a>
         <figcaption><b>The patterns</b> over the whole circle (radius 3, circle, each date's mean).</figcaption>
       </figure>
       <p>Each pattern is tested on the hot dates first, then on the cold ones. The cold-spot patterns read the same way as the hot ones, with cold dates instead of hot dates. The last two columns give each pattern's share of the circle in this run.</p>
@@ -171,7 +172,7 @@
     <section id="pixels">
       <h2><span class="n">07</span>Reading a pixel</h2>
       <figure class="fig">
-        <a href="assets/img/hotspots/04-detail.jpg"><img src="assets/img/hotspots/04-detail.jpg" alt="A zoom on the pattern map south-east of the centre, with three pins: pin 1 on a red forest block, pin 2 on purple cleared land, pin 3 on grey." width="1000" height="448" loading="lazy"></a>
+        <a href="assets/img/hotspots/04-detail.jpg"><picture><source type="image/webp" srcset="assets/img/hotspots/04-detail.webp"><img src="assets/img/hotspots/04-detail.jpg" alt="A zoom on the pattern map south-east of the centre, with three pins: pin 1 on a red forest block, pin 2 on purple cleared land, pin 3 on grey." width="1000" height="448" loading="lazy"></picture></a>
         <figcaption><b>Three pins</b> on the patterns: 1, a forest block; 2 and 3, land cleared in 2005.</figcaption>
       </figure>
       <figure class="fig">
@@ -180,7 +181,7 @@
       </figure>
       <p>The patterns come from the Gi* series. The Gi* layer opens hidden under the patterns. Tick its eye in the Layers panel and the chart shows each pin's Gi* series:</p>
       <figure class="fig">
-        <a href="assets/img/hotspots/05-gi.jpg"><img src="assets/img/hotspots/05-gi.jpg" alt="The Janus window with the hotspots_gi layer shown: the Gi* of 1985 on the map, low in the clearings already open, and the Gi* series of the three pins on the chart." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/hotspots/05-gi.jpg"><picture><source type="image/webp" srcset="assets/img/hotspots/05-gi.webp"><img src="assets/img/hotspots/05-gi.jpg" alt="The Janus window with the hotspots_gi layer shown: the Gi* of 1985 on the map, low in the clearings already open, and the Gi* series of the three pins on the chart." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The Gi* layer</b>, here at 1985: the dark patches are the clearings already open then.</figcaption>
       </figure>
       <figure class="fig">
@@ -199,11 +200,11 @@
       <p>Against each date's mean, a place is only hot or cold compared with the rest of the map at that date. As the frontier opened, the mean NDVI fell, so the bar for a cold spot fell with it. <span class="ui">Against: The whole series' mean</span> uses one mean and one deviation for all forty years instead. The forest of 1985 is then hot everywhere, and the land cleared since is cold for good:</p>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/hotspots/06-cube.jpg"><img src="assets/img/hotspots/06-cube.jpg" alt="The pattern map against the whole series' mean over the circle: red forest blocks, the rest in purple and blue." width="872" height="539" loading="lazy"></a>
+          <a href="assets/img/hotspots/06-cube.jpg"><picture><source type="image/webp" srcset="assets/img/hotspots/06-cube.webp"><img src="assets/img/hotspots/06-cube.jpg" alt="The pattern map against the whole series' mean over the circle: red forest blocks, the rest in purple and blue." width="872" height="539" loading="lazy"></picture></a>
           <figcaption><b>The whole circle</b>, against the whole series.</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/hotspots/06-cube-detail.jpg"><img src="assets/img/hotspots/06-cube-detail.jpg" alt="The same zoom as before against the whole series' mean: pin 1 on red, pins 2 and 3 on purple and dark blue." width="1000" height="448" loading="lazy"></a>
+          <a href="assets/img/hotspots/06-cube-detail.jpg"><picture><source type="image/webp" srcset="assets/img/hotspots/06-cube-detail.webp"><img src="assets/img/hotspots/06-cube-detail.jpg" alt="The same zoom as before against the whole series' mean: pin 1 on red, pins 2 and 3 on purple and dark blue." width="1000" height="448" loading="lazy"></picture></a>
           <figcaption><b>The same three pins.</b></figcaption>
         </figure>
       </div>
@@ -251,6 +252,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -258,6 +265,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

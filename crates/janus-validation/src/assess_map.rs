@@ -128,6 +128,8 @@ pub fn prepare(
     let mut o = Prepared::default();
     let r = &m.rule;
     let n = p.points.len();
+    // the points answered year by year read with this map's translation
+    let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
     o.class_keys = map_classes(r, values, mapped);
     let mut idx: BTreeMap<String, usize> = BTreeMap::new();
     let mut idx_of_key: BTreeMap<i32, usize> = BTreeMap::new();
@@ -168,7 +170,7 @@ pub fn prepare(
         if r.kind == MapKind::Events && v.is_finite() && v > 0.0 {
             o.map_year[i] = v.floor() as i32;
         }
-        let (l, conflict) = resolve(&p.labels, i);
+        let (l, conflict) = resolve(&labels, i);
         let Some(l) = l else {
             if conflict {
                 o.conflicts += 1;
@@ -246,12 +248,13 @@ pub fn prepare(
 /// area whose first change in the period is in that year, with its interval.
 pub fn change_by_year(p: &Project, m: &AssessedMap, confidence: f64) -> Vec<(i32, ClassArea)> {
     let n = p.points.len();
+    let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
     let mut st: Vec<Option<usize>> = vec![None; n];
     let mut year = vec![0; n];
     let (mut y0, mut y1) = (i32::MAX, i32::MIN);
     let period = m.rule.kind == MapKind::Events && m.rule.bins.len() >= 2;
     for i in 0..n {
-        let (Some(l), _) = resolve(&p.labels, i) else { continue };
+        let (Some(l), _) = resolve(&labels, i) else { continue };
         let (ys, any) = change_years(l, &m.mapping);
         if any && ys.is_empty() {
             continue; // a change without a date: unknown year
@@ -319,82 +322,111 @@ pub(crate) fn py_path(p: &str) -> String {
     py_str(&p.replace('\\', "/"))
 }
 
-/// Python (zeit.accuracy) that gives the same estimates from the project's files.
+/// Python (zeit.accuracy) that gives the same estimates from the project's files: the GeoPackage's sample points
+/// read with `gpd.read_file`, the maps with `zeit.load_raster`, the estimates by `zeit.accuracy`.
 pub fn python_snippet(p: &Project, m: &AssessedMap, confidence: f64) -> String {
     let r = &m.rule;
-    let mut s = String::new();
+    let events = r.kind == MapKind::Events;
+    let periods = events && r.bins.len() >= 2;
     let file = Path::new(&p.path).file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
-    s += &format!(
+    let mut s = format!(
         "# Accuracy and error-adjusted areas of {} (Olofsson et al. 2014; Stehman 2014),\n# from the Janus validation project {file}\n",
         if r.name.is_empty() { &r.path } else { &r.name }
     );
-    s += "import sqlite3\n\nimport geopandas as gpd\nimport pandas as pd\nimport rioxarray\n";
-    if r.kind == MapKind::Events {
+    s += "import geopandas as gpd\n";
+    if periods {
+        s += "import pandas as pd\n";
+    }
+    if events {
         s += "import xarray as xr\n";
     }
     s += "import zeit\n\n";
-    s += "# The sample points (a GeoPackage is SQLite), at their pixels' centres in the strata raster\n";
-    s += &format!("with sqlite3.connect({}) as db:\n", py_path(&p.path));
-    s += "    samples = pd.read_sql(\"SELECT sample_id, stratum, row, col, label, ref_date, status FROM samples\", db)\n";
-    s += &format!("strata = rioxarray.open_rasterio({}).squeeze(drop=True)\n", py_path(&p.strata_path));
-    s += "x, y = strata.rio.transform() * (samples[\"col\"] + 0.5, samples[\"row\"] + 0.5)\n";
-    s += "samples = gpd.GeoDataFrame(samples, geometry=gpd.points_from_xy(x, y), crs=strata.rio.crs)\n";
-    s += "samples = samples[samples[\"status\"] == \"labelled\"]  # an agreed (or adjudicated) reference label\n";
-    if r.kind == MapKind::Events {
-        // change comes from any of a point's events, and its period from their dates: the reference as Janus reads it
-        let pr = prepare(p, m, &vec![f64::NAN; p.points.len()], &BTreeMap::new(), confidence, &[]);
-        s += "# The reference class of each point: its labels (and dates) translated to the map's periods\n";
-        s += "reference = {";
-        let mut k = 0;
-        for (i, pt) in p.points.iter().enumerate() {
-            let Some(c) = pr.input.reference[i] else { continue };
-            if k > 0 {
-                s += ", ";
-            }
-            k += 1;
-            s += &format!("{}: {}", pt.id, py_str(&pr.input.classes[c]));
-            if k % 8 == 0 {
-                s += "\n             ";
-            }
-        }
-        s += "}\nsamples[\"ref\"] = samples[\"sample_id\"].map(reference)\n";
-    } else {
-        s += "to_map = {  # reference label -> the map's class\n";
-        for (label, target) in &m.mapping {
-            if target.is_empty() {
-                s += &format!("    {}: None,\n", py_str(label));
-                continue;
-            }
-            let mut v = py_str(target);
-            if r.kind == MapKind::Classes {
-                for (code, name) in &r.names {
-                    if name == target {
-                        v = code.to_string();
-                    }
-                }
-                if r.names.is_empty()
-                    && let Ok(code) = target.parse::<i64>()
-                {
-                    v = code.to_string();
-                }
-            }
-            s += &format!("    {}: {v},\n", py_str(label));
-        }
-        s += "}\nsamples[\"ref\"] = samples[\"label\"].map(to_map)\n";
-    }
-    s += "samples = samples[samples[\"ref\"].notna()]\n\n";
     s += &format!(
-        "the_map = rioxarray.open_rasterio({}, masked=True).sel(band={}, drop=True)\n",
-        py_path(&r.path),
-        r.band
+        "samples = gpd.read_file({}, layer=\"samples\")  # the points, at their pixels' centres\n",
+        py_path(&p.path)
     );
-    let mut bins = String::new();
-    if r.bins.len() >= 2 {
-        bins = format!(", bins=[{}]", r.bins.iter().map(|&b| py_num(b)).collect::<Vec<_>>().join(", "));
+    s += "samples = samples[samples[\"status\"] == \"labelled\"]  # an agreed (or adjudicated) reference label\n";
+    s += "samples[\"ref\"] = samples[\"label\"].map({  # reference label -> the map's class (a label not listed is left out)\n";
+    for (label, target) in &m.mapping {
+        if target.is_empty() {
+            continue;
+        }
+        let code = || {
+            let named = r.names.iter().find(|(_, name)| *name == target).map(|(code, _)| code.to_string());
+            named.or_else(|| if r.names.is_empty() { target.parse::<i64>().ok().map(|c| c.to_string()) } else { None })
+        };
+        let v = if events {
+            py_str(if target == CHANGE { CHANGE } else { NO_CHANGE })
+        } else if r.kind == MapKind::Classes {
+            code().unwrap_or_else(|| py_str(target))
+        } else {
+            py_str(target)
+        };
+        s += &format!("    {}: {v},\n", py_str(label));
     }
-    if r.kind == MapKind::Events {
-        s += "the_map = xr.Dataset({\"yod\": the_map.fillna(0)})  # a map of events: > 0 change\n";
+    s += "})\n";
+    if periods {
+        // a change falls in the map's period of its year (the first four-digit number of the reference date); a
+        // change without a year is left out, and one outside the periods is no change
+        let names: Vec<String> = (1..r.bins.len() as i32).map(|k| py_str(&r.class_name(k))).collect();
+        s += "year = samples[\"ref_date\"].str.extract(r\"(?<!\\d)(\\d{4})(?!\\d)\", expand=False).astype(float)\n";
+        s += "change = samples[\"ref\"] == \"change\"\n";
+        s += &format!(
+            "period = pd.cut(year[change], [{}], right=False, labels=[{}]).astype(object)\n",
+            r.bins.iter().map(|&b| py_num(b)).collect::<Vec<_>>().join(", "),
+            names.join(", ")
+        );
+        s += "samples.loc[change, \"ref\"] = period.where(period.notna() | year[change].isna(), \"no change\")\n";
     }
+    if events {
+        // Janus reads a point's reference from all of its dated events: the points where that differs from the
+        // rules above are given as they are
+        let pr = prepare(p, m, &vec![f64::NAN; p.points.len()], &BTreeMap::new(), confidence, &[]);
+        let mut fix = Vec::new();
+        let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
+        for (i, pt) in p.points.iter().enumerate() {
+            let Some(l) = resolve(&labels, i).0 else { continue };
+            let simple = match m.mapping.get(&l.label).map(String::as_str) {
+                None | Some("") => None,
+                Some(CHANGE) if r.bins.is_empty() => Some(CHANGE.to_string()),
+                Some(CHANGE) => match year_of(&l.date) {
+                    0 => None,
+                    y => Some(match r.class_of(f64::from(y)) {
+                        k if k != NONE && k > 0 => r.class_name(k),
+                        _ => NO_CHANGE.to_string(),
+                    }),
+                },
+                Some(_) => Some(NO_CHANGE.to_string()),
+            };
+            let actual = pr.input.reference[i].map(|c| pr.input.classes[c].clone());
+            if simple != actual {
+                fix.push(format!("{}: {}", pt.id, actual.map_or("None".to_string(), |a| py_str(&a))));
+            }
+        }
+        if !fix.is_empty() {
+            s += &format!("fix = {{{}}}  # points with several dated labels\n", fix.join(", "));
+            s += "samples.loc[samples[\"sample_id\"].isin(fix), \"ref\"] = samples[\"sample_id\"].map(fix)\n";
+        }
+    }
+    s += "\n";
+    let band = if r.band == 1 { String::new() } else { format!(", band={}", r.band) };
+    let the_map = if events {
+        s += &format!(
+            "the_map = xr.Dataset({{\"yod\": zeit.load_raster({}, masked=True{band})}})  # a map of events: > 0 change\n",
+            py_path(&r.path)
+        );
+        "the_map".to_string()
+    } else if r.band == 1 {
+        py_path(&r.path)
+    } else {
+        s += &format!("the_map = zeit.load_raster({}{band})\n", py_path(&r.path));
+        "the_map".to_string()
+    };
+    let bins = if r.bins.len() >= 2 {
+        format!(", bins=[{}]", r.bins.iter().map(|&b| py_num(b)).collect::<Vec<_>>().join(", "))
+    } else {
+        String::new()
+    };
     // the model-assisted estimators use the map's areas inside the strata, which Zeit counts as Janus does when
     // the map is on the strata's grid
     let estimator = if p.estimator == AreaEstimator::Direct {
@@ -403,7 +435,7 @@ pub fn python_snippet(p: &Project, m: &AssessedMap, confidence: f64) -> String {
         format!(", estimator={}", py_str(p.estimator.name()))
     };
     s += &format!(
-        "acc = zeit.accuracy(the_map, samples, strata={}{bins}, confidence={}{estimator})\n",
+        "acc = zeit.accuracy({the_map}, samples, strata={}{bins}, confidence={}{estimator})\n",
         py_path(&p.strata_path),
         fmt_g(confidence, 6)
     );

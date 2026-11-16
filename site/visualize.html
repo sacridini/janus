@@ -14,9 +14,8 @@
 <meta property="og:description" content="Which places behaved like this one, the cycles a place goes through, every band over time and 41 years of Landsat as kinds of behaviour in one plane.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/visualize/04-atlas.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Seeing a series</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Seeing a series</p>
     <p class="eyebrow">Analysis · visual</p>
     <h1>Seeing a series</h1>
     <p class="lede">A line chart shows one place's values. Four views show other sides of a series: a map of the places that behaved like this one, the cycles a place goes through, every band at once, and every pixel's behaviour in one plane linked to the map. This guide shows each on Sentinel-2 over Rondônia and on 41 years of Landsat in north-eastern Brazil.</p>
@@ -95,13 +96,33 @@
         <li><strong>Sentinel-2 over Rondônia</strong>: the series of the <a href="stac.html">STAC guide</a>, 107 dates from June 2019 to September 2024 (5% of clouds at most, so mostly dry-season dates), six bands, the NDVI shown. Pin 1 (195, 837) is in a forest, pin 2 (179, 761) in a pasture.</li>
         <li><strong>Landsat over Sergipe and Alagoas</strong>: 41 annual medoid composites of a vegetation index, 1985 to 2025, the 2000 × 2000 pixels around the mouth of the São Francisco river of the <a href="maps-to-numbers.html">Maps to numbers</a> guide, at the date 2018.</li>
       </ul>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public and the author's own: the Sentinel-2 series of the STAC guide (<code>s2ro</code>, from Planetary Computer) with the NDVI and the series guide's pins, and the Landsat series of the Maps to numbers guide (<code>landsat</code>, the author's own) at 2018. These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code>, in a window of 1600 × 950 with <code>--threads 4</code>.</p>
+        <p class="what"><code>similarity.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --mode similarity,pin --screenshot similarity.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --mode similarity,pin --screenshot similarity.png">Copy</button></div>
+        <p class="what"><code>sim_values.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin --screenshot sim_values.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin --screenshot sim_values.png">Copy</button></div>
+        <p class="what"><code>sim_shape.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin,shape --screenshot sim_shape.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin,shape --screenshot sim_shape.png">Copy</button></div>
+        <p class="what"><code>cycles.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis cycles --screenshot cycles.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis cycles --screenshot cycles.png">Copy</button></div>
+        <p class="what"><code>bands.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis bands --screenshot bands.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis bands --screenshot bands.png">Copy</button></div>
+        <p class="what"><code>atlas.png</code>, on the Landsat series:</p>
+        <div class="cmd"><code>janus landsat --interface modern --threads 4 --pin 71,793 --pin 65,1038 --date 34 --analysis atlas,groups --screenshot atlas.png</code><button class="copy" type="button" data-copy="janus landsat --interface modern --threads 4 --pin 71,793 --pin 65,1038 --date 34 --analysis atlas,groups --screenshot atlas.png">Copy</button></div>
+        <p>With <code>--detach-map</code> the Analysis panel takes the main window, and those screenshots are cropped to the panel. All are JPEG at quality 88.</p>
+        </div>
+      </details>
     </section>
 
     <section id="similarity">
       <h2><span class="n">03</span>The similarity map</h2>
       <p>Choose <span class="ui">Similarity to a series</span> in the Display panel and the map shows, for every pixel, how alike its series is to one place's: the cursor's (the map follows the mouse), a pin's or the ROI's mean. It is the question an embedding's similarity map answers, asked of the series itself: <em>where else did this happen?</em></p>
       <figure class="fig">
-        <a href="assets/img/visualize/01-similarity.jpg"><img src="assets/img/visualize/01-similarity.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as Similarity to pin 1 (values): the forest of pin 1 and the other forests in yellow, the pastures and clearings in dark purple, the colour bar from 0.5 to 1; below, the NDVI of pin 1 (forest, high and steady) and pin 2 (pasture, low and seasonal), with the Analysis tab next to Time series." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/visualize/01-similarity.jpg"><picture><source type="image/webp" srcset="assets/img/visualize/01-similarity.webp"><img src="assets/img/visualize/01-similarity.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as Similarity to pin 1 (values): the forest of pin 1 and the other forests in yellow, the pastures and clearings in dark purple, the colour bar from 0.5 to 1; below, the NDVI of pin 1 (forest, high and steady) and pin 2 (pasture, low and seasonal), with the Analysis tab next to Time series." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Where else is the forest of pin 1.</b> Every pixel's NDVI from 2019 to 2024 compared with pin 1's: the forests that stood all those years are yellow, the pastures and the clearings dark purple.</figcaption>
       </figure>
       <p>Two pixels are compared over the dates both have (the season's, if the map shows only part of the year), on the band or index shown:</p>
@@ -110,7 +131,7 @@
         <li><strong>Shape</strong>: the correlation of the two series: 1 the same curve whatever its level, 0 unrelated, below 0 opposite. A crop's calendar on poorer and richer soils, or a pasture that greens and dries like another, are alike by shape though not by values.</li>
       </ul>
       <figure class="fig">
-        <a href="assets/img/visualize/01b-similarity-measures.jpg"><img src="assets/img/visualize/01b-similarity-measures.jpg" alt="The same region twice as similarity to pin 1, a pasture: at the left by values, the pastures green and the forests dark purple; at the right by shape, the pastures and most of the land bright, the forests and the rivers blue-green." width="984" height="487" loading="lazy"></a>
+        <a href="assets/img/visualize/01b-similarity-measures.jpg"><picture><source type="image/webp" srcset="assets/img/visualize/01b-similarity-measures.webp"><img src="assets/img/visualize/01b-similarity-measures.jpg" alt="The same region twice as similarity to pin 1, a pasture: at the left by values, the pastures green and the forests dark purple; at the right by shape, the pastures and most of the land bright, the forests and the rivers blue-green." width="984" height="487" loading="lazy"></picture></a>
         <figcaption><b>A pasture, two ways.</b> Similarity to a pasture: by values (left) only the pastures with about its NDVI are bright and the forests dark; by shape (right) every place that greens and dries with its seasons is bright whatever its level, and the forests, whose curve is flat, stand apart.</figcaption>
       </figure>
       <p><span class="ui">Reference</span> and <span class="ui">Compare</span> sit under the mode in the Display panel. The map is computed on the GPU from the dates already there for the map, again whenever the reference changes, so with the cursor as reference the comparison moves with the mouse. The status line shows the similarity under the pointer.</p>
@@ -120,7 +141,7 @@
       <h2><span class="n">04</span>Cycles</h2>
       <p>A wavelet transform shows which periods a series oscillates at, and when. The horizontal axis is time, the vertical one the period (from two weeks to two years here), and the colour the power: how strongly the series oscillates at that period at that time.</p>
       <figure class="fig narrow">
-        <a href="assets/img/visualize/02-cycles.jpg"><img src="assets/img/visualize/02-cycles.jpg" alt="The Cycles tab for pin 1: a wavelet scalogram from 2019 to 2024 with period on the vertical axis from 2 weeks to 2 years, a bright band at 1 year outlined in black in 2022 and 2023, the cone of influence darkened at the edges, and at the right the global spectrum peaking at 1 year above the dashed red-noise line." width="828" height="865" loading="lazy"></a>
+        <a href="assets/img/visualize/02-cycles.jpg"><picture><source type="image/webp" srcset="assets/img/visualize/02-cycles.webp"><img src="assets/img/visualize/02-cycles.jpg" alt="The Cycles tab for pin 1: a wavelet scalogram from 2019 to 2024 with period on the vertical axis from 2 weeks to 2 years, a bright band at 1 year outlined in black in 2022 and 2023, the cone of influence darkened at the edges, and at the right the global spectrum peaking at 1 year above the dashed red-noise line." width="828" height="865" loading="lazy"></picture></a>
         <figcaption><b>The forest's cycles.</b> The strongest power is at one year, the dry season every year, and it is significant (outlined) in 2022 and 2023. The vertical streaks at short periods are single dates far from their neighbours. At the right, the global spectrum: the power's mean over time, peaking at one year above the dashed red-noise level.</figcaption>
       </figure>
       <ul>
@@ -136,7 +157,7 @@
       <h2><span class="n">05</span>Bands</h2>
       <p>Every band of a place over time, as a heatmap: a row a band, a column a date. It shows at once what a line chart of six bands mixes up.</p>
       <figure class="fig narrow">
-        <a href="assets/img/visualize/03-bands.jpg"><img src="assets/img/visualize/03-bands.jpg" alt="The Bands tab for pin 1: six rows (blue, green, red, NIR, SWIR 1, SWIR 2) and columns for the dates from 2019 to 2024, each band coloured over its own range; the visible bands dark and steady, the NIR and SWIR high in some years and low in others; the date shown outlined in orange." width="828" height="865" loading="lazy"></a>
+        <a href="assets/img/visualize/03-bands.jpg"><picture><source type="image/webp" srcset="assets/img/visualize/03-bands.webp"><img src="assets/img/visualize/03-bands.jpg" alt="The Bands tab for pin 1: six rows (blue, green, red, NIR, SWIR 1, SWIR 2) and columns for the dates from 2019 to 2024, each band coloured over its own range; the visible bands dark and steady, the NIR and SWIR high in some years and low in others; the date shown outlined in orange." width="828" height="865" loading="lazy"></picture></a>
         <figcaption><b>The forest's six bands</b>, each over its own range. The visible bands stay low, as in a forest; the near and short-wave infrared vary from year to year, and together. The date on the map is outlined in orange.</figcaption>
       </figure>
       <p>The colours are each band's own range (to see each band's changes), <span class="ui">One range</span> for all (to compare their levels, as a spectrum would) or <span class="ui">Z-scores</span> (each band's departures from its mean, in standard deviations). <span class="ui">Copy CSV</span> copies the dates and every band's value.</p>
@@ -146,7 +167,7 @@
       <h2><span class="n">06</span>Atlas</h2>
       <p>The Atlas puts every pixel's series in one picture. Pixels that behaved alike over time land close together in a plane, so each cluster is a kind of behaviour of the place: a forest, a crop, water, a clearing. The plane is linked to the map both ways.</p>
       <figure class="fig">
-        <a href="assets/img/visualize/04-atlas.jpg"><img src="assets/img/visualize/04-atlas.jpg" alt="Janus with the Landsat series of Sergipe and Alagoas at 2018: the map coloured by four groups (blue on the sea and the river, orange and green on the land), and in the Analysis panel the Atlas tab with Groups set to 4, the plane of points with the four groups found, their shares (A 27.2%, B 43.2%, C 25.2%, D 2.2%, others 2.2%) and their curves from 1985 to 2025." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/visualize/04-atlas.jpg"><picture><source type="image/webp" srcset="assets/img/visualize/04-atlas.webp"><img src="assets/img/visualize/04-atlas.jpg" alt="Janus with the Landsat series of Sergipe and Alagoas at 2018: the map coloured by four groups (blue on the sea and the river, orange and green on the land), and in the Analysis panel the Atlas tab with Groups set to 4, the plane of points with the four groups found, their shares (A 27.2%, B 43.2%, C 25.2%, D 2.2%, others 2.2%) and their curves from 1985 to 2025." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>41 years, four behaviours.</b> 17,689 pixels laid out (one in 15 × 15), Groups set to 4 and Find groups pressed, the groups coloured on the map. A (blue) is the sea and the river, near 0 every year; B (orange) and C (green) are two kinds of land, B greener; D (purple), a few pixels apart in the plane, drops sharply in 2016. Each group's curve is its mean, with the range of its pixels (10th to 90th percentile) shaded.</figcaption>
       </figure>
       <ol class="steps">
@@ -212,6 +233,12 @@ janus SERIES --analysis atlas[,shapes][,groups[=N]][,density|value|mean|amplitud
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -219,6 +246,7 @@ janus SERIES --analysis atlas[,shapes][,groups[=N]][,density|value|mean|amplitud
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

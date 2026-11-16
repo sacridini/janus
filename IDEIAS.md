@@ -1244,10 +1244,9 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
   comportamento da janela de TSA; um teste compara a cadeia com as ferramentas rodadas uma a uma
   (os mesmos bits). 57b: o *To look at* (`advice()`), a prévia na ROI com a cortina de antes e
   depois (as peças da prévia das ferramentas: contorno tracejado, pasta removida com a prévia) e o
-  *Use in Time series analysis*. 57c: o *Copy Python* da cadeia (`chain_code` do `ard.rs`: as
-  chamadas dos geradores das próprias ferramentas, as entradas de `python::input_lines`, que o
-  `run_code` passou a usar também com a saída igual, os resultados numerados por
-  `chain::number_results`, que o `chain_code` do TSA também usa) e a proveniência da raiz
+  *Use in Time series analysis*. 57c: o *Copy Python* da cadeia (`chain_code` do `ard.rs`: o
+  `janus_zeit::python::pixel_script`, como o `chain_code` do TSA, com os `Step` que leem a série
+  harmonizada: `reads_harmonized` e `harmonizes`) e a proveniência da raiz
   (`kind: "ard"`, as etapas com parâmetros e subpastas, as deixadas de fora e por quê, o
   `rerun.py` igual ao *Copy Python*; o *Run again* liga as mesmas etapas na janela). O autoteste
   `ui_test_ard.rs`, estágios 310-319, na série Landsat do `make_selftest_data.py` (a pasta
@@ -1266,6 +1265,8 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
   agora guarda a pasta e `ard_drop_orphans` a remove quando a camada chega; (4) uma ROI some
   quando as séries da cadeia abrem (o ROI pertence à grade da camada ativa, que elas tomam por um
   instante), então o autoteste a desenha de novo antes de cada prévia e do *Run again*.
+
+**2026-11-14:** o pin do zeit-core foi para o Zeit 3.6.0 (b98da66), que traz os módulos do Level 2 (l2scene, s2l1c, fmask, cloud_dist, solpos, atmo, aod, gas, radtran, topo, qai, parallax, resmerge, coreg), as etapas 23e-23g que esta lista esperava.
 
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
@@ -2326,7 +2327,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   iguais às do Zeit a 1e-5. Saídas cujas bandas a ferramenta decide e o parâmetro
   de múltipla escolha. O teste dos alertas que falhava no Ubuntu (duas funções
   apagavam a mesma pasta) corrigido.
-- Ainda sem versão (271b45c): Tasseled Cap (FORCE) e Ajuste espectral (FORCE), pelo zeit-core
+- 1.17.0 (271b45c): Tasseled Cap (FORCE) e Ajuste espectral (FORCE), pelo zeit-core
   (Zeit 3.1.0), em pixel e raster. Iguais ao Zeit bit a bit em fixtures que misturam datas
   Landsat 5/7/8/9, MODIS e Sentinel-2 (`tests/l2.rs`, `tools/l2_fixtures.py`). O sensor de cada
   data vem do STAC ou do nome do arquivo (`janus_zeit::sensors`), e uma data sem sensor é um erro
@@ -2334,7 +2335,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   WIP, o Copy Python chamar as bandas SWIR de swir1/swir2 onde o Zeit procura swir16/swir22,
   está corrigido (passa `bands=`). São as primeiras peças da futura janela *Analysis-ready data
   (Level 2)*, a fase depois da 56 (ver o primeiro parágrafo da seção da fase 56).
-- Ainda sem versão (NBAR-a, branch j4): NBAR (c-factor) (`nbar`, Data preparation), pelo `zeit.nbar`
+- 1.17.0 (NBAR-a): NBAR (c-factor) (`nbar`, Data preparation), pelo `zeit.nbar`
   (Roy et al. 2016, 2017): as bandas por papel (qualquer subconjunto dos 11 do Zeit) e as quatro
   bandas de ângulo da série (`sza`, `saa`, `vza`, `vaa`, em graus ou em centésimos de grau), uma série
   por banda e, se pedido, uma por c-factor. O SZA normalizado "scene" (a média do SZA observado de cada
@@ -2344,7 +2345,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   no Zeit dá os mesmos valores da execução (`janus-app`, `python::tests`). Os papéis opcionais do
   manifesto (`optional_bands`) servem para "qualquer subconjunto"; "ao menos uma" é erro em tempo de
   execução. Fora do `--selftest-zeit` (a série de teste não tem bandas de ângulo).
-- Ainda sem versão (NBAR-b, branch j4): os ângulos do Sentinel-2 vêm do MTD_TL.xml de cada data
+- 1.17.0 (NBAR-b): os ângulos do Sentinel-2 vêm do MTD_TL.xml de cada data
   (`angles = "sentinel2"`, `view_band` B06 como o HLS), pelo port do `zeit.sentinel2_angles`
   (`s2angles.rs`: grades de 5 km, detectores fundidos, bilinear sobre os cantos válidos, azimutes por
   seno e cosseno, outro CRS pelo OSR, vários tiles por data; quick-xml, sem GDAL no parsing). Iguais ao
@@ -2356,7 +2357,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   em tempo de execução). Os ângulos são calculados por faixa (duas vezes, com SZA "scene": uma na
   primeira passada). Falta: ler o Earth Search de verdade (o href do `granule_metadata` não foi
   conferido na rede) e o `view_band="each"`.
-- Ainda sem versão (J4, branch j4): ImproPhe (FORCE) (`improphe`, Data preparation, só raster), pelo
+- 1.17.0 (J4): ImproPhe (FORCE) (`improphe`, Data preparation, só raster), pelo
   `zeit.improphe` (zeit-core f20ff43): a série ativa é a fina (todas as bandas de cada data menos a de
   qualidade, que mascara as datas) e a grossa é **outra série aberta**, escolhida num parâmetro novo do
   manifesto, `"type": "series"` (valor `{name, inputs}`, o app resolve para o `CubeInfo` da camada e
@@ -2372,6 +2373,25 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   com 300 x 300 px e três raios, dentro de 25%). Falta: um tile a tempo (a janela inteira em memória limita
   a uns 1 500 x 1 500 px com 100 datas de 6 bandas), o `resmerge` do Sentinel-2 de 20 m para 10 m e a série grossa ser lida só
   na janela no Copy Python.
+- 1.17.0 também: a janela Time series analysis (fase 56, menos as capturas e a página do site); o site
+  novo (a história Explorar, Detectar, Provar, o demo no navegador, o catálogo de métodos, as trilhas de
+  guias, busca, vídeos curtos, docs e News); os scripts do histórico de Python com o Zeit (load_raster e
+  save_raster: warp 50 -> 18 linhas, zonal 320 -> 100, regularize 238 -> 32) e o Copy Python da
+  validação (69 -> 27 linhas).
+- 1.17.1: o Copy Python, o rerun.py e os scripts do histórico com o Zeit 3.2 e 3.2.1 (zonal_stats,
+  rasterize, polygonize, build_vrt, load_raster com pixel=, window=, bands=, scale=, qa=, qa_to_fmask):
+  o pino de LandTrendr do guia em 4 linhas de código (eram 118), CCDC 30 -> 11, zonal 100 -> 17,
+  montagem de série sem osgeo; os exemplos Python do site gerados pelo pixel_script e rodados com os
+  números dos guias. Corrigidos no caminho: uma pilha multibanda lia as bandas da primeira data em todas,
+  NDFI/tmask/CODED sem máscara, o CCDC com NaN, a escala da calculadora com bandas de escalas diferentes.
+- 1.17.2: a 1.17.1 publicada (a tag dela falhou no teste do Linux, que dependia de onde o script quebra a
+  linha, e o release não saiu), com os clipes do site e o passo do macOS montando o .dmg num diretório fixo.
+- 1.18.0: a tela de interpretação da validação no estilo do Validation Viewer (Dr. Matthias Baumann, HU
+  Berlin): painel em cartões, arranjo próprio, cartões grandes com pixel, subgrade e ponto, combos
+  RGB/CIR/SWIR, imagens Esri Wayback por ano com lightbox, pré-busca, cache e modo offline, um rótulo por
+  ano e fração de cobertura (o Google Earth histórico ficou de fora pelos termos de uso). Também: Level 1C
+  para reflectância de superfície (FORCE) como ferramenta, o plugin JPEG 2000 do GDAL nos pacotes, os
+  embeddings compactos (int8) do Zeit, e o crash do mimalloc com memória entregue ao GDAL.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

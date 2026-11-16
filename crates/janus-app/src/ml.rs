@@ -974,6 +974,7 @@ impl State {
             let o = &s.info;
             if o.id != info.id
                 && o.t() == 1
+                && o.encoding.is_none() // a compact embeddings file's codes are not a variable
                 && (o.width, o.height) == (info.width, info.height)
                 && let Some(first) = o.layers.first()
             {
