@@ -253,7 +253,7 @@ pub struct AnalysisUi {
     /// brought to the front (a button elsewhere opened one of its tabs)
     pub focus: bool,
     /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test, 4 areas (areas_ui.rs), 5 zonal, 6 bands (bands_time.rs),
-    /// 7 cycles (cycles.rs), 9 atlas (atlas.rs)
+    /// 7 cycles (cycles.rs), 9 atlas (atlas.rs), 11 modes (modes.rs)
     pub tab: usize,
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
@@ -292,6 +292,8 @@ pub struct AnalysisUi {
     pub trend: crate::trend_test::TrendTestUi,
     /// the dates side by side (mosaic.rs)
     pub mosaic: crate::mosaic::MosaicUi,
+    /// the temporal EOF's modes and the lagged correlation's lags (modes.rs)
+    pub modes: crate::modes::ModesUi,
 }
 
 impl AnalysisUi {
@@ -337,6 +339,7 @@ impl State {
                 Some("for categorical layers or a run's map")
             }
             5 if self.vectors.is_empty() && self.zonal.table.is_none() => Some("needs a vector layer of zones"),
+            11 if self.modes_runs().is_empty() => Some("needs a temporal EOF or lagged correlation run"),
             _ => None,
         }
     }
@@ -381,6 +384,7 @@ impl State {
             7 => self.cycles_tab(ui),
             9 => self.atlas_tab(ui),
             10 => self.mosaic_tab(ui),
+            11 => self.modes_tab(ui),
             _ => self.zonal_tab(ui),
         }
     }
@@ -397,7 +401,7 @@ impl State {
 }
 
 /// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
-pub(crate) const ANALYSIS_TABS: [(usize, &str); 10] = [
+pub(crate) const ANALYSIS_TABS: [(usize, &str); 11] = [
     (0, "Seasonal"),
     (10, "Dates"),
     (7, "Cycles"),
@@ -407,6 +411,7 @@ pub(crate) const ANALYSIS_TABS: [(usize, &str); 10] = [
     (2, "Scatter"),
     (3, "Trend test"),
     (4, "Areas"),
+    (11, "Modes"),
     (5, "Zonal"),
 ];
 

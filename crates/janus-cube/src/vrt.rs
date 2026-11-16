@@ -40,7 +40,9 @@ pub fn write_cube_vrt(info: &CubeInfo, path: &str, source_band: i32, raw: bool) 
     for (t, l) in info.layers.iter().enumerate() {
         let mut src_band = l.band;
         let mut m = l.meta;
-        if source_band > 0 && source_band + l.band_base != l.band {
+        // (the shown band of a date is `sel.band` of its bands: a file of many dates, one band each, has its date's band
+        // at `l.band`, not at `band_base + sel.band`)
+        if source_band > 0 && source_band != info.sel.band {
             // another band of the date
             src_band = source_band + l.band_base;
             m = if source_band == info.sel.nd_band {

@@ -105,6 +105,11 @@ pub struct Range {
 }
 
 impl Range {
+    /// A range set by hand (a tool's fixed scale: a correlation's -1 to 1).
+    pub fn fixed(lo: f32, hi: f32) -> Range {
+        Range { lo, hi, manual: true, key: 0 }
+    }
+
     /// Computed again from the next sample (unless set by hand).
     pub fn invalidate(&mut self) {
         self.key = u64::MAX;

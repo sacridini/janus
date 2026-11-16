@@ -72,6 +72,13 @@ pub struct ToolUi {
     pub threads: Option<usize>,
 }
 
+impl ToolUi {
+    /// The run's time as measured on a sample (None: not yet).
+    pub(crate) fn estimate(&self) -> Option<&Result<janus_zeit::job::Estimate, String>> {
+        self.est.as_ref()
+    }
+}
+
 /// A preview's side at most, in pixels (without an ROI: at the centre of the view).
 pub const PREVIEW_SIDE: usize = 256;
 /// Auto-preview runs again only when a preview is estimated to take at most this long.
@@ -163,6 +170,13 @@ pub struct ZeitUi {
     pub keep_active: Option<usize>,
     /// the series a run wrote, being opened, goes hidden
     pub open_hidden: bool,
+    /// the colormap and fixed range of the series being opened, by its file
+    pub series_styles: HashMap<String, (usize, [f32; 2])>,
+    pub open_style: Option<(usize, [f32; 2])>,
+    /// the run folders looked at for an EOF run (a project's maps)
+    pub(crate) modes_checked: std::collections::HashSet<String>,
+    /// the temporal EOF and lagged-correlation runs of this session (Analysis > Modes)
+    pub(crate) modes_runs: Vec<crate::modes::ModesRun>,
     /// the last preview of a tool (its maps are result layers marked preview)
     pub preview: Option<Preview>,
     /// result maps read (on threads)
@@ -1194,7 +1208,8 @@ fn series_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value, others: &[
                 for o in others {
                     let on = chosen.as_ref() == Some(&o.inputs);
                     let label = format!("{} ({})", o.name, o.about);
-                    ui.add_enabled_ui(o.same_crs, |ui| {
+                    // a parameter that takes any CRS (a driver the tool warps onto the run's grid) refuses none
+                    ui.add_enabled_ui(o.same_crs || p.any_crs == Some(true), |ui| {
                         if ui
                             .selectable_label(on, label)
                             .on_disabled_hover_text(
@@ -1213,6 +1228,10 @@ fn series_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value, others: &[
         );
         if others.is_empty() {
             ui.weak("Open the coarse series as another layer first.");
+        } else if p.any_crs == Some(true)
+            && let Some(o) = others.iter().find(|o| !o.same_crs && chosen.as_ref() == Some(&o.inputs))
+        {
+            ui.weak(format!("{} is in another CRS: it is warped onto this series' grid.", o.name));
         }
     });
     changed
@@ -1680,6 +1699,10 @@ pub struct ResultLayer {
     pub upgrading: bool,
     /// a preview's map (replaced by the next preview)
     pub preview: bool,
+    /// the mode a temporal EOF's map is (modes.rs): what the chart's overlay draws
+    pub eof: Option<crate::modes::EofMode>,
+    /// the colours' fixed range (a correlation's -1 to 1), not the map's own
+    pub range: Option<[f32; 2]>,
 }
 
 impl ResultLayer {
@@ -1712,6 +1735,10 @@ impl ResultLayer {
     /// The automatic range: min..max for years and durations, 2-98 % otherwise; a class map's colours one
     /// per class, a map of segments' one per colour.
     pub(crate) fn auto_range(&mut self) {
+        if let Some([lo, hi]) = self.range {
+            (self.lo, self.hi) = (lo, hi);
+            return;
+        }
         if self.is_segments() {
             let colormaps = janus_gpu::colormaps::all();
             if !colormaps[self.cmap].qualitative
@@ -2160,11 +2187,23 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             let roles = self.active_roles();
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
             if tool.params.iter().any(|p| p.kind == "series") {
-                let Some((other_name, other)) = self.picked_series(tool, &params)? else {
-                    return Err("Choose the series to sharpen (another open layer) in the tool's form first.".into());
-                };
-                let stem = work.join(format!("{name}_{}_other{}", info.id, other.id));
-                other_series(&other, &other_name, &stem, &mut spec)?;
+                // a lagged correlation's driver may be a CSV file instead of a series
+                let by_file = tool.id == "lagged_correlation"
+                    && params.get("y_mode").and_then(Value::as_str) == Some("file");
+                match self.picked_series(tool, &params)? {
+                    Some((other_name, other)) if !by_file => {
+                        let stem = work.join(format!("{name}_{}_other{}", info.id, other.id));
+                        other_series(&other, &other_name, &stem, &mut spec)?;
+                    }
+                    None if !by_file => {
+                        return Err(if tool.id == "lagged_correlation" {
+                            "Choose the driver series (another open layer) in the tool's form first.".into()
+                        } else {
+                            "Choose the series to sharpen (another open layer) in the tool's form first.".to_string()
+                        });
+                    }
+                    _ => {}
+                }
             }
         }
         spec.window = Some(window);
@@ -2483,6 +2522,26 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             let source = grid.as_ref().map_or(String::new(), |(_, n)| n.clone());
             let grid = grid.map(|(g, _)| g);
             let preview = self.zeit.preview.as_ref().is_some_and(|p| p.dir == j.output_dir);
+            // a temporal EOF or lagged correlation: its run for Analysis > Modes, its parameters for the chart's overlay
+            let modes_params = ["eof", "lagged_correlation"]
+                .contains(&j.tool.as_str())
+                .then(|| crate::modes::run_params(&j.tool, &j.output_dir));
+            if let Some(p) = &modes_params
+                && !preview
+                && let Some(m) = crate::modes::ModesRun::new(
+                    &j.tool,
+                    &j.output_dir,
+                    j.cube,
+                    res.window,
+                    &j.title,
+                    &res.outputs,
+                    p,
+                )
+            {
+                self.zeit.modes_runs.retain(|r| r.run != m.run);
+                self.zeit.modes_runs.push(m);
+            }
+            let eof_params = modes_params.filter(|_| j.tool == "eof");
             let mut first = true;
             for (output, o) in res.outputs.iter().enumerate() {
                 let path = o["path"].as_str().unwrap_or("").to_string();
@@ -2495,6 +2554,12 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     // e.g. the NDFI of every date: a new layer (hidden: the Gi* under the hot spots' patterns); one a
                     // chain keeps from the layers (`no_layer`: NBAR's series of each band) is only a file
                     if o["no_layer"].as_bool() != Some(true) {
+                        if let Some(r) = o["range"].as_array()
+                            && let (Some(lo), Some(hi)) = (r.first().and_then(Value::as_f64), r.get(1).and_then(Value::as_f64))
+                        {
+                            let cmap = o["colormap"].as_str().and_then(janus_gpu::colormaps::by_name).unwrap_or(janus_gpu::colormaps::VIRIDIS);
+                            self.zeit.series_styles.insert(path.clone(), (cmap, [lo as f32, hi as f32]));
+                        }
                         self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
                     }
                     continue;
@@ -2551,6 +2616,8 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     class_series,
                     upgrading: false,
                     preview,
+                    eof: eof_params.as_ref().and_then(|p| crate::modes::EofMode::from_output(o, p)),
+                    range: o["range"].as_array().and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32])),
                 };
                 first = false;
                 let loaded = self.zeit.loaded.clone();
@@ -2588,11 +2655,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             }
         }
         self.upgrade_results(ctx);
+        self.restore_modes();
         // series outputs join as layers, one at a time; the series being studied stays active
         if !self.zeit.series_to_open.is_empty() && self.opening.is_none() {
             let (path, hidden) = self.zeit.series_to_open.remove(0);
             self.zeit.keep_active = Some(self.active);
             self.zeit.open_hidden = hidden;
+            self.zeit.open_style = self.zeit.series_styles.remove(&path);
             self.open_inputs(vec![path], true, ctx);
         }
     }
@@ -3215,6 +3284,8 @@ impl ResultLayer {
             class_series: vec![],
             upgrading: false,
             preview: false,
+            eof: None,
+            range: None,
         }
     }
 }

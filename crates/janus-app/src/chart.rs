@@ -1274,6 +1274,7 @@ impl State {
                 pl.series(plot, &name, &p.values, (&p.stats, &sh), (p.color, 1.5), true);
                 let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
                 crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
+                self.draw_eof_overlay(plot, &sh, (p.x, p.y), &p.values, &format!("at pin {}", p.id), p.color);
             }
             if let Some(h) = &sr.hover {
                 let name = cursor_name(h);
@@ -1282,6 +1283,7 @@ impl State {
                 let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
                 crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
                 self.draw_class_series(plot, &sh);
+                self.draw_eof_overlay(plot, &sh, (h.x, h.y), &h.values, "at the cursor", h.color);
             }
             if sr.chart_layers == 1 {
                 // the other visible layers: their own dates on the same axis, a marker shape per layer

@@ -116,6 +116,24 @@ pub(crate) fn bands(_o: &Output, p: &Params, _input: &PixelInput) -> Result<Vec<
     Ok(s.lags.iter().map(|&k| format!("lag {k} {}", unit[usize::from(k != 1)])).collect())
 }
 
+/// The smallest |r| whose two-sided p-value, with `n_eff` effective pairs, is at most `p` (the level the app draws that
+/// a correlation must pass); NaN for `n_eff <= 2` or a `p` outside (0, 1).
+pub fn critical_r(n_eff: f64, p: f64) -> f64 {
+    if !(n_eff > 2.0) || !(p > 0.0 && p < 1.0) {
+        return f64::NAN;
+    }
+    let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if zeit_core::correlation::p_value(mid, n_eff) > p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    hi
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The driver
 // ---------------------------------------------------------------------------------------------------------------

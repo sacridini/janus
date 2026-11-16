@@ -18,6 +18,8 @@ mod animation;
 mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_eof.rs"]
+mod eof;
 #[path = "ui_test_fullres.rs"]
 mod fullres;
 #[path = "ui_test_interface.rs"]
@@ -97,6 +99,8 @@ pub struct UiTest {
     tsa: tsa::TsaTest,
     /// stages 310-319: the Analysis-ready data window (ui_test_ard.rs)
     ard: ard::ArdTest,
+    /// stages 320-327: the temporal EOF and the lagged correlation (ui_test_eof.rs)
+    eof: eof::EofTest,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
@@ -1038,6 +1042,7 @@ impl State {
             180..=299 => return self.test_interface(st, &input, t0, ctx),
             300..=309 => return self.test_tsa(st, &input, t0, ctx),
             310..=319 => return self.test_ard(st, &input, t0, ctx),
+            320..=329 => return self.test_eof(st, t0, ctx),
             _ => {}
         }
         None

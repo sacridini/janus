@@ -5013,7 +5013,7 @@
      "id": "power_iterations",
      "label": "Power iterations",
      "type": "int",
-     "default": 2,
+     "default": 4,
      "min": 0,
      "max": 10,
      "help": "The randomized solver's passes that sharpen the range; more passes are exacter and read the pixels again."

@@ -471,6 +471,8 @@ impl State {
                                 class_series: Vec::new(),
                                 upgrading: false,
                                 preview: false,
+                                eof: None,
+                                range: None,
                             });
                         }
                         at.swipe = self.swipe.is_some();

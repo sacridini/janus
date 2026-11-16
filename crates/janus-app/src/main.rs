@@ -57,6 +57,7 @@ mod measure_vectors;
 mod methods;
 mod ml;
 mod ml_advice;
+mod modes;
 mod mosaic;
 mod navigation;
 mod open;
@@ -596,6 +597,7 @@ fn main() -> eframe::Result<()> {
                     "cycles" => Some(7),
                     "atlas" => Some(9),
                     "dates" => Some(10),
+                    "modes" => Some(11),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

@@ -1613,6 +1613,20 @@ impl State {
         {
             l.visible = false;
         }
+        // a series a run wrote with its colours' fixed range (r at the lags: -1 to 1, RdBu)
+        if let Some((cmap, [lo, hi])) = self.zeit.open_style.take()
+            && !self.layers.is_empty()
+        {
+            let v = janus_gpu::Mode::Value as usize;
+            let last = self.layers.len() - 1;
+            if self.active == last {
+                self.display.cmap[v] = cmap;
+                self.display.ranges[v] = crate::display::Range::fixed(lo, hi);
+            } else {
+                self.layers[last].disp.cmap[v] = cmap;
+                self.layers[last].disp.ranges[v] = crate::display::Range::fixed(lo, hi);
+            }
+        }
         // a date of a series split or detached: its group, the series' colours
         if let Some(id) = new_id {
             self.after_open(id, o.after.clone());
