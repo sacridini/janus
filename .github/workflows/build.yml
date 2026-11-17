@@ -40,9 +40,9 @@ jobs:
       run:
         shell: bash -el {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: mamba-org/setup-micromamba@v2
+      - uses: mamba-org/setup-micromamba@v3
         with:
           environment-name: janus
           create-args: -c conda-forge ${{ matrix.packages }}
@@ -160,7 +160,7 @@ jobs:
           Get-Content "$env:RUNNER_TEMP\installed.log" | Select-Object -Last 3
           exit $p.ExitCode
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: janus-${{ runner.os }}
           path: dist/*
@@ -175,7 +175,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -183,7 +183,7 @@ jobs:
         run: |
           ls -l dist
           ls dist/*-setup.exe dist/*-linux-x86_64.tar.xz
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
