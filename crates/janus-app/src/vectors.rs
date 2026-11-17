@@ -196,6 +196,24 @@ fn segment_distance(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64) -> f64
     (px - ax - k * dx).hypot(py - ay - k * dy)
 }
 
+/// A ring's outline: an open line from halfway along its first edge round to it again (the seam on a straight
+/// edge), its repeated points dropped. Not egui's closed line: it joins every corner with a miter, as long as the
+/// corner is sharp, and a ring that turns back on itself (a small one thinned to a few points on screen, zoomed
+/// out) threw spikes across the map; an open line cuts its sharp corners off.
+pub(crate) fn ring_line(mut pts: Vec<Pos2>, stroke: Stroke) -> Shape {
+    pts.dedup();
+    while pts.len() > 1 && pts.first() == pts.last() {
+        pts.pop();
+    }
+    if pts.len() < 2 {
+        return Shape::Noop;
+    }
+    let (first, mid) = (pts[0], pts[0] + (pts[1] - pts[0]) * 0.5);
+    pts[0] = mid;
+    pts.extend([first, mid]);
+    Shape::line(pts, stroke)
+}
+
 /// A polyline's segments as quads `width` wide (no joins, no antialiased edge), into `mesh`.
 fn add_polyline(mesh: &mut egui::Mesh, pts: &[Pos2], closed: bool, width: f32, color: Color32) {
     let n = pts.len();
@@ -574,8 +592,7 @@ impl State {
                         add_polyline(&mut lines_mesh, &pts, closed, thick, col);
                         continue;
                     }
-                    let line =
-                        |p: Vec<Pos2>, s: Stroke| if closed { Shape::closed_line(p, s) } else { Shape::line(p, s) };
+                    let line = |p: Vec<Pos2>, s: Stroke| if closed { ring_line(p, s) } else { Shape::line(p, s) };
                     painter.add(line(pts.clone(), Stroke::new(thick + 2.0, dark)));
                     painter.add(line(
                         std::mem::take(&mut pts),
@@ -1144,5 +1161,51 @@ impl State {
         self.exports.push(job.clone());
         self.show_exports = true;
         Some(job)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::epaint::{Mesh, TessellationOptions, Tessellator};
+    use egui::pos2;
+
+    use super::*;
+
+    /// The farthest vertex of a shape's mesh from `c` (infinite if one is not finite).
+    fn reach(shape: Shape, c: Pos2) -> f32 {
+        let mut t = Tessellator::new(1.0, TessellationOptions::default(), [1, 1], vec![]);
+        let mut m = Mesh::default();
+        t.tessellate_shape(shape, &mut m);
+        m.vertices
+            .iter()
+            .map(|v| if v.pos.is_finite() { (v.pos - c).length() } else { f32::INFINITY })
+            .fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn a_ring_turning_back_on_itself_stays_where_it_is() {
+        // small rings thinned to a few points on screen (zoomed out): there and back, nearly, and a sliver
+        let c = pos2(100.0, 100.0);
+        let rings = [
+            vec![c, pos2(102.0, 100.0), c],
+            vec![c, pos2(102.0, 100.1), c],
+            vec![c, pos2(101.6, 100.4), pos2(100.2, 100.05)],
+            vec![c, c, c, pos2(103.0, 100.0), pos2(103.0, 100.0), pos2(103.0, 100.0), c],
+        ];
+        for r in rings {
+            // egui's closed line throws its corners far (the bug), the ring's line does not
+            assert!(reach(Shape::closed_line(r.clone(), Stroke::new(3.0, Color32::WHITE)), c) > 100.0);
+            assert!(reach(ring_line(r.clone(), Stroke::new(5.0, Color32::BLACK)), c) < 10.0, "{r:?}");
+        }
+        // a ring of a single point: nothing
+        assert!(matches!(ring_line(vec![c, c], Stroke::new(3.0, Color32::WHITE)), Shape::Noop));
+        // a square: its outline whole, the seam halfway along the first edge
+        let sq = vec![pos2(0.0, 0.0), pos2(10.0, 0.0), pos2(10.0, 10.0), pos2(0.0, 10.0), pos2(0.0, 0.0)];
+        let Shape::Path(p) = ring_line(sq, Stroke::new(1.0, Color32::WHITE)) else { panic!("not a line") };
+        assert_eq!(
+            p.points,
+            [pos2(5.0, 0.0), pos2(10.0, 0.0), pos2(10.0, 10.0), pos2(0.0, 10.0), pos2(0.0, 0.0), pos2(5.0, 0.0)]
+        );
+        assert!(!p.closed);
     }
 }
