@@ -90,7 +90,12 @@
   disk, so reopening a series takes a fraction of a second.
 - **Export**: the map as a **PNG** figure (as shown, rendered at 1×, 2× or 4×
   the screen resolution, with the date, a colour bar or class legend, pins and
-  the ROI if wanted, on the map's, a white or a transparent background); the
+  the ROI if wanted, on the map's, a white or a transparent background, and for
+  a paper a **coordinate grid** (longitude and latitude by the exact transform
+  of any CRS, or the layer's own units) with its values at the edges, a **north
+  arrow** (leaning by the grid convergence in a projected CRS) and a **title**,
+  also in the animation's frames); **Save figure...** on the series chart and on
+  Analysis' plots (see [Figures](#figures)); the
   active layer's **values** at the date as a Float32 **GeoTIFF** (visible area
   or whole image, full resolution, same grid and CRS, no data = NaN) and the
   **rendered view** as an RGBA GeoTIFF, both ready for QGIS; **Zeit results** as
@@ -454,7 +459,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; a **polyline** (a river, a road, a valley): `T`, then click its vertices, a double click or `Enter` ends it (`Backspace` undoes a vertex); **Alt + click** a line of a vector layer: the transect along it; `Esc` cancels. **Transect** panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Profiles of every line | **Profiles of every line...** in a line layer's menu (Layers panel): every line (each part of a multi-line) sampled about a pixel apart along its length, as the transect samples it, through every date of the active series or those from one to another; the values the chart shows. A task (Tools → Tasks: progress, cancel; the processing threads) writing `profiles.csv`, a row per sample and date (`fid`, the fields chosen, `part`, `sample`, `distance_m` (metres; `distance_map_units` in a CRS without an EPSG code), `x`, `y`, `col`, `row`, `date`, `value`; samples off the series left out), and optionally `profiles_wide.csv` (a row per sample, a column per date) and the samples as **points**, `profiles_points.gpkg` or `profiles_points.shp` (the wide table's rows in the series' CRS: `fid_line`, the fields, `part`, `sample`, the distance, `col`, `row` and a column per date; a shapefile's names cut to 10 characters, at most 255 columns); its provenance kept |
 | Chart options | style (lines ... bars; a categorical layer: steps, markers, class blocks), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density) |
-| Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
+| Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, coordinate grid (longitude and latitude, or the layer's CRS), north arrow, title, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
 | Projects | **File → New project / Open project... / Save project** (`Ctrl+S`) **/ Save project as... / Recent projects**: a `.janus` file (JSON) keeps the series (their files, band, index or expression, quality mask, date, style, opacity, blend, visibility), the vector layers (colour, visibility), the runs' maps (their GeoTIFFs, colours, range), the drawing order, the groups, the active layer, the pins, the ROI (box or polygon), the transect, the view, the swipe, the map panels, the basemap, the web layers (the maps, and the fetched layers' requests), the saved views and the season. Paths are kept relative to the project's file (and absolute, used when the relative one is not found), so a folder with the project and its data can be moved or shared; a file not found leaves its layer out with a notice, the rest opens. The window's title gives the project's name, `*` when it has changes not saved; New and Open ask what to do with them (Save, Discard, Cancel); closing Janus does not ask, the session (changes included) is kept. Opening a `.janus` file (File → Open, a drop on the window or `jn work.janus`) opens the project. The session is kept every minute and at exit (`last-session.janus` beside Janus' other data) and, with *Settings → Reopen the last session at start* turned on (off by default), reopened at the next start |
 | Undo | `Ctrl+Z` undoes the last change to the layers, `Ctrl+Shift+Z` or `Ctrl+Y` redoes it; **Edit → Undo / Redo** says what (*Undo Opacity of NDVI*, *Undo Close Landsat*). Undone: closing layers (a series, a vector layer, a run's map: opened again in their place, with their style and date), opening them, styles, opacity and blend, colours, the drawing order, groups, visibility, names, pins, the ROI and the transect. A slider or a layer dragged is one step, whatever the frames in between; panning and zooming, the date shown, the panels and the active layer are not steps. The last 100 steps are kept; opening a project or New project starts again. A text field keeps its own `Ctrl+Z` |
@@ -464,6 +469,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
+| Charts as figures | **Save figure...** in the Time series and Transect panels and in Analysis' plots: PNG or SVG, size in mm, dpi, font in pt, light colours; see [Figures](#figures) |
 | Zeit tools | The **?** at the top right of each tool's window (the Zeit tools, the raster calculator, Time series analysis, Analysis-ready data, Classification, Field delineation, STAC, the validation panel and its Alerts tab, and the data preparation and vector windows) opens that tool's guide on the site in the browser (the method's page, or its place in the list of methods). Hover a parameter for its help and its default. **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; *Change detection*: CAT (change, aftereffect, trend) and the others; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in **Pixel values** (in the chart's place while a map is shown over its series) |
@@ -2003,7 +2009,35 @@ stops it); each frame waits for its date, its detail tiles and the basemap's.
 The date shown comes back at the end. Encoding continues in the Exports window
 (`Ctrl+J`); a cancelled or failed export leaves no file behind. If ffmpeg fails,
 the error shows its last lines (the full log is `ffmpeg.log` in Janus' data
-folder).
+folder). The frames can carry the coordinate grid, the north arrow and a title
+too (the same choices as the PNG figure's).
+
+## Figures
+
+For a paper, the charts leave Janus as figures, not only as CSV. **Save
+figure...** (the series chart's toolbar, and the button after the tabs of
+Analysis: Seasonal, Cycles, Bands, Classes (the view shown: the shares, the
+Sankey flows or the transitions), Scatter, Areas and Zonal; and the Transect
+panel's) opens one small window:
+
+- **Size**: one column (85 mm), two columns (180 mm) or free, and the height in
+  mm; the **font** in points (the figure's own, 8 pt by default); **white** or
+  **transparent** background.
+- **Format**: **PNG** at 150, 300 or 600 dpi (the dpi is written in the file),
+  or **SVG**, in which the text stays text (editable in Inkscape or
+  Illustrator), the lines and areas are paths, and an image (the Scatter's
+  density, the spectrogram of Cycles, the transect) is embedded.
+- The colours are those of a light figure whatever the interface's theme (a
+  dark chart does not suit a paper), and what is only of the moment (the date's
+  line and tag, the inspector's card, the panel's controls) is left out.
+- **Save to** works as the exports' (a path, a name alone for the last export
+  folder, **Browse...**, a warning before it replaces a file); the file is
+  written in the background (File → Exports). **Copy image** puts the PNG on the
+  clipboard.
+
+The map has no figure of its own: File → Export map as PNG... adds the
+coordinate grid, the north arrow and the title (see Export above); the layout
+(several panels, an inset) stays for QGIS.
 
 ## Performance
 

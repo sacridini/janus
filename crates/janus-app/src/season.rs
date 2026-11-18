@@ -335,7 +335,8 @@ pub fn chart_background(ui: &Ui, tr: &egui_plot::PlotTransform, d: &Display, inf
     let mut shapes = vec![egui::Shape::Rect(egui::epaint::RectShape::new(
         frame,
         if theme::modern() { 4 } else { 2 },
-        theme::plot_fill(),
+        // a figure's own background is white or none
+        if crate::figure::active() { egui::Color32::TRANSPARENT } else { theme::plot_fill() },
         v.widgets.noninteractive.bg_stroke,
         egui::StrokeKind::Inside,
     ))];

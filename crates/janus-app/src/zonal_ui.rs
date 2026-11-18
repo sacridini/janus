@@ -16,6 +16,7 @@ use janus_zeit::warp::Grid;
 use janus_zeit::zonal::{STATS, ZonalKind, ZonalOptions, ZonalTable, write_gpkg, zonal};
 
 use crate::app::State;
+use crate::figure::FigurePlot;
 use crate::contents::Sel;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
@@ -573,7 +574,11 @@ impl State {
         }
         let z = self.zonal.zone.min(zones - 1);
         let id = |z: usize| t.ids[z].clone();
-        ui.horizontal(|ui| {
+        let figure = crate::figure::active();
+        if figure {
+            ui.strong(format!("{}: {}", meta.title, id(z)));
+        }
+        crate::figure::controls(ui, |ui| {
             ui.strong(&meta.title);
             ui.separator();
             ui.label("Feature");
@@ -589,12 +594,14 @@ impl State {
             self.zonal.zone = pick;
             ui.weak(format!("{} pixels", t.pixels[z]));
         });
-        ui.weak(format!(
+        if !figure {
+            ui.weak(format!(
             "{:.1} s; the tables and the GeoPackage in {}.{}",
             meta.seconds,
             meta.folder,
             if t.note.is_empty() { String::new() } else { format!(" Pixel areas: {}.", t.note) }
         ));
+        }
         let ticks = t.labels.clone();
         let fmt = move |m: egui_plot::GridMark, _: &std::ops::RangeInclusive<f64>| {
             let i = m.value.round();
@@ -604,7 +611,7 @@ impl State {
                 String::new()
             }
         };
-        let h = (ui.available_height() - 8.0).clamp(140.0, 360.0);
+        let h = if figure { ui.available_height() } else { (ui.available_height() - 8.0).clamp(140.0, 360.0) };
         let dates = t.labels.len();
         match t.kind {
             ZonalKind::Continuous => {
@@ -615,7 +622,7 @@ impl State {
                 Plot::new("zonal values")
                     .height(h)
                     .legend(Legend::default().position(egui_plot::Corner::RightTop).background_alpha(0.6))
-                    .x_axis_formatter(fmt)
+                    .x_labels(fmt)
                     .allow_scroll(false)
                     .show(ui, |pu| {
                         let blue = Color32::from_rgb(31, 119, 180);
@@ -658,7 +665,7 @@ impl State {
                     Plot::new("zonal one")
                         .height(h)
                         .y_axis_label("ha")
-                        .x_axis_formatter(move |m, _| {
+                        .x_labels(move |m, _| {
                             let i = m.value.round();
                             if (m.value - i).abs() < 1e-6 && i >= 0.0 {
                                 ticks.get(i as usize).cloned().unwrap_or_default()
@@ -682,7 +689,7 @@ impl State {
                         .height(h)
                         .y_axis_label("ha")
                         .legend(Legend::default().position(egui_plot::Corner::RightTop).background_alpha(0.6))
-                        .x_axis_formatter(fmt)
+                        .x_labels(fmt)
                         .allow_scroll(false)
                         .show(ui, |pu| {
                             let mut below: Vec<BarChart> = vec![];

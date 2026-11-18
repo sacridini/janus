@@ -313,7 +313,7 @@ impl State {
                             st,
                             "Downloaded shown again; the ? of the LandTrendr window opens its guide (no browser); all put back",
                         );
-                        st.stage = 299;
+                        st.stage = 335; // the figures (335-340, ui_test_figures.rs), then 299
                     }
                 }
                 None

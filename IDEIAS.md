@@ -1360,7 +1360,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
 | 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída (sem versão) |
 | 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída (sem versão) |
-| 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | planejada |
+| 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída (sem versão) |
 | 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS e ERA5 para a área do mapa | planejada |
 | 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | planejada |
 
@@ -2711,6 +2711,49 @@ independentes para a maior: 58, 59, 60, 61, 62.
   sintético em UTM e em EPSG:4326; autoteste e auditoria da janela de
   figura. Comparar o tempo com o matplotlib num gráfico igual
   (informativo).
+- **Feito (2026-11-18, sem versão)**: `figure.rs` roda o código de desenho do
+  painel (uma closure sobre `egui::Ui`) num `egui::Context` sem janela, do
+  tamanho da figura (1 pt = 1/72 pol, a fonte em pt é a da figura) e no tema
+  claro de figura (`theme::FigureScope`, Inter, nunca o tema escuro da
+  interface), e recebe as `Shape`. O SVG (`Rendered::to_svg`) escreve caminhos,
+  retângulos, círculos e **texto como `<text>`** (uma linha da galley por
+  elemento, na fonte, tamanho e cor da seção; editável no Inkscape), `clipPath`
+  por recorte e as malhas (o gradiente sob a série, a imagem da densidade do
+  Scatter, o espectrograma do Cycles, o transecto) como PNG embutido. O PNG é
+  desenhado **pela CPU** (`Rendered::to_rgba`: os triângulos tesselados sobre o
+  atlas de fontes, com o anti-aliasing das bordas do egui), com o dpi no
+  arquivo (chunk pHYs); desvio do plano, que dizia "fora da tela na GPU como o
+  PNG do mapa": o rasterizador de CPU roda no job de fundo, dispensa o
+  dispositivo e deixa o teste do tamanho (mm × dpi) rodar no CI sem GPU.
+  `figure_ui.rs`: a janela única *Save figure...* (uma coluna 85 mm, duas
+  180 mm ou livre, altura, PNG 150/300/600 dpi ou SVG, fonte em pt, fundo
+  branco ou transparente, *Save to* com Browse... e o aviso de substituição
+  como as exportações, *Copy image*) e o arquivo escrito no job de fundo
+  (File → Exports). Os painéis voltaram a ser desenhados pelo mesmo código: o
+  gráfico da série (`series_plot`, separado da barra de controles; a linha e a
+  etiqueta da data e o inspetor ficam de fora da figura) e as abas do Analysis
+  (`analysis_tab`) com os controles em `figure::chrome` (rodam numa `Ui`
+  invisível fora da figura: as escolhas continuam lidas, nada é pintado nem
+  ocupa lugar). **Save figure...** em: gráfico da série, Seasonal (anos
+  sobrepostos e mapa de calor), Cycles, Bands, Classes (as partes: porcentagens,
+  Sankey, transições), Scatter, Areas, Zonal e transecto. **Fora**: Trend test
+  (é uma tabela), Dates e Atlas (são mapas); o `svg_bars` do relatório de
+  validação continua como estava; a comparação de tempo com o matplotlib não
+  foi feita. No PNG do mapa (`PngOptions` e os quadros da animação):
+  `graticule` (0 nenhuma, 1 longitude/latitude pela transformação exata do PROJ
+  em qualquer CRS, linhas curvas onde o CRS curva, 2 as unidades do CRS da
+  camada; passos redondos: 1/2/5·10ⁿ m, ou segundos, minutos e graus; valores
+  nas bordas, meridianos embaixo e paralelos à esquerda), `north_arrow` (canto
+  superior direito, inclinada pela convergência da quadrícula no centro do
+  mapa; sem CRS a caixa fica desabilitada e nada é desenhado) e `title`
+  (`ShortText`, 120 bytes, para `PngOptions` seguir `Copy`), em `graticule.rs`
+  com `canvas.rs` (`fill_polygon`). Testes: o SVG de um gráfico conhecido lido
+  por um verificador de XML escrito no teste (caminhos e textos esperados), a
+  linha de base do texto contra o PNG, o PNG em mm × dpi e com o pHYs, a grade
+  em UTM 21S (EPSG:32721) e em EPSG:4326 em lugares conhecidos e a convergência;
+  o autoteste (335-338) abre a janela no gráfico, numa aba do Analysis e no
+  transecto, escreve PNG e SVG e confere os tamanhos, e exporta o mapa com
+  grade, seta e título.
 
 #### Fase 61 — A série ao lado do clima
 

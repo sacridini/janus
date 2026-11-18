@@ -16,6 +16,7 @@ use janus_cube::multidim::format_g;
 use janus_gpu::{GpuTexture, LayerParams, Mode};
 
 use crate::app::State;
+use crate::figure::FigurePlot;
 use crate::map::body_font;
 use crate::theme;
 
@@ -567,7 +568,8 @@ impl State {
             return;
         }
         let classes_on = self.classes.on();
-        ui.horizontal_wrapped(|ui| {
+        let figure = crate::figure::active();
+        crate::figure::controls_wrapped(ui, |ui| {
             if let Some(l) = self.layers.get(self.active) {
                 ui.colored_label(theme::accent(), &l.name);
             }
@@ -588,8 +590,8 @@ impl State {
                 ui.weak(format!("{exact}/{}", tr.t_n));
             }
         });
-        let mut clear = false;
-        ui.horizontal(|ui| {
+        let (mut clear, mut save_figure) = (false, false);
+        crate::figure::controls(ui, |ui| {
             let kinds = ["Values", "Anomaly (- sample mean)"];
             let mut kind = self.transect.kind;
             ui.add_enabled_ui(!classes_on, |ui| {
@@ -621,6 +623,10 @@ impl State {
             {
                 ui.ctx().copy_text(self.transect_csv());
             }
+            save_figure = ui
+                .button("Save figure...")
+                .on_hover_text("The transect as a PNG or an SVG for a paper: size in mm, dpi, font, light colours")
+                .clicked();
             clear = ui.button("Clear").clicked();
             ui.weak("(?)").on_hover_text(
                 "Distance along the line from A (X) against the dates (Y, oldest on top).\n\
@@ -634,6 +640,9 @@ impl State {
         if clear {
             self.clear_transect();
             return;
+        }
+        if save_figure {
+            self.open_figure(crate::figure_ui::Source::Transect);
         }
 
         let (n, t_n) = (self.transect.n, self.transect.t_n);
@@ -663,6 +672,15 @@ impl State {
             self.render_transect(size);
             self.transect.drawn_key = key;
         }
+        // a figure has a context of its own: the image read back from the target into a texture of its own
+        let figure_texture = figure
+            .then(|| {
+                let (w, h, rgba) = self.gpu.as_ref()?.read_target(TRANSECT_SLOT)?;
+                let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                Some(ui.ctx().load_texture("transect figure", image, egui::TextureOptions::NEAREST))
+            })
+            .flatten();
+        let texture = figure_texture.as_ref().map_or(texture, |t| t.id());
         // date ticks: every k-th date, so the labels do not overlap
         let row_h = ui.text_style_height(&egui::TextStyle::Body);
         // (egui_plot leaves out labels closer than 20 points)
@@ -670,14 +688,14 @@ impl State {
         let every = ((t_n as f32 * (row_h * 1.5).max(32.0) / plot_h).ceil() as usize).max(1);
         let labels: Vec<String> = info.layers.iter().map(|l| l.label.clone()).collect();
         let unit = self.transect.unit.clone();
-        let fit = std::mem::take(&mut self.transect.fit);
+        let fit = !figure && std::mem::take(&mut self.transect.fit);
         let mut plot = Plot::new(("transect", self.transect.cube))
             .invert_y(true)
             .show_background(false)
             .show_grid(false) // egui_plot draws it over the image
             .set_margin_fraction(egui::Vec2::ZERO)
             .allow_boxed_zoom(false)
-            .x_axis_label(format!("distance from A ({unit})"))
+            .x_title(format!("distance from A ({unit})"))
             .include_x(x0)
             .include_x(x1)
             .include_y(0.0)
@@ -696,7 +714,7 @@ impl State {
         }
         let t_now = self.display.t;
         // the map cursor, when it is on the line: its distance along it (within 10 screen points)
-        let cursor = self.map.prev_pointer_panel.and(self.series.hover.as_ref()).and_then(|h| {
+        let cursor = self.map.prev_pointer_panel.and(self.series.hover.as_ref()).filter(|_| !figure).and_then(|h| {
             let tr = &self.transect;
             let k = self.screen_per_px();
             let p = [h.x as f64 + 0.5, h.y as f64 + 0.5];
@@ -735,12 +753,14 @@ impl State {
         let px = |x: f64, y: f64| tr_.position_from_point(&PlotPoint::new(x, y));
         // the current date (orange, as on the chart)
         let orange = Color32::from_rgb(255, 153, 51);
-        painter.rect_stroke(
-            Rect::from_two_pos(px(x0, t_now as f64), px(x1, t_now as f64 + 1.0)),
-            0.0,
-            Stroke::new(1.5, orange),
-            egui::StrokeKind::Middle,
-        );
+        if !figure {
+            painter.rect_stroke(
+                Rect::from_two_pos(px(x0, t_now as f64), px(x1, t_now as f64 + 1.0)),
+                0.0,
+                Stroke::new(1.5, orange),
+                egui::StrokeKind::Middle,
+            );
+        }
         // the bends of a polyline: thin dashed verticals at their distances
         let tr = &self.transect;
         for &d in tr.vdist.iter().skip(1).take(tr.vdist.len().saturating_sub(2)) {

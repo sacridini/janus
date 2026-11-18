@@ -888,9 +888,6 @@ impl State {
             );
             return;
         }
-        let n = info.t();
-        let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
-        let years = s.years.clone();
         let categorical = self.classes.on();
 
         // the chart's options (taken out while the toolbar has the State)
@@ -900,7 +897,7 @@ impl State {
         let (n_layers, has_roi, has_pins) =
             (self.layers.len(), self.series.roi_rect.is_some(), !self.series.pins.is_empty());
         let (mut clear_pins, mut clear_roi, mut copy) = (false, false, false);
-        let mut open_classes = false;
+        let (mut open_classes, mut save_figure) = (false, false);
         ui.horizontal_wrapped(|ui| {
             // a button moves to the next row whole, its text never wrapped in a sliver of the row's end
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -1037,6 +1034,13 @@ impl State {
                     );
             }
             copy = ui.button("Copy CSV").on_hover_text("Copies the series (cursor, pins, ROI) to the clipboard").clicked();
+            if ui
+                .button("Save figure...")
+                .on_hover_text("The chart as a PNG or an SVG for a paper: size in mm, dpi, font, light colours")
+                .clicked()
+            {
+                save_figure = true;
+            }
             self.copy_python_ui(ui);
             if has_pins {
                 clear_pins = ui.button("Clear pins").clicked();
@@ -1068,7 +1072,26 @@ impl State {
         if chart_layers != self.series.chart_layers {
             self.set_chart_layers(chart_layers);
         }
+        if save_figure {
+            self.open_figure(crate::figure_ui::Source::Chart);
+        }
+        if let Some(nt) = self.series_plot(ui, false)
+            && nt != self.display.t
+        {
+            self.set_date(nt);
+        }
+    }
 
+    /// The chart itself (the plot, the stripes, the inspector) in `ui`: on screen, or (`figure`) as a figure, which
+    /// leaves out what is of the moment (the date's line and tag, the inspector). The date picked by a click or a drag
+    /// on it, if any.
+    pub(crate) fn series_plot(&self, ui: &mut Ui, figure: bool) -> Option<usize> {
+        let s = self.session.as_ref()?;
+        let info = s.info.clone();
+        let n = info.t();
+        let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
+        let years = s.years.clone();
+        let categorical = self.classes.on();
         let o = &self.chart;
         let dated = info.time_is_date;
         // the axes' numbers and the grid in the weak text's colour, the grid's finer lines fainter; the values
@@ -1197,7 +1220,9 @@ impl State {
             bar_slot: std::cell::Cell::new(0),
             // a marker every 7 points at least (the chart's width less its Y axis)
             markers: (ui.available_width() - 60.0) / n.max(1) as f32 >= 7.0,
-            halo: if crate::theme::plot_fill() == Color32::TRANSPARENT {
+            halo: if figure {
+                Color32::WHITE
+            } else if crate::theme::plot_fill() == Color32::TRANSPARENT {
                 ui.visuals().panel_fill
             } else {
                 crate::theme::plot_fill()
@@ -1346,8 +1371,10 @@ impl State {
                 }
             }
             // the date's line in a soft glow (after it: the legend takes the line's colour)
-            plot.vline(VLine::new("date", xs[t]).color(orange).width(1.5).allow_hover(false));
-            plot.vline(VLine::new("date", xs[t]).color(orange.gamma_multiply(0.22)).width(6.0).allow_hover(false));
+            if !figure {
+                plot.vline(VLine::new("date", xs[t]).color(orange).width(1.5).allow_hover(false));
+                plot.vline(VLine::new("date", xs[t]).color(orange.gamma_multiply(0.22)).width(6.0).allow_hover(false));
+            }
             let primary = plot.response().is_pointer_button_down_on() && plot.ctx().input(|i| i.pointer.primary_down());
             primary.then(|| plot.pointer_coordinate()).flatten()
         });
@@ -1369,7 +1396,7 @@ impl State {
         }
         ui.painter().with_clip_rect(frame).set(area, self.area_under(&pl, tr, &hidden));
         let x = tr.position_from_point(&egui_plot::PlotPoint::new(xs[t], tr.bounds().min()[1])).x;
-        if (frame.left()..=frame.right()).contains(&x) {
+        if !figure && (frame.left()..=frame.right()).contains(&x) {
             // the date's tag at the foot of its line
             let painter = ui.painter_at(frame.expand(1.0));
             let base = if crate::theme::modern() { 11.0 } else { 12.0 };
@@ -1382,7 +1409,7 @@ impl State {
             painter.rect_filled(r, 3.0, orange);
             painter.galley(r.min + egui::vec2(4.0, 1.5), galley, Color32::BLACK);
         }
-        if let Some(p) = response.response.hover_pos().filter(|p| frame.contains(*p)) {
+        if let Some(p) = response.response.hover_pos().filter(|p| !figure && frame.contains(*p)) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             self.inspector(ui, &pl, tr, p, &hidden);
         }
@@ -1390,12 +1417,7 @@ impl State {
             self.stripes_ui(ui, &pl, tr, STRIP);
         }
         // a click or a drag on the chart picks the nearest date
-        if let Some(p) = response.inner {
-            let nt = info.nearest_layer(p.x);
-            if nt != self.display.t {
-                self.set_date(nt);
-            }
-        }
+        response.inner.map(|p| info.nearest_layer(p.x))
     }
 }
 

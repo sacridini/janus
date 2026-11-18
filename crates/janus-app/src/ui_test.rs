@@ -20,6 +20,8 @@ mod ard;
 mod basemap;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
+#[path = "ui_test_figures.rs"]
+mod figures;
 #[path = "ui_test_fullres.rs"]
 mod fullres;
 #[path = "ui_test_interface.rs"]
@@ -101,7 +103,7 @@ pub struct UiTest {
     tsa: tsa::TsaTest,
     /// stages 310-319: the Analysis-ready data window (ui_test_ard.rs)
     ard: ard::ArdTest,
-    /// stages 330-339: the notice after a failure (ui_test_crash.rs)
+    /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
     /// stages 345-349: the Welcome window (ui_test_welcome.rs)
     welcome: welcome_tests::WelcomeTest,
@@ -1046,8 +1048,9 @@ impl State {
             180..=299 => return self.test_interface(st, &input, t0, ctx),
             300..=309 => return self.test_tsa(st, &input, t0, ctx),
             310..=319 => return self.test_ard(st, &input, t0, ctx),
-            330..=339 => return self.test_crash_notice(st, t0, ctx),
+            330..=334 => return self.test_crash_notice(st, t0, ctx),
             345..=349 => return self.test_welcome(st, &input, t0, ctx),
+            335..=344 => return self.test_figures(st, t0, ctx),
             _ => {}
         }
         None
