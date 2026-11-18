@@ -64,6 +64,7 @@ impl State {
     }
 
     fn profiles_form(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "profiles");
         let Some(v) = self.profiles.vector.and_then(|id| self.vectors.iter().find(|v| v.id == id)) else {
             ui.weak("Choose Profiles of every line... in a line layer's menu.");
             return;

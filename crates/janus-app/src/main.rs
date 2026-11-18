@@ -115,6 +115,7 @@ mod views;
 mod warp_ui;
 mod wavelet;
 mod web_layers;
+mod welcome;
 mod zeit;
 mod zonal_ui;
 

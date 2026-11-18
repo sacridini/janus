@@ -132,7 +132,7 @@ impl State {
                         println!("    no landsat folder beside A: the Analysis-ready data stages are left out");
                         let _ = std::fs::remove_dir_all(&st.ard.dir);
                         st.ard = Default::default();
-                        st.stage = 299;
+                        st.stage = 345; // the Welcome window (345-349, ui_test_welcome.rs), then 299
                         return None;
                     };
                     st.ard.opened = true;
@@ -670,7 +670,7 @@ impl State {
                     st,
                     "Use in Time series analysis: the harmonized series active, the window open; all closed, layers and results removed",
                 );
-                st.stage = 299;
+                st.stage = 345; // the Welcome window (345-349, ui_test_welcome.rs), then 299
                 None
             }
             _ => None,

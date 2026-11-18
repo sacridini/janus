@@ -825,6 +825,7 @@ impl State {
     }
 
     pub(crate) fn stac_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "stac");
         let ctx = ui.ctx().clone();
         let w = ui.available_width();
         let has = self.session.is_some();

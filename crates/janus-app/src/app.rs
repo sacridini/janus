@@ -629,6 +629,8 @@ pub struct State {
     /// Help > About Janus; Help > Check for updates (and the check at the start)
     pub about_open: bool,
     pub update: crate::update::UpdateUi,
+    /// Help > Welcome (welcome.rs)
+    pub welcome: crate::welcome::WelcomeUi,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
     /// the map targets' egui textures (by slot)
@@ -1052,6 +1054,7 @@ impl JanusApp {
                 help_popup: false,
                 about_open: false,
                 update: Default::default(),
+                welcome: Default::default(),
                 settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
@@ -2256,6 +2259,9 @@ impl State {
             });
             self.shots_menu("Validation", r.response.rect, r.inner);
             ui.menu_button("Help", |ui| {
+                if ui.button("Welcome").on_hover_text("Sample data, the guides and the recent projects").clicked() {
+                    self.open_welcome();
+                }
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
                 }
@@ -2549,6 +2555,7 @@ impl eframe::App for JanusApp {
         s.pump_chips(&ctx);
         s.pump_provenance();
         s.pump_project(&ctx);
+        s.pump_welcome(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
@@ -2867,6 +2874,7 @@ impl eframe::App for JanusApp {
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
+        self.state.welcome_window(&ctx);
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
         self.state.tsa_window(&ctx);

@@ -56,6 +56,7 @@ impl State {
     }
 
     fn rasterize_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "rasterize");
         let Some(v) = self.raster.vector.and_then(|id| self.vectors.iter().find(|v| v.id == id)) else {
             ui.weak("Choose Rasterize on the series' grid... in a vector layer's menu.");
             return;

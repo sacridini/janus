@@ -53,6 +53,8 @@ pub struct Settings {
     /// the projects opened or saved last, newest first; the last session opened again at the start
     pub recent_projects: Vec<String>,
     pub reopen_last: bool,
+    /// the Welcome window shown at the start when nothing is opened (welcome.rs)
+    pub show_welcome: bool,
     /// the Chips panel: the high-resolution imagery on, the chip's side in metres, the months that choose a year's
     /// image (bit 0: January), the points made ready on each side of the current one, no network at all
     pub hr_enabled: bool,
@@ -110,6 +112,7 @@ impl Default for Settings {
             minimap: false,
             recent_projects: Vec::new(),
             reopen_last: false,
+            show_welcome: true,
             hr_enabled: true,
             hr_chip_m: 150,
             hr_months: 0,
@@ -201,6 +204,7 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             // off unless the user turns it on (ReopenLastSession, on by default in 1.6.0-1.6.1 and written by every
             // run, is not read)
             ("janus", "ReopenLast") => s.reopen_last = int() == Some(1),
+            ("janus", "ShowWelcome") => s.show_welcome = int() != Some(0),
             ("janus", "HighRes") => s.hr_enabled = int() != Some(0),
             ("janus", "HighResChipM") => s.hr_chip_m = int().unwrap_or(150).clamp(60, 600) as u32,
             ("janus", "HighResMonths") => s.hr_months = int().unwrap_or(0).clamp(0, 0xfff) as u16,
@@ -284,6 +288,7 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         out += &format!("RecentProject={p}\n");
     }
     out += &format!("ReopenLast={}\n", i32::from(s.reopen_last));
+    out += &format!("ShowWelcome={}\n", i32::from(s.show_welcome));
     out += &format!(
         "HighRes={}\nHighResChipM={}\nHighResMonths={}\nHighResWindow={}\nHighResOffline={}\nChipCombo={}\n",
         i32::from(s.hr_enabled),

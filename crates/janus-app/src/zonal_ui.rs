@@ -198,6 +198,7 @@ impl State {
     }
 
     fn zonal_form(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "zonal");
         let Some(v) = self.zonal.vector.and_then(|id| self.vectors.iter().find(|v| v.id == id)) else {
             ui.weak("Choose Zonal statistics over time... in a vector layer's menu.");
             return;

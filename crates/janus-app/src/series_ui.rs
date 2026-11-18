@@ -117,6 +117,7 @@ impl State {
     }
 
     fn build_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "build");
         ui.label(
             "Loose files grouped by the date in their names: a date's files of one band stacked as its bands, \
                   its tiles (files of other extents) mosaicked, every date on one grid.",
@@ -314,6 +315,7 @@ impl State {
     }
 
     fn save_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "save");
         let Some(s) = self.session.as_ref() else {
             ui.weak("Open a series.");
             return;

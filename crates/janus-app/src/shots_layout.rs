@@ -168,6 +168,8 @@ impl State {
             "updates",
             "about",
             "help",
+            "welcome",
+            "samples",
         ] {
             v.push(Place::Window(w));
         }
@@ -218,6 +220,7 @@ impl State {
         self.update.open = false;
         self.about_open = false;
         self.help_popup = false;
+        self.welcome.show = false;
     }
 
     /// Shows a place.
@@ -275,6 +278,11 @@ impl State {
                 "updates" => self.update.open = true,
                 "about" => self.about_open = true,
                 "help" => self.help_popup = true,
+                "welcome" => self.open_welcome(),
+                "samples" => {
+                    self.open_welcome();
+                    self.welcome.samples_view = true;
+                }
                 _ => {}
             },
         }

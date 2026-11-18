@@ -80,6 +80,7 @@ impl State {
     }
 
     fn speckle_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "speckle");
         let Some(s) = self.session.as_ref() else {
             ui.weak("Open a radar series first (File > Search STAC catalog > Sentinel-1 RTC).");
             return;

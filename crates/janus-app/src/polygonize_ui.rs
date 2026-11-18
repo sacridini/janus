@@ -131,6 +131,7 @@ impl State {
     }
 
     fn polygonize_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "polygonize");
         let Some(src) = self.poly.source.and_then(|s| self.poly_source(s)) else {
             ui.weak("Choose Polygonize... in the menu of a run's map or of a series in the Layers panel.");
             return;
