@@ -20,6 +20,8 @@ const NOTICE_MIN_SECONDS: f64 = 3.0;
 /// How long a notice stays: a task done, one that failed.
 const NOTICE_SECONDS: f64 = 8.0;
 const NOTICE_FAILED_SECONDS: f64 = 30.0;
+/// a newer version's notice: a minute (it also stays as Update on the menu bar)
+const NOTICE_UPDATE_SECONDS: f64 = 60.0;
 
 /// What the map shows under the cursor, set by the map panel each frame it is drawn.
 #[derive(Default, Clone)]
@@ -42,14 +44,31 @@ enum NoticeAction {
     Log(String),
     Folder(String),
     Exports,
+    /// a newer version: downloads and installs it (as the menu bar's Update)
+    Update,
 }
 
 struct Notice {
     title: String,
     text: String,
     failed: bool,
+    /// the notice of a newer version: drawn to stand out (an accent border, a filled button), kept longer
+    update: bool,
     actions: Vec<NoticeAction>,
     at: Instant,
+}
+
+impl Notice {
+    /// How long it stays (its × closes it before).
+    fn seconds(&self) -> f64 {
+        if self.update {
+            NOTICE_UPDATE_SECONDS
+        } else if self.failed {
+            NOTICE_FAILED_SECONDS
+        } else {
+            NOTICE_SECONDS
+        }
+    }
 }
 
 /// A CRS's linear units and its transformation to longitudes and latitudes (made once per layer).
@@ -145,11 +164,18 @@ impl State {
         if let Some(r) = self.update.available().filter(|_| !self.update.announced) {
             self.update.announced = true;
             let text = format!(
-                "Janus {} is out (you are using {}): Update, on the right of the menu bar, installs it.",
+                "Janus {} is out (you are using {}). Update now installs it (also on the right of the menu bar).",
                 r.version,
                 crate::update::VERSION
             );
-            self.notify("A new version of Janus", &text, false);
+            self.status.notices.push(Notice {
+                title: "A new version of Janus".into(),
+                text,
+                failed: false,
+                update: true,
+                actions: vec![NoticeAction::Update],
+                at: Instant::now(),
+            });
         }
         let mut ended = Vec::new();
         for j in &self.zeit.jobs {
@@ -169,7 +195,7 @@ impl State {
                         actions.push(NoticeAction::Folder(j.output_dir.clone()));
                     }
                     crate::crash::log(&format!("task {}: {text}", j.title));
-                    ended.push(Notice { title: j.title.clone(), text, failed, actions, at: Instant::now() });
+                    ended.push(Notice { title: j.title.clone(), text, failed, update: false, actions, at: Instant::now() });
                 }
             }
         }
@@ -192,7 +218,7 @@ impl State {
                         ),
                     };
                     crate::crash::log(&format!("task {}: {text}", e.title));
-                    ended.push(Notice { title: e.title.clone(), text, failed, actions, at: Instant::now() });
+                    ended.push(Notice { title: e.title.clone(), text, failed, update: false, actions, at: Instant::now() });
                 }
             }
         }
@@ -220,7 +246,7 @@ impl State {
     pub(crate) fn notices_ui(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
         self.status.notices.retain(|n| {
-            now.duration_since(n.at).as_secs_f64() < if n.failed { NOTICE_FAILED_SECONDS } else { NOTICE_SECONDS }
+            now.duration_since(n.at).as_secs_f64() < n.seconds()
         });
         if self.status.notices.is_empty() {
             return;
@@ -231,7 +257,7 @@ impl State {
             .notices
             .iter()
             .map(|n| {
-                (if n.failed { NOTICE_FAILED_SECONDS } else { NOTICE_SECONDS }) - now.duration_since(n.at).as_secs_f64()
+                n.seconds() - now.duration_since(n.at).as_secs_f64()
             })
             .reduce(f64::min)
         {
@@ -245,11 +271,23 @@ impl State {
             .show(ctx, |ui| {
                 ui.set_max_width(380.0);
                 for (k, n) in self.status.notices.iter().enumerate() {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    let mut frame = egui::Frame::popup(ui.style());
+                    if n.update {
+                        // a newer version stands out: the accent's border, a tint of it
+                        frame = frame
+                            .stroke(egui::Stroke::new(2.0, theme::accent()))
+                            .fill(ui.visuals().window_fill.lerp_to_gamma(theme::accent(), 0.12));
+                    }
+                    frame.show(ui, |ui| {
                         ui.set_width(360.0);
                         ui.horizontal(|ui| {
-                            let (mark, c) =
-                                if n.failed { ("Failed", theme::error()) } else { ("Done", theme::accent()) };
+                            let (mark, c) = if n.update {
+                                ("New version", theme::accent())
+                            } else if n.failed {
+                                ("Failed", theme::error())
+                            } else {
+                                ("Done", theme::accent())
+                            };
                             ui.label(RichText::new(mark).strong().color(c));
                             crate::fit::truncated(ui, egui::Label::new(RichText::new(&n.title).strong()));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -264,13 +302,21 @@ impl State {
                         if !n.actions.is_empty() {
                             ui.horizontal(|ui| {
                                 for a in &n.actions {
-                                    let label = match a {
-                                        NoticeAction::Tasks => "Show in Tasks",
-                                        NoticeAction::Log(_) => "Log",
-                                        NoticeAction::Folder(_) => "Open folder",
-                                        NoticeAction::Exports => "Exports",
+                                    let clicked = match a {
+                                        NoticeAction::Update => ui
+                                            .add(crate::update::update_button("Update now"))
+                                            .on_hover_text(crate::update::update_tip())
+                                            .clicked(),
+                                        a => ui
+                                            .small_button(match a {
+                                                NoticeAction::Tasks => "Show in Tasks",
+                                                NoticeAction::Log(_) => "Log",
+                                                NoticeAction::Folder(_) => "Open folder",
+                                                _ => "Exports",
+                                            })
+                                            .clicked(),
                                     };
-                                    if ui.small_button(label).clicked() {
+                                    if clicked {
                                         act = Some((k, a.clone()));
                                     }
                                 }
@@ -286,6 +332,7 @@ impl State {
                 NoticeAction::Log(path) => (self.zeit.log.path, self.zeit.log.show) = (path, true),
                 NoticeAction::Folder(dir) => crate::platform::open_in_explorer(&dir),
                 NoticeAction::Exports => self.show_exports = true,
+                NoticeAction::Update => self.update.start_update(ctx),
             }
             close = Some(k);
         }
@@ -398,7 +445,8 @@ impl State {
     /// A notice of the interface's own (a saved view that cannot be shown here...): failed or not.
     pub(crate) fn notify(&mut self, title: &str, text: &str, failed: bool) {
         crate::crash::log(&format!("{title}: {text}"));
-        let n = Notice { title: title.into(), text: text.into(), failed, actions: vec![], at: Instant::now() };
+        let n =
+            Notice { title: title.into(), text: text.into(), failed, update: false, actions: vec![], at: Instant::now() };
         self.status.notices.push(n);
         let k = self.status.notices.len();
         if k > 4 {

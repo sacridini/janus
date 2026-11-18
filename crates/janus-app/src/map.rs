@@ -364,6 +364,7 @@ impl State {
         let inside =
             pointer.filter(|[x, y]| *x >= 0.0 && *y >= 0.0 && *x < w && *y < h).map(|[x, y]| (x as usize, y as usize));
         let view = (m.center, m.scale);
+        self.series.pointer_on_map |= inside.is_some();
         if inside.is_some() && (!self.opts.scripted() || self.shots_clip_on()) {
             self.set_hover(inside);
         }

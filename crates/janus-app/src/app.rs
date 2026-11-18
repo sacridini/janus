@@ -2317,15 +2317,8 @@ impl State {
                     ui.add_space(8.0);
                     // a newer version found at the start: Update (downloads and installs it), the version
                     if let Some(r) = &newer {
-                        let installed = crate::update::installed_dir().is_some();
-                        let tip = if installed {
-                            "Downloads the new version and installs it: Janus closes and opens again"
-                        } else {
-                            "Not installed by its installer (a build or a copy): the updates' window downloads the \
-                             new package"
-                        };
-                        let b = egui::Button::new(egui::RichText::new("Update").strong().color(theme::accent()));
-                        if ui.add(b).on_hover_text(tip).clicked() {
+                        let b = crate::update::update_button("Update");
+                        if ui.add(b).on_hover_text(crate::update::update_tip()).clicked() {
                             self.update.start_update(ui.ctx());
                         }
                         ui.label(
@@ -2334,6 +2327,7 @@ impl State {
                                 r.version,
                                 crate::update::VERSION
                             ))
+                            .strong()
                             .color(theme::accent()),
                         );
                         ui.separator();
@@ -2909,6 +2903,8 @@ impl eframe::App for JanusApp {
             dock_back(&mut self.dock, t, home);
         }
         self.reset_from_window |= reset;
+        // every map drawn: the pointer off them all with pins made, the chart shows the pins alone
+        self.state.end_frame_hover();
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);

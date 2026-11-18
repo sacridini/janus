@@ -171,6 +171,8 @@ pub struct SeriesState {
     pub chart_layers: i32,
     /// Pixel values is shown (in the chart's place): every visible layer's value followed too
     pub values_view: bool,
+    /// the pointer was over a map's image at this frame (set by the maps, read and cleared once they are drawn)
+    pub pointer_on_map: bool,
 }
 
 impl Default for SeriesState {
@@ -190,6 +192,7 @@ impl Default for SeriesState {
             roi_drag: None,
             chart_layers: 0,
             values_view: false,
+            pointer_on_map: false,
         }
     }
 }
@@ -216,6 +219,22 @@ impl State {
                 sr.hover_since = Some(Instant::now());
                 self.update_other_hover();
             }
+        }
+    }
+
+    /// Once every map was drawn: the pointer off the maps (out of the image, of the map's panel or of the window)
+    /// with pins made, the cursor's series goes, so the chart shows the pins alone (or with the ROI) and not the
+    /// last pixel the pointer was on. With no pin the last pixel stays, something to look at. Not in a scripted run
+    /// (the self-test puts the cursor with no pointer).
+    pub(crate) fn end_frame_hover(&mut self) {
+        let on_map = std::mem::take(&mut self.series.pointer_on_map);
+        if on_map || self.opts.scripted() || self.series.pins.is_empty() || self.series.hover.is_none() {
+            return;
+        }
+        self.series.hover = None;
+        self.series.hover_since = None;
+        for l in &mut self.layers {
+            l.series.hover = None;
         }
     }
 

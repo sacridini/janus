@@ -20,6 +20,20 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const LATEST: &str = "https://api.github.com/repos/sacridini/janus/releases/latest";
 pub const RELEASES: &str = "https://github.com/sacridini/janus/releases";
 
+/// The button that installs a newer version (the menu bar's, the notice's): filled with the accent, so it is seen.
+pub(crate) fn update_button(text: &str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text.to_string()).strong().color(egui::Color32::WHITE)).fill(theme::accent())
+}
+
+/// What the Update button does here.
+pub(crate) fn update_tip() -> &'static str {
+    if installed_dir().is_some() {
+        "Downloads the new version and installs it: Janus closes and opens again"
+    } else {
+        "Not installed by its installer (a build or a copy): the updates' window downloads the new package"
+    }
+}
+
 /// A release on GitHub: its version, its date, its notes, its page, this platform's package (URL, bytes).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
