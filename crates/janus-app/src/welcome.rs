@@ -1,4 +1,4 @@
-//! The way in: the Welcome window (at the start when nothing was opened, and Help > Welcome), the sample data it
+//! The way in: the Welcome window (Help > Welcome only: never shown by itself at the start), the sample data it
 //! downloads, the "?" button of the tools' windows that opens their guide on the site, and the parameters' hover text
 //! with its default.
 //!
@@ -554,8 +554,6 @@ pub struct WelcomeUi {
     pub show: bool,
     /// the sample data's list shown instead of the start
     pub samples_view: bool,
-    /// whether the start decided about showing the window (once)
-    decided: bool,
     manifest: Arc<Mutex<ManifestState>>,
     runs: Vec<SampleRun>,
 }
@@ -580,21 +578,9 @@ impl State {
         self.welcome.samples_view = false;
     }
 
-    /// Each frame: the decision at the start (shown when nothing was opened and no session comes back), the list of
-    /// samples asked for when the window shows, the samples downloaded opened.
+    /// Each frame: the list of samples asked for when the window shows, the samples downloaded opened. The window is
+    /// never shown by itself at the start (Janus opens empty, ready to use): only Help > Welcome opens it.
     pub(crate) fn pump_welcome(&mut self, ctx: &egui::Context) {
-        if !self.welcome.decided {
-            self.welcome.decided = true;
-            let nothing = self.opts.inputs.is_empty()
-                && self.layers.is_empty()
-                && self.project.restore.is_none()
-                && self.project.path.is_none()
-                && self.error_popup.is_none()
-                && self.crash_notice.closed.is_none();
-            if nothing && self.settings.s.show_welcome && !self.settings.no_save {
-                self.open_welcome();
-            }
-        }
         if self.welcome.show && matches!(*self.welcome.manifest.lock().unwrap(), ManifestState::Idle) {
             self.start_manifest(ctx);
         }
@@ -828,18 +814,6 @@ impl State {
             }
         });
         ui.label(RichText::new("Every tool's window has a ? button that opens its guide.").weak());
-
-        ui.add_space(6.0);
-        ui.separator();
-        let mut show = self.settings.s.show_welcome;
-        if ui
-            .checkbox(&mut show, "Show at start")
-            .on_hover_text("When Janus starts with nothing to open. Help > Welcome shows this window again.")
-            .changed()
-        {
-            self.settings.s.show_welcome = show;
-            self.settings.changed();
-        }
     }
 
     /// The sample data: each with its size, its guide and its button.

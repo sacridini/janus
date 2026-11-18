@@ -2652,8 +2652,8 @@ independentes para a maior: 58, 59, 60, 61, 62.
   `site/`.
 
   **Feito (2026-11-18, sem versão)**: `welcome.rs`. A janela *Welcome to Janus*
-  (Help → Welcome; ao abrir quando não há entrada na linha de comando, nem
-  sessão reaberta, nem projeto; *Show at start* nas configurações): *Open
+  (só Help → Welcome: a abertura automática foi tirada a pedido do usuário,
+  que quer o Janus abrindo vazio): *Open
   sample data...*, *Open folder...*, *Search STAC...*, os projetos recentes e
   os guias (*Which method?* em destaque). Os dados de exemplo vêm de um
   manifesto (`SAMPLES_URL`, um asset da release `sample-data-v1`;
