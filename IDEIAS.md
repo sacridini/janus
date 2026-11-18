@@ -1358,11 +1358,11 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
 | 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
-| 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída (sem versão) |
-| 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída (sem versão) |
-| 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída (sem versão) |
-| 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída (sem versão) |
-| 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída (sem versão; o guia do site pendente) |
+| 58 | 1.20.0 | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída |
+| 59 | 1.20.0 | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída |
+| 60 | 1.20.0 | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída |
+| 61 | 1.20.0 | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída |
+| 62 | 1.20.0 | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída (o guia do site pendente) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -2413,6 +2413,16 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   junta todo canto em ponta, e de longe um anel pequeno reduzido a poucos pontos volta sobre si e
   joga as pontas pelo mapa (as feições do WDPA, de milhares de anéis, pareciam brilhar sob o cursor).
   As actions dos workflows nas versões de Node 24.
+- 1.20.0 (fases 58-62): relatório de falha (gancho de panic, minidump no Windows, aviso na abertura
+  seguinte só depois de uma falha, nada enviado sozinho); Help → Welcome com dados de exemplo
+  (release sample-data-v1), o "?" de cada ferramenta e o padrão no hover dos parâmetros (nada abre
+  sozinho no início, a pedido do usuário); Save figure (PNG/SVG em mm e dpi) do gráfico, do
+  Analysis e do transecto, e grade, seta do norte e título no PNG do mapa; o eixo Y da direita, as
+  barras e o deslocamento pela defasagem do corr; File → Climate data (CHIRPS v3; ERA5 fora);
+  Tune on samples (busca por hipercubo latino nos pontos de calibração, Pareto, PRCC, k-fold,
+  tune_tool no MCP, o Python da busca). Também: os pins sem o cursor quando o mouse sai do mapa,
+  o aviso de nova versão em destaque, e o polar phenology diz por que não roda numa série que não
+  é regular (antes só "error").
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
@@ -2610,7 +2620,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   seguinte (o autoteste da UI abre de novo depois da falha provocada). Nos
   três sistemas no CI.
 
-- **Feito (2026-11-18, sem versão):** `crash.rs` (o gancho de panic, o anel
+- **Feito (2026-11-18, 1.20.0):** `crash.rs` (o gancho de panic, o anel
   de 200 linhas do log, o marcador `running-<pid>.json`, a URL da issue),
   `crash_ui.rs` (o aviso com *Restaurar a sessão*, *Abrir a pasta*, *Copiar o
   relatório*, *Abrir uma issue*, *Dispensar*; a opção oculta `--crash-test
@@ -2656,7 +2666,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   tela nova a 10–28 px; um teste que confere que todo `doc_url` existe em
   `site/`.
 
-  **Feito (2026-11-18, sem versão)**: `welcome.rs`. A janela *Welcome to Janus*
+  **Feito (2026-11-18, 1.20.0)**: `welcome.rs`. A janela *Welcome to Janus*
   (só Help → Welcome: a abertura automática foi tirada a pedido do usuário,
   que quer o Janus abrindo vazio): *Open
   sample data...*, *Open folder...*, *Search STAC...*, os projetos recentes e
@@ -2716,7 +2726,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   sintético em UTM e em EPSG:4326; autoteste e auditoria da janela de
   figura. Comparar o tempo com o matplotlib num gráfico igual
   (informativo).
-- **Feito (2026-11-18, sem versão)**: `figure.rs` roda o código de desenho do
+- **Feito (2026-11-18, 1.20.0)**: `figure.rs` roda o código de desenho do
   painel (uma closure sobre `egui::Ui`) num `egui::Context` sem janela, do
   tamanho da figura (1 pt = 1/72 pol, a fonte em pt é a da figura) e no tema
   claro de figura (`theme::FigureScope`, Inter, nunca o tema escuro da
@@ -2785,7 +2795,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
      TerraClimate (mensal, 4 km) vale a pena como terceira. A série abre
      como camada na sua grade grossa; a calculadora já casa grades
      diferentes por data.
-- **Feito (2026-11-18, sem versão): item 1** (o eixo da direita; os dados de
+- **Feito (2026-11-18, 1.20.0): item 1** (o eixo da direita; os dados de
   clima, item 2, seguem planejados). `chart_axis.rs`: o menu *Series axes* do
   gráfico (com *All visible layers* e duas camadas ou mais) dá a cada camada
   *Right axis*, *Bars* (barras desde 0, largura 0,8 do passo mediano) e, para
@@ -2812,7 +2822,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   meses e observações, o `corr(` no texto da calculadora; autoteste
   350-354 (A e `A * 300` com o corr de lag 2: as marcas, os números do eixo
   da direita no SVG da figura, a legenda, as barras, o deslocamento).
-- **Feito (2026-11-18, sem versão): item 2** (os dados de clima; CHIRPS sim,
+- **Feito (2026-11-18, 1.20.0): item 2** (os dados de clima; CHIRPS sim,
   ERA5 não). `climate.rs`: *File → Climate data...* (também na paleta) e a
   ferramenta `climate_data` do MCP. Endereços achados (listando os diretórios
   do CHC): `https://data.chc.ucsb.edu/products/CHIRPS/v3.0/` com `monthly/global/cogs/chirps-v3.0.AAAA.MM.cog`
@@ -2920,7 +2930,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   zeit-cdts, em resultado (os mesmos escores) e em tempo; autoteste da
   janela e um guia no site (calibrar o LandTrendr de Rondônia nos pontos
   do guia de validação).
-- **Feito (2026-11-18, sem versão)**: 62a + 62b + 62c (o motor, a janela, o MCP,
+- **Feito (2026-11-18, 1.20.0)**: 62a + 62b + 62c (o motor, a janela, o MCP,
   o histórico Python e o benchmark contra o zeit-cdts; falta o guia do site).
   `janus-zeit/src/tune.rs` + `tune.json` (o manifesto do que se calibra:
   por ferramenta a saída que é a data, a faixa e a escala de cada parâmetro, os
@@ -2969,7 +2979,7 @@ independentes para a maior: 58, 59, 60, 61, 62.
   todos os conjuntos iguais bit a bit. O benchmark achou que o motor no binário
   de teste do `janus-zeit` (alocador do sistema) leva 33 s no BFAST, 2,8× o do
   binário do app (mimalloc, como a extensão do zeit-cdts). O guia do site
-  (Rondônia) continua pendente. Roadmap: concluída (sem versão).
+  (Rondônia) continua pendente. Roadmap: concluída (1.20.0).
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
