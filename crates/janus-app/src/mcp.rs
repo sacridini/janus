@@ -42,7 +42,7 @@ the alias alone is the quantity the layer shows (its expression), `s2.nir` a ban
 `ndvi < 0.2 = 0`, `max(ndvi) by year`. list_indices gives the spectral indices' formulas. Zeit's tools \
 (list_tools, describe_tool, run_tool) write maps of change, trends, phenology, classes. A series from a STAC catalog \
 (stac_catalogs, stac_search, stac_series: Sentinel-2, Landsat, HLS, Sentinel-1 over an area and dates, read in \
-place, downloaded or composited) is a folder like any other. describe_vector and vector_series read vector files. \
+place, downloaded or composited) is a folder like any other. climate_data downloads CHIRPS rainfall for a box as a series of GeoTIFFs. describe_vector and vector_series read vector files. \
 Every result is files on disk, their paths in the answer; open_in_janus shows them to the user in Janus.";
 
 /// The server's output, shared by the calls that answer from their threads: a message per line.
@@ -219,6 +219,7 @@ impl Server {
             "stac_catalogs" => self.stac_catalogs(&a),
             "stac_search" => self.stac_search(&a, c),
             "stac_series" => self.stac_series(&a, c),
+            "climate_data" => self.climate_data(&a, c),
             "describe_vector" => self.describe_vector(&a),
             "vector_series" => self.vector_series(&a, c),
             _ => Err(format!("no tool {name:?}")),
@@ -601,6 +602,20 @@ fn catalogue() -> Vec<Value> {
             ),
             &["collection", "bbox_lonlat", "start", "end"],
             true,
+        ),
+        tool(
+            "climate_data",
+            "Download rainfall (CHIRPS v3) for an area",
+            "CHIRPS v3 rainfall (Climate Hazards Center, 0.05 degrees, 60S-60N, from 1981; public domain, cite Funk et al., Scientific Data, doi:10.1038/s41597-026-07096-4, data doi:10.15780/G2JQ0P): only the box is read from each remote file, one GeoTIFF a date (mm per month, pentad or day) with the date in its name. The folder is a series for the other tools (pixel_series, calculate: its coarse grid is matched to another series by date). A file already there is kept, so calling again retries the dates that failed.",
+            json!({
+                "source": { "type": "string", "enum": ["monthly", "pentad", "daily"], "description": "default monthly (pentad: six a month; daily: the pentads spread by ERA5)" },
+                "bbox_lonlat": { "type": "array", "items": { "type": "number" }, "description": "[lon_min, lat_min, lon_max, lat_max]" },
+                "start": { "type": "string", "description": "YYYY-MM (from 1981-01)" },
+                "end": { "type": "string", "description": "YYYY-MM (included; up to the month before today's)" },
+                "output_dir": out_dir.clone()
+            }),
+            &["bbox_lonlat", "start", "end"],
+            false,
         ),
         tool(
             "stac_series",

@@ -20,6 +20,8 @@ mod ard;
 mod basemap;
 #[path = "ui_test_chart_axis.rs"]
 mod chart_axis_tests;
+#[path = "ui_test_climate.rs"]
+mod climate_tests;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
 #[path = "ui_test_figures.rs"]
@@ -109,7 +111,8 @@ pub struct UiTest {
     ard: ard::ArdTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
-    /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs)
+    /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs);
+    /// 365-369: File > Climate data... (ui_test_climate.rs)
     welcome: welcome_tests::WelcomeTest,
     /// stages 355-364: Tune on samples (ui_test_tune.rs)
     tune: tune_test::TuneTest,
@@ -1060,6 +1063,7 @@ impl State {
             335..=344 => return self.test_figures(st, t0, ctx),
             350..=354 => return self.test_chart_axis(st, t0, ctx),
             355..=364 => return self.test_tune(st, t0, ctx),
+            365..=369 => return self.test_climate(st, t0, ctx),
             _ => {}
         }
         None

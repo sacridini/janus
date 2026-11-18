@@ -6,7 +6,7 @@
 //! check; 359 selects a set, whose parameters go into the tool's window (the live fit refits), and "Back to the
 //! current" returns them; 360 selects and keeps one ("Use these parameters": the provenance's calibration entry names
 //! it, and goes when the parameters are edited); 361 closes the window and puts everything back; 362 the refusal of
-//! the accuracy points (a project open: its message; else the window's problem without one). Then 299, the end.
+//! the accuracy points (a project open: its message; else the window's problem without one). Then 365 (Climate data, ui_test_climate.rs).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -106,7 +106,7 @@ impl State {
             355 => {
                 let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
                     println!("    no series is open: Tune on samples is left out");
-                    st.stage = 299;
+                    st.stage = 365; // Climate data (365-369, ui_test_climate.rs), then 299
                     return None;
                 };
                 let Some(tool) = TOOLS
@@ -117,7 +117,7 @@ impl State {
                     println!(
                         "    no tool that gives change dates applies to the series open: Tune on samples is left out"
                     );
-                    st.stage = 299;
+                    st.stage = 365; // Climate data (365-369, ui_test_climate.rs), then 299
                     return None;
                 };
                 let stamp =
@@ -130,7 +130,7 @@ impl State {
                 if let Err(e) = self.tune_write_reference(&dir.join(FILE)) {
                     println!("    the reference cannot be written ({e}): Tune on samples is left out");
                     let _ = std::fs::remove_dir_all(&dir);
-                    st.stage = 299;
+                    st.stage = 365; // Climate data (365-369, ui_test_climate.rs), then 299
                     return None;
                 }
                 self.set_tool_open(tool, true);
@@ -371,7 +371,7 @@ impl State {
                 }
                 println!("    refusal: {msg}");
                 next(st, "the accuracy points are refused with their reason");
-                st.stage = 299;
+                st.stage = 365; // Climate data (365-369, ui_test_climate.rs), then 299
                 None
             }
             _ => None,

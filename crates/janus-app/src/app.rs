@@ -586,6 +586,8 @@ pub struct State {
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
     /// File > Search STAC catalog
     pub stac: crate::stac::StacUi,
+    /// File > Climate data...
+    pub climate: crate::climate::ClimateUi,
     /// Tools > Raster calculator
     pub calc: crate::calculator::CalcUi,
     /// Tools > Data preparation > Regularize series
@@ -1023,6 +1025,7 @@ impl JanusApp {
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
                 stac: Default::default(),
+                climate: Default::default(),
                 calc: Default::default(),
                 reg: Default::default(),
                 poly: Default::default(),
@@ -2094,6 +2097,16 @@ impl State {
                     self.stac.show = true;
                 }
                 if ui
+                    .button("Climate data...")
+                    .on_hover_text(
+                        "Rainfall of CHIRPS v3 (monthly, pentads, daily; from 1981) for the area on the map,
+                         read from the Climate Hazards Center and opened as a series beside the one studied",
+                    )
+                    .clicked()
+                {
+                    self.open_climate();
+                }
+                if ui
                     .button("Add web layer...")
                     .on_hover_text(
                         "A map (WMS, WMTS) or features (WFS, OGC API) from a server: TerraBrasilis'
@@ -2906,6 +2919,7 @@ impl eframe::App for JanusApp {
         self.state.tsa_window(&ctx);
         self.state.ard_window(&ctx);
         self.state.stac_window(&ctx);
+        self.state.climate_window(&ctx);
         self.state.web_window(&ctx);
         self.state.calculator_window(&ctx);
         self.state.regularize_window(&ctx);

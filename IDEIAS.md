@@ -1361,7 +1361,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída (sem versão) |
 | 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída (sem versão) |
 | 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída (sem versão) |
-| 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS e ERA5 para a área do mapa | planejada |
+| 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída (sem versão) |
 | 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
@@ -2807,6 +2807,48 @@ independentes para a maior: 58, 59, 60, 61, 62.
   meses e observações, o `corr(` no texto da calculadora; autoteste
   350-354 (A e `A * 300` com o corr de lag 2: as marcas, os números do eixo
   da direita no SVG da figura, a legenda, as barras, o deslocamento).
+- **Feito (2026-11-18, sem versão): item 2** (os dados de clima; CHIRPS sim,
+  ERA5 não). `climate.rs`: *File → Climate data...* (também na paleta) e a
+  ferramenta `climate_data` do MCP. Endereços achados (listando os diretórios
+  do CHC): `https://data.chc.ucsb.edu/products/CHIRPS/v3.0/` com `monthly/global/cogs/chirps-v3.0.AAAA.MM.cog`
+  (de 1981.01 a 2026.10), `pentads/global/cogs/chirps-v3.0.AAAA.MM.P.cog` (P de
+  1 a 6, seis por mês) e `daily/final/rnl/cogs/AAAA/chirps-v3.0.rnl.AAAA.MM.DD.cog`
+  (o diário é o pentádico espalhado pelo ERA5, "rnl"; há também `sat` do IMERG
+  desde 1998, não oferecido); as dekads só têm `tifs/` (não COG: ficaram de
+  fora). A caixa (visível, ROI ou W,S,E,N) vira uma janela de pixels da grade
+  de 0,05° (7200 x 2400, 60°S-60°N; uma caixa fora diz isso), lida de cada COG
+  pelo `/vsicurl/` (só a caixa; sem procurar arquivos laterais: o servidor
+  responde 429 a muitas sondas), um GeoTIFF por data (`chirps_AAAA-MM.tif`,
+  `chirps_AAAA-MM-DD.tif`; a data no nome é o que o Build series lê) em
+  `results/climate/<fonte>_<caixa>_<período>` (ou a pasta digitada), numa tarefa
+  da fila de downloads (dois arquivos por vez, três tentativas cada; o que já
+  está na pasta é mantido, então baixar de novo refaz só as datas que falharam).
+  Abre como camada "CHIRPS rainfall (mm/month)" com a série estudada continuando
+  ativa, e o gráfico a desenha em barras (`Look.bars`, uma linha); passá-la ao
+  eixo da direita é o menu *Series axes*. A janela mostra o crédito (domínio
+  público, CC BY 4.0; Funk et al., CHIRPS3, Scientific Data, doi:10.1038/s41597-026-07096-4;
+  repositório doi:10.15780/G2JQ0P) e os arquivos o levam nos metadados, com
+  `ATTRIBUTION.txt` e `climate.json` na pasta. **ERA5 ficou de fora:** a coleção
+  `era5-pds` do Planetary Computer é Zarr v2 (blosc/zstd, chunks de 372 horas x
+  150 x 150, horário, 720 x 721 x 1440 por variável e mês, SAS pelo
+  `sign_planetary("era5-pds", "cpdataeuwest", "era5")` e `/vsiaz/era5/...`) e o
+  GDAL do Janus a abre e lê no lugar (teste `era5_zarr_opens_in_janus_gdal`,
+  `--ignored`), mas a coleção **termina em 2020-12** (1979-01 a 2020-12: os
+  blobs de 2021 em diante dão 404 e o STAC não tem itens depois), o que não
+  cobre as séries de Landsat/Sentinel de hoje; agregar a mensal/diária
+  também pede o salto da longitude 0-360 e a convenção das acumulações
+  (rótulo da hora final). Fica para quando houver outra fonte ou o PC for
+  atualizado (o TerraClimate, mensal de 4 km, não foi avaliado). Testes: as
+  URLs e os nomes por fonte, os meses, a caixa na grade de 0,05° (bordas, os
+  limites de 60°N/S e 180°, caixa fora), o orçamento e as checagens do período,
+  um download de uma pasta local de meses falsos (valores, origem, metadados,
+  mês faltando, manter os que já existem); autoteste 365-369 (uma pasta falsa de
+  três meses minúsculos, a janela, o download, a camada com 3 datas e os
+  valores, barras no gráfico). A comparação com o rasterio contra o servidor
+  real (`real_chirps_month_for_a_small_box`, `--ignored`, e `compare_chirps.py`)
+  **não foi rodada**: o servidor do CHC deixou de aceitar conexões na porta 443
+  deste computador depois da varredura dos diretórios (as sondas de arquivos
+  laterais do GDAL tiram 429), e continuava assim horas depois.
 - **Teste:** os valores do CHIRPS num ponto iguais aos do arquivo lido pelo
   rasterio; a agregação do ERA5 igual ao `resample` do xarray, em
   resultado e em tempo; o eixo da direita num autoteste (duas séries de
