@@ -1359,7 +1359,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
 | 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
 | 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída (sem versão) |
-| 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | planejada |
+| 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída (sem versão) |
 | 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | planejada |
 | 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS e ERA5 para a área do mapa | planejada |
 | 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | planejada |
@@ -2650,6 +2650,32 @@ independentes para a maior: 58, 59, 60, 61, 62.
   exemplo abre a partir de um asset local falso); a auditoria de layout da
   tela nova a 10–28 px; um teste que confere que todo `doc_url` existe em
   `site/`.
+
+  **Feito (2026-11-18, sem versão)**: `welcome.rs`. A janela *Welcome to Janus*
+  (Help → Welcome; ao abrir quando não há entrada na linha de comando, nem
+  sessão reaberta, nem projeto; *Show at start* nas configurações): *Open
+  sample data...*, *Open folder...*, *Search STAC...*, os projetos recentes e
+  os guias (*Which method?* em destaque). Os dados de exemplo vêm de um
+  manifesto (`SAMPLES_URL`, um asset da release `sample-data-v1`;
+  `JANUS_SAMPLES_URL` troca por uma URL ou caminho) e são baixados como uma
+  tarefa (fila de downloads, progresso, Cancel) para `<pasta de dados>/samples/<id>/`,
+  com o SHA-256 conferido (o arquivo que não confere é apagado) e abertos
+  como File → Open; sem rede a janela diz e usa a última lista. O "?" abre a
+  página do guia no site em cada janela de ferramenta (as 40 do Zeit, a
+  calculadora, a validação e o Alerts, TSA, ARD, Classification, STAC,
+  campos, regularizar, speckle, harmonizar, reprojetar, rasterizar,
+  poligonizar, zonal, perfis, montar e salvar série): o endereço vem de
+  `site/data/methods.json` (embutido) e de uma tabela do Janus, sem mudar o
+  Zeit (o `doc_url` do manifesto ficou de fora: o Janus já tem os dois).
+  O hover dos parâmetros ganhou "Default: ..." (só 14 das 235 `help` citam um
+  artigo: as referências por parâmetro dependem de um campo `refs` no Zeit).
+  Testes: o de que toda página existe em `site/` (e as âncoras), o do
+  manifesto, do SHA-256 e do endereço, o autoteste 345-349 e a auditoria de
+  layout (*welcome* e *samples*). `tools/make_sample_manifest.py` e
+  `tools/samples.example.json`. **Falta**: os recortes dos guias e o asset da
+  release `sample-data-v1` com o `samples.json` (hoje a lista não existe e a
+  janela diz que não achou), o estilo do guia e um `.janus` junto de cada
+  exemplo, e o NDVI da fenologia e o da validação.
 
 #### Fase 60 — Figuras: o gráfico, o Analysis e o mapa
 

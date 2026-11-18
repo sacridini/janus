@@ -953,6 +953,7 @@ impl State {
     }
 
     pub(crate) fn tsa_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "tsa");
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(crate::theme::error(), "Open a series first.");
             return;

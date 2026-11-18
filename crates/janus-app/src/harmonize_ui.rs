@@ -120,6 +120,7 @@ impl State {
     }
 
     fn harmonize_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "harmonize");
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.weak("Open a Sentinel-2 or Landsat series first (File > Search STAC catalog).");
             return;

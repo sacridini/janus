@@ -1,7 +1,7 @@
 //! `--selftest-ui` stages 330-333: the notice after a failure (crash_ui.rs, crash.rs). 330 puts a report and the
 //! marker of a run that is gone in a folder of its own (the test's, not the user's), as a crash leaves them, and looks
 //! for them as the start does; 331 the window is drawn with its buttons; 332 dismissed, it goes and the next start
-//! finds nothing; 333 the folder removed. The last stage of the whole test follows (299).
+//! finds nothing; 333 the folder removed. The Welcome window's stages follow (345).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -111,7 +111,7 @@ impl State {
                 let _ = std::fs::remove_dir_all(&st.crash.dir);
                 st.crash = Default::default();
                 next(st, "the test's crashes folder removed");
-                st.stage = 299;
+                st.stage = 345; // the Welcome window (345-349, ui_test_welcome.rs), then 299
                 None
             }
             _ => None,

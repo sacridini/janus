@@ -850,6 +850,7 @@ impl State {
     }
 
     pub(crate) fn tool_window(&mut self, ui: &mut Ui, tool: &'static Tool) {
+        crate::welcome::guide_button(ui, &tool.id);
         ui.label(&tool.description);
         let info = self.session.as_ref().map(|s| s.info.clone());
         let roles = self.active_roles();
@@ -984,7 +985,8 @@ impl State {
         egui::Grid::new(("params", &tool.id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             for p in &tool.params {
                 let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
-                let help = |r: egui::Response| if p.help.is_empty() { r } else { r.on_hover_text(&p.help) };
+                let hover = crate::welcome::param_help(p);
+                let help = |r: egui::Response| if hover.is_empty() { r } else { r.on_hover_text(&hover) };
                 match p.kind.as_str() {
                     "int" => {
                         help(ui.label(&p.label));
@@ -1111,10 +1113,11 @@ fn path_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value) -> bool {
     let mut x = v.as_str().unwrap_or("").to_string();
     ui.horizontal(|ui| {
         let edit = egui::TextEdit::singleline(&mut x).desired_width(crate::fit::scaled(ui, 170.0));
-        if ui.add(edit).on_hover_text(&p.help).changed() {
+        let hover = crate::welcome::param_help(p);
+        if ui.add(edit).on_hover_text(&hover).changed() {
             changed = true;
         }
-        if ui.button("Browse...").on_hover_text(&p.help).clicked() {
+        if ui.button("Browse...").on_hover_text(&hover).clicked() {
             let picked = if p.kind == "folder" {
                 rfd::FileDialog::new().pick_folder()
             } else {

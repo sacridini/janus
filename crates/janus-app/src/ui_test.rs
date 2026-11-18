@@ -40,6 +40,8 @@ mod vector_draw;
 mod vectors;
 #[path = "ui_test_web.rs"]
 mod web;
+#[path = "ui_test_welcome.rs"]
+mod welcome_tests;
 
 use crate::app::State;
 use crate::classes::ClassState;
@@ -101,6 +103,8 @@ pub struct UiTest {
     ard: ard::ArdTest,
     /// stages 330-339: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
+    /// stages 345-349: the Welcome window (ui_test_welcome.rs)
+    welcome: welcome_tests::WelcomeTest,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
@@ -1043,6 +1047,7 @@ impl State {
             300..=309 => return self.test_tsa(st, &input, t0, ctx),
             310..=319 => return self.test_ard(st, &input, t0, ctx),
             330..=339 => return self.test_crash_notice(st, t0, ctx),
+            345..=349 => return self.test_welcome(st, &input, t0, ctx),
             _ => {}
         }
         None
