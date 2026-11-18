@@ -7,7 +7,7 @@
 //! Each change is one step of Edit > Undo (the ROI's, undo.rs): the polygon is the ROI once the button is released.
 //! Not a vector editor: the IDEIAS left full editing out (it pulls towards a GIS).
 
-use egui::{Color32, Pos2, Rect, Response, Shape, Stroke, Ui, vec2};
+use egui::{Color32, Pos2, Rect, Response, Stroke, Ui, vec2};
 use janus_geo::plane::{self, Polygon};
 use janus_geo::polygon_file::{FieldValue, write_polygon};
 
@@ -294,8 +294,8 @@ impl State {
             if pts.len() < 2 {
                 continue;
             }
-            painter.add(Shape::closed_line(pts.clone(), Stroke::new(3.5, dark)));
-            painter.add(Shape::closed_line(pts.clone(), Stroke::new(1.5, Color32::WHITE)));
+            painter.add(crate::vectors::ring_line(pts.clone(), Stroke::new(3.5, dark)));
+            painter.add(crate::vectors::ring_line(pts.clone(), Stroke::new(1.5, Color32::WHITE)));
             let n = pts.len();
             for i in 0..n {
                 let (a, b) = (pts[i], pts[(i + 1) % n]);

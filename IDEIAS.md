@@ -2408,6 +2408,11 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   que é um port do phenofit (escrita a partir dos artigos), e o guia de fenologia refeito (27 estações).
   As ferramentas EOF e correlação defasada (Zeit 3.8.0) estão no branch eof-tools, a parte do app em
   andamento.
+- 1.19.2: o contorno de um polígono desenhado pela CPU (a feição sob o cursor, o ROI, o polígono em
+  edição) como linha aberta que começa no meio da primeira aresta (ring_line): a linha fechada do egui
+  junta todo canto em ponta, e de longe um anel pequeno reduzido a poucos pontos volta sobre si e
+  joga as pontas pelo mapa (as feições do WDPA, de milhares de anéis, pareciam brilhar sob o cursor).
+  As actions dos workflows nas versões de Node 24.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
