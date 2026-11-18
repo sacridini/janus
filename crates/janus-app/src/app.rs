@@ -945,10 +945,7 @@ impl JanusApp {
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
         let adapter = render_state.adapter.get_info();
-        crash::set_gpu(
-            format!("{} {}", adapter.name, adapter.driver_info).trim(),
-            &format!("{:?}", adapter.backend),
-        );
+        crash::set_gpu(format!("{} {}", adapter.name, adapter.driver_info).trim(), &format!("{:?}", adapter.backend));
         // vector files (and validation projects) among the inputs become layers once the app is made
         // a project file among them is opened at the first frame (project.rs)
         let startup_project = opts.inputs.iter().find(|p| crate::project::is_project_file(p)).map(PathBuf::from);

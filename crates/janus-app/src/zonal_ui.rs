@@ -16,8 +16,8 @@ use janus_zeit::warp::Grid;
 use janus_zeit::zonal::{STATS, ZonalKind, ZonalOptions, ZonalTable, write_gpkg, zonal};
 
 use crate::app::State;
-use crate::figure::FigurePlot;
 use crate::contents::Sel;
+use crate::figure::FigurePlot;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
 const KINDS: [(ZonalKind, &str); 3] = [
@@ -596,11 +596,11 @@ impl State {
         });
         if !figure {
             ui.weak(format!(
-            "{:.1} s; the tables and the GeoPackage in {}.{}",
-            meta.seconds,
-            meta.folder,
-            if t.note.is_empty() { String::new() } else { format!(" Pixel areas: {}.", t.note) }
-        ));
+                "{:.1} s; the tables and the GeoPackage in {}.{}",
+                meta.seconds,
+                meta.folder,
+                if t.note.is_empty() { String::new() } else { format!(" Pixel areas: {}.", t.note) }
+            ));
         }
         let ticks = t.labels.clone();
         let fmt = move |m: egui_plot::GridMark, _: &std::ops::RangeInclusive<f64>| {

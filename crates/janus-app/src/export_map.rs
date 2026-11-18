@@ -722,7 +722,8 @@ impl State {
         let (mc, msc, fx, fy) = (self.map.center, self.map.scale, g.fx, g.fy);
         // an image pixel's layer pixel, and back: the map's own transform
         let to_src = move |tx: f64, ty: f64| ((mc[0] + (tx / ps - cx) / msc) * fx, (mc[1] + (ty / ps - cy) / msc) * fy);
-        let from_src = move |sx: f64, sy: f64| (((sx / fx - mc[0]) * msc + cx) * ps, ((sy / fy - mc[1]) * msc + cy) * ps);
+        let from_src =
+            move |sx: f64, sy: f64| (((sx / fx - mc[0]) * msc + cx) * ps, ((sy / fy - mc[1]) * msc + cy) * ps);
         graticule::GeoMap::new(
             (w as f64, h as f64),
             &info.crs_wkt,

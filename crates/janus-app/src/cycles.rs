@@ -244,15 +244,15 @@ impl State {
         }
         let (tex, lo, hi) = own_texture.as_ref().or(c.image.as_ref()).map(|t| (t.1.id(), t.2, t.3)).unwrap();
         if !figure {
-        ui.weak(format!(
-            "{} dates, a step of {:.0} days. Power: over the series' variance ({}; white noise 1). Outlined: above \
+            ui.weak(format!(
+                "{} dates, a step of {:.0} days. Power: over the series' variance ({}; white noise 1). Outlined: above \
              red noise at 95 % (lag-1 correlation {:.2}). Darkened: the cone of influence, where the ends weigh on \
              the power. Pale: across a gap.",
-            s.observations,
-            s.dt / 86400.0,
-            format_g(s.variance, 3),
-            s.alpha
-        ));
+                s.observations,
+                s.dt / 86400.0,
+                format_g(s.variance, 3),
+                s.alpha
+            ));
         }
 
         let (n, rows) = (s.n, s.periods.len());

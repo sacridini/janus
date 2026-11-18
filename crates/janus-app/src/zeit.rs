@@ -429,7 +429,13 @@ fn placed(mut input: PixelInput, info: &CubeInfo, tool: &str, params: &Params, x
 }
 
 /// A series of a layer as a pixel run gets it.
-pub(crate) fn pixel_input(info: &CubeInfo, tool: &str, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
+pub(crate) fn pixel_input(
+    info: &CubeInfo,
+    tool: &str,
+    values: &[f32],
+    t: usize,
+    roles: &BTreeMap<String, i32>,
+) -> PixelInput {
     // a spectrum's axis: the wavelengths (nm), as the chart draws it
     let x = |i: usize| if info.spectral { info.layers[i].time } else { info.decimal_year(i) };
     PixelInput {

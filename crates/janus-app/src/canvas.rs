@@ -118,15 +118,22 @@ impl Canvas<'_> {
         }
         let xs = pts.iter().step_by(2).copied();
         let ys = pts.iter().skip(1).step_by(2).copied();
-        let (xa, xb) = (xs.clone().fold(f32::INFINITY, f32::min).floor() as i32, xs.fold(f32::NEG_INFINITY, f32::max).ceil() as i32);
-        let (ya, yb) = (ys.clone().fold(f32::INFINITY, f32::min).floor() as i32, ys.fold(f32::NEG_INFINITY, f32::max).ceil() as i32);
+        let (xa, xb) = (
+            xs.clone().fold(f32::INFINITY, f32::min).floor() as i32,
+            xs.fold(f32::NEG_INFINITY, f32::max).ceil() as i32,
+        );
+        let (ya, yb) = (
+            ys.clone().fold(f32::INFINITY, f32::min).floor() as i32,
+            ys.fold(f32::NEG_INFINITY, f32::max).ceil() as i32,
+        );
         const S: i32 = 4;
         for y in ya.max(0)..yb.min(self.h) {
             for x in xa.max(0)..xb.min(self.w) {
                 let mut inside = 0;
                 for sy in 0..S {
                     for sx in 0..S {
-                        let (px, py) = (x as f32 + (sx as f32 + 0.5) / S as f32, y as f32 + (sy as f32 + 0.5) / S as f32);
+                        let (px, py) =
+                            (x as f32 + (sx as f32 + 0.5) / S as f32, y as f32 + (sy as f32 + 0.5) / S as f32);
                         let mut odd = false;
                         let mut j = n - 1;
                         for i in 0..n {

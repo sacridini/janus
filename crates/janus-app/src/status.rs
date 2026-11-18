@@ -195,7 +195,14 @@ impl State {
                         actions.push(NoticeAction::Folder(j.output_dir.clone()));
                     }
                     crate::crash::log(&format!("task {}: {text}", j.title));
-                    ended.push(Notice { title: j.title.clone(), text, failed, update: false, actions, at: Instant::now() });
+                    ended.push(Notice {
+                        title: j.title.clone(),
+                        text,
+                        failed,
+                        update: false,
+                        actions,
+                        at: Instant::now(),
+                    });
                 }
             }
         }
@@ -218,7 +225,14 @@ impl State {
                         ),
                     };
                     crate::crash::log(&format!("task {}: {text}", e.title));
-                    ended.push(Notice { title: e.title.clone(), text, failed, update: false, actions, at: Instant::now() });
+                    ended.push(Notice {
+                        title: e.title.clone(),
+                        text,
+                        failed,
+                        update: false,
+                        actions,
+                        at: Instant::now(),
+                    });
                 }
             }
         }
@@ -245,21 +259,13 @@ impl State {
     /// (a failure stays longer), or with their ×.
     pub(crate) fn notices_ui(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
-        self.status.notices.retain(|n| {
-            now.duration_since(n.at).as_secs_f64() < n.seconds()
-        });
+        self.status.notices.retain(|n| now.duration_since(n.at).as_secs_f64() < n.seconds());
         if self.status.notices.is_empty() {
             return;
         }
         // the next one to go
-        if let Some(left) = self
-            .status
-            .notices
-            .iter()
-            .map(|n| {
-                n.seconds() - now.duration_since(n.at).as_secs_f64()
-            })
-            .reduce(f64::min)
+        if let Some(left) =
+            self.status.notices.iter().map(|n| n.seconds() - now.duration_since(n.at).as_secs_f64()).reduce(f64::min)
         {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(left.max(0.05)));
         }
@@ -445,8 +451,14 @@ impl State {
     /// A notice of the interface's own (a saved view that cannot be shown here...): failed or not.
     pub(crate) fn notify(&mut self, title: &str, text: &str, failed: bool) {
         crate::crash::log(&format!("{title}: {text}"));
-        let n =
-            Notice { title: title.into(), text: text.into(), failed, update: false, actions: vec![], at: Instant::now() };
+        let n = Notice {
+            title: title.into(),
+            text: text.into(),
+            failed,
+            update: false,
+            actions: vec![],
+            at: Instant::now(),
+        };
         self.status.notices.push(n);
         let k = self.status.notices.len();
         if k > 4 {

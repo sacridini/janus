@@ -321,7 +321,9 @@ impl State {
                 println!("    calibration entry: {}", e.to_string().chars().take(220).collect::<String>());
                 // the Python loop that redoes the search, written beside the runs that use the parameters
                 match self.tune.calibration_python(&tool.id, &params) {
-                    Some(code) if code.contains("POINTS = [") && code.contains("SETS = [") && code.contains("zeit.") => {
+                    Some(code)
+                        if code.contains("POINTS = [") && code.contains("SETS = [") && code.contains("zeit.") =>
+                    {
                         println!("    the search's Python: {} lines", code.lines().count());
                     }
                     other => {

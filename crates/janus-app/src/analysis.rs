@@ -374,7 +374,9 @@ impl State {
                 ui.add_space(4.0);
                 if ui
                     .small_button("Save figure...")
-                    .on_hover_text("The tab's plot as a PNG or an SVG for a paper: size in mm, dpi, font, light colours")
+                    .on_hover_text(
+                        "The tab's plot as a PNG or an SVG for a paper: size in mm, dpi, font, light colours",
+                    )
                     .clicked()
                 {
                     self.open_figure(crate::figure_ui::Source::Analysis(shown));
@@ -525,7 +527,12 @@ impl State {
         let months = move |plot: Plot<'static>| {
             plot.x_grid_spacer(move |_| {
                 // in order along the axis, from the seasonal year's first month
-                (0..12).map(|k| GridMark { value: shift(MONTH_START[(k + s0) % 12]), step_size: if thin { 60.0 } else { 30.0 } }).collect()
+                (0..12)
+                    .map(|k| GridMark {
+                        value: shift(MONTH_START[(k + s0) % 12]),
+                        step_size: if thin { 60.0 } else { 30.0 },
+                    })
+                    .collect()
             })
             // every month named (egui_plot hides labels under 60 points apart: a narrow panel had none)
             .custom_x_axes(vec![
@@ -953,7 +960,10 @@ impl State {
                 if info.time_is_date {
                     plot = crate::chart::time_axis(plot, None);
                 } else {
-                    plot = crate::figure::FigurePlot::x_title(plot, if info.spectral { "wavelength (nm)" } else { "date (index)" });
+                    plot = crate::figure::FigurePlot::x_title(
+                        plot,
+                        if info.spectral { "wavelength (nm)" } else { "date (index)" },
+                    );
                 }
                 if stacked {
                     plot = plot.include_y(0.0).include_y(100.0);

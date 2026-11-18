@@ -322,7 +322,9 @@ impl Server {
         let t0 = Instant::now();
         let source = match a["source"].as_str() {
             None => climate::Source::Monthly,
-            Some(s) => climate::Source::from_id(s).ok_or_else(|| format!("source: monthly, pentad or daily, not {s:?}"))?,
+            Some(s) => {
+                climate::Source::from_id(s).ok_or_else(|| format!("source: monthly, pentad or daily, not {s:?}"))?
+            }
         };
         let bbox: Vec<f64> =
             a["bbox_lonlat"].as_array().map(|v| v.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();

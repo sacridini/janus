@@ -349,14 +349,14 @@ impl State {
         let geo = info.geo_transform.is_some() && !info.crs_wkt.is_empty();
         let grids = ["No coordinate grid", "Grid: longitude and latitude", "Grid: the layer's CRS"];
         ui.add_enabled_ui(geo, |ui| {
-            egui::ComboBox::from_id_salt("anim grid").width(w).selected_text(grids[usize::from(o.graticule).min(2)]).show_ui(
-                ui,
-                |ui| {
+            egui::ComboBox::from_id_salt("anim grid")
+                .width(w)
+                .selected_text(grids[usize::from(o.graticule).min(2)])
+                .show_ui(ui, |ui| {
                     for (k, g) in grids.iter().enumerate() {
                         ui.selectable_value(&mut o.graticule, k as u8, *g);
                     }
-                },
-            );
+                });
         })
         .response
         .on_disabled_hover_text("The layer needs a CRS");

@@ -1153,10 +1153,7 @@ impl State {
     /// (points) tells how many marks fit.
     pub(crate) fn dual_axes(&self, o: &ChartOptions, exts: &[(String, (f64, f64))], height: f32) -> Option<DualAxes> {
         let merge = |right: bool| {
-            exts.iter()
-                .filter(|e| o.look(&e.0).right == right)
-                .map(|e| e.1)
-                .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+            exts.iter().filter(|e| o.look(&e.0).right == right).map(|e| e.1).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
         };
         let map_range = |name: &str| {
             let r = if self.layers.get(self.active).is_some_and(|l| l.name == name) {
