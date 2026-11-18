@@ -354,6 +354,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 | `calculate` | the text computed: a COG per date (or VRTs computed when read) |
 | `list_tools`, `describe_tool` | Zeit's tools, their parameters and outputs |
 | `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the SOM's and k-means' clusters named by the samples' classes; the tools on maps (agreement of change maps) on `maps` |
+| `tune_tool` | a change tool's parameters searched on reference points (a validation project's calibration split, or a vector file with a date field), as [Tuning on samples](#tuning-on-samples): the sets sorted with their scores, the Pareto front, the partial rank correlation of each parameter, the k-fold optimism of the best set; `tune.json` and `tune.py` (the same search in Python) in the folder |
 | `regularize` | a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled |
 | `speckle` | a radar series through Quegan's multitemporal filter or Lee's |
 | `harmonize` | Sentinel-2 taken to Landsat 8's OLI by HLS's bandpass adjustment (Landsat 7 and 4-5 by Roy et al. 2016 if asked); with `join`, a second series on the same grid joined in time |
@@ -856,7 +857,30 @@ disturbance on the same area (Cohen et al. 2017, *Forests* 8: 98).
   `calibration` entry in its `provenance.json`: the reference (project file or
   layer and field), the number of points, the split's fraction and seed, the year
   window, the tolerance, the number of sets and the seed, the set chosen and its
-  scores.
+  scores. The run's folder also has `tune.py`, and the run's entry in the
+  [Python history](#python-history) shows it before the run's own script.
+- **The search in Python.** **Copy Python** (beside *Use these parameters*) copies a
+  script with zeit-cdts that redoes the search outside Janus: it reads each
+  reference point's series as the script of a pin does (`zeit.load_raster(...,
+  pixel=(col, row))`), writes out every set with the values the search sampled (so
+  it needs no random generator to match), runs the tool's Zeit call once per set on
+  all the points together (`zeit.landtrendr`, `zeit.bfast`, `zeit.bfast_lite`,
+  `zeit.bfast_monitor`, `zeit.ewmacd`), takes the calendar year of the change the map
+  would show from the result, scores it with the same definitions as the window
+  (omission, commission, F1, the dated F1, dates within the tolerance, mean date
+  error), prints the table in the window's order and says how far its dated F1 is
+  from Janus's. It is commented and runs as it is (`SEARCH = False` skips the loop).
+  The tools of bands (CCDC, S-CCD, CODED) and BEAST have no Python loop yet.
+- **From an assistant.** The MCP tool `tune_tool` (see [MCP server](#mcp-server))
+  runs the same search without the window: `tool`, `series`, `reference` (a
+  validation project, whose calibration split is used and which is refused without
+  one, or a vector file with its `field`), `years`, `tolerance`, `k` (folds of the
+  optimism), `n_sets`, `vary` (default: the tool's three or four default
+  parameters), `ranges`, `params`, `seed`, `threads` (at most the server's). It
+  answers the sets sorted (parameters and scores), `pareto_front` (the numbers of the
+  sets on the front), `which_parameters_matter` (the partial rank correlation with
+  the dated F1), `optimism`, `few_changes` and the time, and writes `tune.json` and
+  `tune.py` in the folder.
 
 ### Python history
 

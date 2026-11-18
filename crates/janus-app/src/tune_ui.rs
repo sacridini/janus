@@ -19,6 +19,7 @@ use egui_plot::{Line, MarkerShape, Plot, PlotPoint, PlotPoints, Points};
 use janus_cube::{CubeInfo, CubeReader};
 use janus_geo::vectors::{Kind, Placer, VectorData, read_attributes};
 use janus_validation as val;
+use janus_zeit::python::{TunePointAt, TuneScriptSet, TuneScriptSpec};
 use janus_zeit::tune::{self, Optimism, ScoreKind, ScoreOpts, SetKind, TuneConfig, TuneParam, TunePoint, TuneResult};
 use janus_zeit::{PixelInput, Tool, manifest};
 use rayon::prelude::*;
@@ -294,6 +295,10 @@ impl VaryRow {
 pub(crate) struct Prepared {
     pub key: String,
     pub points: Arc<Vec<TunePoint>>,
+    /// each point's column and row of the series' pixels, in the points' order (for the Python of the search)
+    pub places: Arc<Vec<(usize, usize)>>,
+    /// the series (`CubeInfo::id`) the points were read from
+    pub series_id: u64,
     pub ctx: Arc<PixelInput>,
     /// seconds one set takes on all the points on one thread
     pub sec_per_set: f64,
@@ -327,6 +332,10 @@ pub(crate) struct Done {
     pub cfg: TuneConfig,
     pub result: TuneResult,
     pub points: Arc<Vec<TunePoint>>,
+    /// what `Prepared` says of the points' places and series, and the dates the search ran on
+    pub places: Arc<Vec<(usize, usize)>>,
+    pub series_id: u64,
+    pub ctx: Arc<PixelInput>,
     /// best first
     pub ranked: Vec<usize>,
     pub pareto: Vec<usize>,
@@ -343,6 +352,8 @@ pub(crate) struct Kept {
     tool: String,
     params: BTreeMap<String, Value>,
     entry: Value,
+    /// the Python loop that redoes the search (written beside the provenance of the runs that use the parameters)
+    script: Option<String>,
 }
 
 #[derive(Default)]
@@ -388,6 +399,11 @@ impl TuneUi {
         self.kept.as_ref().filter(|k| k.tool == tool && k.params == *params).map(|k| k.entry.clone())
     }
 
+    /// The Python of the search the parameters were kept from (see `calibration_entry`), when it could be written.
+    pub(crate) fn calibration_python(&self, tool: &str, params: &BTreeMap<String, Value>) -> Option<String> {
+        self.kept.as_ref().filter(|k| k.tool == tool && k.params == *params).and_then(|k| k.script.clone())
+    }
+
     pub(crate) fn running(&self) -> bool {
         self.running.is_some()
     }
@@ -423,7 +439,7 @@ fn num3(v: f64) -> String {
     if v.is_finite() { format!("{v:.3}") } else { "-".into() }
 }
 
-fn scores_json(s: &tune::Scores) -> Value {
+pub(crate) fn scores_json(s: &tune::Scores) -> Value {
     json!({
         "omission": s.omission, "commission": s.commission, "f1": s.f1, "f1_dated": s.f1_dated,
         "date_agreement": s.date_agreement, "mean_abs_error": s.mean_abs_error, "true_positives": s.tp,
@@ -432,7 +448,13 @@ fn scores_json(s: &tune::Scores) -> Value {
 }
 
 impl Done {
-    fn new(cfg: TuneConfig, result: TuneResult, points: Arc<Vec<TunePoint>>, p: &Prepared, seconds: f64) -> Done {
+    pub(crate) fn new(
+        cfg: TuneConfig,
+        result: TuneResult,
+        points: Arc<Vec<TunePoint>>,
+        p: &Prepared,
+        seconds: f64,
+    ) -> Done {
         let ranked = result.ranked();
         let pareto = result.pareto();
         let prcc = result.sensitivity(ScoreKind::F1Dated);
@@ -441,6 +463,9 @@ impl Done {
             cfg,
             result,
             points,
+            places: p.places.clone(),
+            series_id: p.series_id,
+            ctx: p.ctx.clone(),
             ranked,
             pareto,
             prcc,
@@ -452,12 +477,12 @@ impl Done {
     }
 
     /// The set's parameters by id.
-    fn values(&self, k: usize) -> BTreeMap<String, Value> {
+    pub(crate) fn values(&self, k: usize) -> BTreeMap<String, Value> {
         self.result.vary.iter().cloned().zip(self.result.sets[k].values.iter().cloned()).collect()
     }
 
     /// A set's name in the table: "default", "current" or its rank.
-    fn name(&self, k: usize) -> String {
+    pub(crate) fn name(&self, k: usize) -> String {
         match self.result.sets[k].kind {
             SetKind::Default => "default".into(),
             SetKind::Current => "current".into(),
@@ -466,7 +491,7 @@ impl Done {
     }
 
     /// What the provenance of a run that uses set `k` says of the calibration.
-    fn entry(&self, k: usize) -> Value {
+    pub(crate) fn entry(&self, k: usize) -> Value {
         let o = &self.result.opts;
         let set = &self.result.sets[k];
         let rank = self.ranked.iter().position(|&i| i == k).map(|r| r + 1);
@@ -495,24 +520,24 @@ impl Done {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// The candidates of a reference, once known (the thread reads the layer's dates).
-enum Refs {
+pub(crate) enum Refs {
     Project { crs: Box<VectorData>, points: Vec<RefPoint>, stats: RefStats, areas: Vec<f64> },
     Layer { data: Arc<VectorData>, field: usize },
 }
 
 /// What the thread reads the points for.
-struct Wanted {
-    key: String,
-    tool: &'static Tool,
-    info: Arc<CubeInfo>,
-    roles: BTreeMap<String, i32>,
-    refs: Refs,
-    text: String,
-    desc: Value,
-    base: BTreeMap<String, Value>,
-    window: (i32, i32),
-    threads: usize,
-    map_t: usize,
+pub(crate) struct Wanted {
+    pub(crate) key: String,
+    pub(crate) tool: &'static Tool,
+    pub(crate) info: Arc<CubeInfo>,
+    pub(crate) roles: BTreeMap<String, i32>,
+    pub(crate) refs: Refs,
+    pub(crate) text: String,
+    pub(crate) desc: Value,
+    pub(crate) base: BTreeMap<String, Value>,
+    pub(crate) window: (i32, i32),
+    pub(crate) threads: usize,
+    pub(crate) map_t: usize,
 }
 
 /// The series of the point at pixel (x, y) as a pixel run gets it (the worker's reading in zeit.rs).
@@ -540,7 +565,7 @@ fn read_point(
     p
 }
 
-fn read_points(w: Wanted) -> Result<Prepared, String> {
+pub(crate) fn read_points(w: Wanted) -> Result<Prepared, String> {
     let t0 = Instant::now();
     let (crs, refs, mut stats, areas) = match w.refs {
         Refs::Project { crs, points, stats, areas } => (*crs, points, stats, areas),
@@ -614,6 +639,8 @@ fn read_points(w: Wanted) -> Result<Prepared, String> {
     Ok(Prepared {
         key: w.key,
         points: Arc::new(points),
+        places: Arc::new(placed.iter().map(|&(_, x, y)| (x, y)).collect()),
+        series_id: w.info.id,
         ctx: Arc::new(ctx),
         sec_per_set,
         stats,
@@ -706,10 +733,71 @@ impl State {
         let Some(k) = t.selected else { return };
         let Some(tool) = manifest().tool(&t.tool) else { return };
         let params = self.zeit.params(tool).clone();
-        t.kept = Some(Kept { tool: tool.id.clone(), params, entry: done.entry(k) });
+        let mut entry = done.entry(k);
+        let script = match self.tune_python(done) {
+            Ok(code) => Some(code),
+            Err(why) => {
+                entry["python_note"] = json!(why);
+                None
+            }
+        };
+        t.kept = Some(Kept { tool: tool.id.clone(), params, entry, script });
         t.before = None;
         t.message =
             format!("The parameters of {} are kept; the runs that use them say so in their provenance.", done.name(k));
+    }
+
+    /// Why the Python of the search cannot be written now, if it cannot (what the button says when it is off).
+    fn tune_python_blocker(&self, done: &Done) -> Option<String> {
+        let Some(s) = &self.session else { return Some("Open the series the search ran on first.".into()) };
+        if done.series_id != s.info.id {
+            return Some("The search ran on another series than the one open.".into());
+        }
+        if done.places.len() != done.points.len() {
+            return Some("The points' places on the series are not known.".into());
+        }
+        None
+    }
+
+    /// The Python that redoes the search of `done` with Zeit (`janus_zeit::python::tune_script`): the points' series
+    /// read as a pin's, the sets written out, the scores and the table; or why it cannot be written.
+    pub(crate) fn tune_python(&mut self, done: &Done) -> Result<String, String> {
+        // (cheap checks first: `tune_python_blocker`)
+        if let Some(why) = self.tune_python_blocker(done) {
+            return Err(why);
+        }
+        let info = self.session.as_ref().map(|s| s.info.clone()).ok_or("open the series the search ran on first")?;
+        let name = self.layers.get(self.active).map_or(info.description.clone(), |l| l.name.clone());
+        let points: Vec<TunePointAt> = done
+            .points
+            .iter()
+            .zip(done.places.iter())
+            .map(|(p, &(col, row))| TunePointAt { col, row, reference: p.reference, weight: p.weight })
+            .collect();
+        let sets: Vec<TuneScriptSet> = (0..done.result.sets.len())
+            .map(|k| TuneScriptSet {
+                name: done.name(k),
+                values: done.result.sets[k].values.clone(),
+                f1_dated: Some(done.result.sets[k].scores.f1_dated).filter(|v| v.is_finite()),
+            })
+            .collect();
+        let roles = self.active_roles();
+        let path = |p: &str| crate::provenance::absolute(p);
+        janus_zeit::python::tune_script(&TuneScriptSpec {
+            info: &info,
+            version: env!("CARGO_PKG_VERSION"),
+            name: &name,
+            tool: &done.cfg.tool,
+            base: &done.cfg.base,
+            input: &done.ctx,
+            vary: &done.result.vary,
+            sets: &sets,
+            points: &points,
+            opts: done.result.opts,
+            reference: &done.reference,
+            roles: &roles,
+            path: &path,
+        })
     }
 
     pub(crate) fn tune_select_now(&mut self, k: usize) {
@@ -1559,6 +1647,24 @@ impl State {
             {
                 self.tune_back(t);
             }
+            // the script takes a moment to write (every set's calls): only on the click
+            let blocked = self.tune_python_blocker(done);
+            let copy = ui
+                .add_enabled(blocked.is_none(), egui::Button::new("Copy Python"))
+                .on_hover_text(
+                    "Python with zeit-cdts that redoes this search: the points' series read as a pin's, the sets \
+                     written out, the scores and the table. Needs zeit-cdts 3.2 or newer.",
+                )
+                .on_disabled_hover_text(blocked.clone().unwrap_or_default());
+            if blocked.is_none() && copy.clicked() {
+                match self.tune_python(done) {
+                    Ok(code) => {
+                        ui.ctx().copy_text(code);
+                        t.message = "The Python of the search is on the clipboard.".into();
+                    }
+                    Err(why) => t.error = why,
+                }
+            }
         });
     }
 
@@ -1703,6 +1809,8 @@ pub(crate) fn demo_result(tool: &Tool) -> Result<(Prepared, Done), String> {
     let prep = Prepared {
         key: "demo".into(),
         points: points.clone(),
+        places: Arc::new(Vec::new()),
+        series_id: 0,
         ctx: Arc::new(ctx),
         sec_per_set: 0.002,
         stats: RefStats::default(),
@@ -1897,5 +2005,134 @@ mod tests {
         assert_eq!(fmt_value(&json!(3)), "3");
         assert_eq!(fmt_value(&json!(0.12345678)), "0.1235");
         assert_eq!(fmt_value(&json!("auto")), "auto");
+    }
+
+    /// A pseudo-random number in [0, 1) (SplitMix64).
+    fn bench_unit(state: &mut u64) -> f64 {
+        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// `n` synthetic points over `years` (decimal), `per_year` dates a year from `y0`: half stable, half with a
+    /// persistent drop of `drops[k]` at a year in `at`; a season of amplitude `season` and noise `noise`.
+    fn bench_points(
+        years: &[f64],
+        n: usize,
+        at: (i32, i32),
+        drops: &[f64],
+        noise: f64,
+        season: f64,
+        seed: u64,
+    ) -> Vec<TunePoint> {
+        let mut st = seed;
+        (0..n)
+            .map(|k| {
+                let changed = k % 2 == 1;
+                let by = at.0 + (bench_unit(&mut st) * f64::from(at.1 - at.0 + 1)) as i32;
+                let drop = drops[(k / 2) % drops.len()];
+                let values = years
+                    .iter()
+                    .map(|&t| {
+                        let normal = (0..12).map(|_| bench_unit(&mut st)).sum::<f64>() - 6.0;
+                        let mut v = 0.75 + noise * normal + season * (2.0 * std::f64::consts::PI * t).sin();
+                        if changed && t >= f64::from(by) {
+                            v -= drop;
+                        }
+                        v
+                    })
+                    .collect();
+                TunePoint { values, reference: changed.then_some(f64::from(by)), weight: 1.0, ..Default::default() }
+            })
+            .collect()
+    }
+
+    /// The benchmark against the same loop in Python (tools/bench_tune/README.md), not a test: LandTrendr and BFAST on
+    /// `JANUS_BENCH_POINTS` (300) synthetic points and `JANUS_BENCH_SETS` (200) sets, on `JANUS_BENCH_THREADS` (4)
+    /// threads. It runs here, in the app's own binary, so that the allocator is the app's (mimalloc, as in zeit-cdts'
+    /// extension): the pixel kernels allocate a lot, and the system's heap under four threads is several times
+    /// slower. Writes what the Python reads (`<tool>_input.json`: the points' series and reference, every set's values
+    /// and Zeit calls), the functions the Python scores with (`<tool>_functions.py`, those of the generated script)
+    /// and the engine's scores and time (`<tool>_janus.json`) into `JANUS_BENCH_DIR`.
+    #[test]
+    #[ignore = "benchmark: set JANUS_BENCH_DIR, run in release"]
+    fn bench_tune_against_python() {
+        use janus_zeit::numeric::{decimal_year, year_start};
+        use janus_zeit::python::{tool_call, tune_functions};
+        let Ok(dir) = std::env::var("JANUS_BENCH_DIR") else {
+            println!("skipped: JANUS_BENCH_DIR names no folder");
+            return;
+        };
+        let get = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let (p, n, threads) =
+            (get("JANUS_BENCH_POINTS", 300), get("JANUS_BENCH_SETS", 200), get("JANUS_BENCH_THREADS", 4));
+        // annual dates (1 July) of 1990-2021, monthly (the 15th) of 2005-2016
+        let annual: Vec<i64> = (1990..=2021).map(|y| year_start(y) + 181).collect();
+        let mut monthly = vec![];
+        for y in 2005..=2016 {
+            let (s, next) = (year_start(y), year_start(y + 1));
+            monthly.extend((0..12).map(|m| s + (f64::from(m) * (next - s) as f64 / 12.0) as i64 + 14));
+        }
+        let cases = [
+            ("landtrendr", annual, (1998, 2014), vec![0.12, 0.2, 0.4], 0.04, 0.0, 5),
+            ("bfast", monthly, (2007, 2008), vec![0.3], 0.05, 0.1, 6),
+        ];
+        for (tool, days, at, drops, noise, season, seed) in cases {
+            let ctx = PixelInput {
+                years: days.iter().map(|&d| decimal_year(d)).collect(),
+                days: Some(days.clone()),
+                ..Default::default()
+            };
+            let pts = bench_points(&ctx.years, p, at, &drops, noise, season, seed);
+            let mut cfg = TuneConfig::new(tool, (1990, 2030));
+            (cfg.n_sets, cfg.threads) = (n, threads);
+            let sets = tune::build_sets(&cfg).unwrap();
+            let calls = |values: &[Value]| {
+                let mut given = cfg.base.clone();
+                for (id, v) in cfg.vary.iter().zip(values) {
+                    given.insert(id.clone(), v.clone());
+                }
+                let params = janus_zeit::Params::with_defaults(tool, &given).unwrap();
+                tool_call(tool, &params, &ctx).unwrap().data()
+            };
+            let set_calls: Vec<_> = sets.iter().map(|s| calls(&s.values)).collect();
+            let input = json!({
+                "tool": tool,
+                "days": days,
+                "points": pts.iter().map(|q| json!({ "values": q.values, "reference": q.reference })).collect::<Vec<_>>(),
+                "vary": cfg.vary,
+                "window": [cfg.opts.window.0, cfg.opts.window.1],
+                "tolerance": cfg.opts.tolerance,
+                "sets": sets.iter().zip(&set_calls).map(|(s, c)| json!({
+                    "values": s.values,
+                    "calls": c.iter().map(|c| json!({
+                        "func": c.func,
+                        "pos": c.pos,
+                        "kw": c.kw.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            });
+            let write = |name: &str, text: String| std::fs::write(format!("{dir}/{tool}_{name}"), text).unwrap();
+            write("input.json", serde_json::to_string(&input).unwrap());
+            write("functions.py", tune_functions(tool, &set_calls[0]).unwrap());
+            let t = Instant::now();
+            let r = tune::run(&cfg, &ctx, &pts, &AtomicBool::new(false), &AtomicUsize::new(0)).unwrap();
+            let seconds = t.elapsed().as_secs_f64();
+            let scores: Vec<_> = r
+                .sets
+                .iter()
+                .map(|s| {
+                    let c = &s.scores;
+                    json!({ "omission": c.omission, "commission": c.commission, "f1": c.f1, "f1_dated": c.f1_dated,
+                            "agreement": c.date_agreement, "error": c.mean_abs_error })
+                })
+                .collect();
+            let all =
+                json!({ "points": p, "sets": r.sets.len(), "threads": threads, "seconds": seconds, "scores": scores });
+            write("janus.json", serde_json::to_string(&all).unwrap());
+            println!("{tool}: {} sets on {p} points, {threads} threads: {seconds:.2} s", r.sets.len());
+        }
     }
 }

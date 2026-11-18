@@ -135,6 +135,13 @@ fn py_list(v: &[String]) -> String {
     o + "]"
 }
 
+/// The Python of the tuning on samples that chose the run's parameters (the provenance's `calibration` entry names its
+/// file in the run's folder), if the run has one.
+fn tune_search(dir: &Path, p: &Provenance) -> Option<String> {
+    let file = p.extra.get("calibration")?.get("python")?.as_str()?;
+    std::fs::read_to_string(dir.join(file)).ok()
+}
+
 /// The run's code: its header (what ran, on what, what it wrote), then its script, or the run as data. And whether
 /// it is a script.
 pub fn code_of(dir: &Path, p: &Provenance) -> (String, bool) {
@@ -167,6 +174,18 @@ pub fn code_of(dir: &Path, p: &Provenance) -> (String, bool) {
     o.push('\n');
     let script = (!p.python.is_empty()).then(|| std::fs::read_to_string(dir.join(&p.python)).ok()).flatten();
     if let Some(s) = script {
+        // the parameters came from a tuning on samples: its search first (a loop that runs on its own), then the run
+        if let Some(search) = tune_search(dir, p) {
+            o += "# The parameters of this run were chosen by a tuning on samples. Its search comes first: the same\n\
+                  # sets run by Zeit on the same points, scored as Janus scored them (set SEARCH = False to skip it).\n\
+                  # The run itself follows.\n\n";
+            o += &search;
+            if !o.ends_with('\n') {
+                o.push('\n');
+            }
+            o += "\n\n# ---------------------------------------------------------------------------------------\n\
+                  # The run\n\n";
+        }
         o += &s;
         return (o, true);
     }
@@ -744,6 +763,33 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_with_tuned_parameters_shows_the_search_before_the_run() {
+        let dir = std::env::temp_dir().join(format!("janus-history-tune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(SCRIPT), "print('the run')\n").unwrap();
+        std::fs::write(dir.join(crate::provenance::TUNE_SCRIPT), "print('the search')").unwrap();
+        let mut p = Provenance::start("zeit", "landtrendr", "LandTrendr");
+        p.python = SCRIPT.into();
+        // without a calibration entry the code is the run's own
+        let (plain, _) = code_of(&dir, &p);
+        assert!(plain.ends_with("print('the run')\n") && !plain.contains("the search"));
+        p.extra.insert(
+            "calibration".into(),
+            serde_json::json!({ "points": 80, "python": crate::provenance::TUNE_SCRIPT }),
+        );
+        let (code, script) = code_of(&dir, &p);
+        assert!(script);
+        let (search, run) = (code.find("print('the search')").unwrap(), code.find("print('the run')").unwrap());
+        assert!(search < run, "{code}");
+        assert!(code.contains("chosen by a tuning on samples") && code.contains("# The run"), "{code}");
+        // a calibration whose script could not be written leaves the run's alone
+        p.extra.insert("calibration".into(), serde_json::json!({ "python_note": "no Python of this search" }));
+        assert_eq!(code_of(&dir, &p).0, plain);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn kept_between_sessions() {

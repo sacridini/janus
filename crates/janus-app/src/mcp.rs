@@ -27,6 +27,8 @@ use crate::ml::Site;
 
 #[path = "mcp_more.rs"]
 mod more;
+#[path = "mcp_tune.rs"]
+mod tune;
 
 /// The versions of the protocol spoken (the newest first): the client's, when it is one of them.
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -205,6 +207,7 @@ impl Server {
             "list_tools" => Ok(list_tools()),
             "describe_tool" => describe_tool(&a),
             "run_tool" => self.run_tool(&a, c),
+            "tune_tool" => self.tune_tool(&a, c),
             "regularize" => self.regularize(&a, c),
             "warp" => self.warp(&a, c),
             "zonal" => self.zonal(&a, c),
@@ -404,6 +407,37 @@ fn catalogue() -> Vec<Value> {
                 area_props(),
             ),
             &["tool"],
+            false,
+        ),
+        tool(
+            "tune_tool",
+            "Tune a change tool's parameters on reference points",
+            "Searches a change tool's parameters (LandTrendr, CCDC, S-CCD, BFAST, BFAST Lite, BFAST Monitor, CODED, EWMACD, BEAST: list_tools) on reference points that have the date of the change (or none): Latin hypercube sets (200 by default, besides the tool's defaults and `params`) each run on every point's series, scored by omission, commission, F1, F1 with the date (the table's order), the share of dates within `tolerance` years and the mean date error. The reference is `reference`: a validation project (.gpkg: only its calibration split, which the project must have, so the accuracy points do not calibrate; a project without one is refused) or a vector file of points with a date field (`field`; a year or a date, empty = no change). Answers the sets sorted (parameters and scores), the Pareto front of omission x commission, the partial rank correlation of each parameter with the dated F1 (which ones matter), the k-fold optimism of the best set (chosen on k-1 folds, scored on the rest) and a warning with few changes (under 30). Writes tune.json and tune.py (the same search in Python with zeit-cdts) in the folder.",
+            with(
+                json!({
+                    "tool": { "type": "string", "description": "the tool to tune (describe_tool); not every tool has a change date" },
+                    "series": series_schema(),
+                    "reference": { "type": "string", "description": "a validation project (.gpkg) or a vector file of points" },
+                    "field": { "type": "string", "description": "a vector file's date field (a year, a date or a decimal year; empty = no change)" },
+                    "layer": { "type": "string", "description": "the vector file's layer (the first by default)" },
+                    "labels": { "type": "object", "description": "a project's labels as \"change\", \"no change\" or \"\" (left out); by default read from the names of its labels" },
+                    "use_accuracy": { "type": "boolean", "description": "true asks for the project's accuracy points as the reference: refused, they estimate the accuracy" },
+                    "years": { "type": "array", "items": { "type": "integer" }, "description": "[first, last] year a change counts in, in the reference and in the map (default: the series' years)" },
+                    "tolerance": { "type": "integer", "description": "years within which a found change's date agrees (default 1)" },
+                    "k": { "type": "integer", "description": "folds of the optimism check (default 5)" },
+                    "n_sets": { "type": "integer", "description": "sets of the Latin hypercube (default 200, at most 5000)" },
+                    "vary": { "type": "array", "items": { "type": "string" }, "description": "the parameters that vary (default: the tool's three or four most influential; describe_tool for their ids)" },
+                    "ranges": { "type": "object", "description": "{param: {min, max}} or {param: {choices: [...]}} to search other ranges than the default" },
+                    "params": { "type": "object", "description": "the tool's parameters held at these values (the rest at their defaults); the `current` set" },
+                    "roles": { "type": "object", "description": "multiband tools: the band of each role" },
+                    "weighted": { "type": "boolean", "description": "a project: each point counts its stratum's area over the points drawn in it" },
+                    "seed": { "type": "integer", "description": "the search's seed (default 1): the same seed gives the same sets" },
+                    "threads": { "type": "integer", "description": "threads of the search, at most the server's" },
+                    "output_dir": out_dir
+                }),
+                json!({}),
+            ),
+            &["tool", "series", "reference"],
             false,
         ),
         tool(

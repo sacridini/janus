@@ -319,6 +319,18 @@ impl State {
                     return fail(&format!("the calibration entry is wrong: {e}"));
                 }
                 println!("    calibration entry: {}", e.to_string().chars().take(220).collect::<String>());
+                // the Python loop that redoes the search, written beside the runs that use the parameters
+                match self.tune.calibration_python(&tool.id, &params) {
+                    Some(code) if code.contains("POINTS = [") && code.contains("SETS = [") && code.contains("zeit.") => {
+                        println!("    the search's Python: {} lines", code.lines().count());
+                    }
+                    other => {
+                        return fail(&format!(
+                            "the parameters kept should come with the Python of the search ({}): {other:?}",
+                            e["python_note"]
+                        ));
+                    }
+                }
                 // edited since: no longer from the tuning
                 let mut edited = params.clone();
                 if let Some(id) = self.tune.done.as_ref().and_then(|d| d.result.vary.first().cloned()) {

@@ -2217,7 +2217,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let mut p = Provenance::start("zeit", &tool.id, &tool.name);
         p.set_params(&params);
         // parameters kept from a tuning on samples say where they came from
-        if let Some(c) = self.tune.calibration_entry(&tool.id, &params) {
+        if let Some(mut c) = self.tune.calibration_entry(&tool.id, &params) {
+            // the loop in Python that redoes the search, beside the run's own script (the history shows both)
+            if let Some(code) = self.tune.calibration_python(&tool.id, &params)
+                && std::fs::write(out.join(crate::provenance::TUNE_SCRIPT), code).is_ok()
+            {
+                c["python"] = json!(crate::provenance::TUNE_SCRIPT);
+            }
             p.extra.insert("calibration".into(), c);
         }
         p.scope = scope_name.to_string();
