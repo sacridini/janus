@@ -1362,7 +1362,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída (sem versão) |
 | 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída (sem versão) |
 | 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída (sem versão) |
-| 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | planejada |
+| 62 | — | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída (sem versão; o guia do site pendente) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -2915,9 +2915,9 @@ independentes para a maior: 58, 59, 60, 61, 62.
   zeit-cdts, em resultado (os mesmos escores) e em tempo; autoteste da
   janela e um guia no site (calibrar o LandTrendr de Rondônia nos pontos
   do guia de validação).
-- **Feito (2026-11-18, sem versão)**: 62a + 62b (o motor e a janela; faltam
-  o MCP, o histórico Python, o benchmark contra o zeit-cdts e o guia do site,
-  62c). `janus-zeit/src/tune.rs` + `tune.json` (o manifesto do que se calibra:
+- **Feito (2026-11-18, sem versão)**: 62a + 62b + 62c (o motor, a janela, o MCP,
+  o histórico Python e o benchmark contra o zeit-cdts; falta o guia do site).
+  `janus-zeit/src/tune.rs` + `tune.json` (o manifesto do que se calibra:
   por ferramenta a saída que é a data, a faixa e a escala de cada parâmetro, os
   3-4 ligados por padrão) roda o núcleo raster do Zeit uma vez por conjunto em
   todos os pontos (uma linha de pixels), com o hipercubo latino, os escores
@@ -2940,7 +2940,31 @@ independentes para a maior: 58, 59, 60, 61, 62.
   o põe nos parâmetros da ferramenta (o ajuste ao vivo refaz), *Use these
   parameters* o mantém e o `provenance.json` da rodada ganha `calibration`; o
   painel de acurácia diz quantos pontos calibram. Autoteste: estágios 355-364
-  (`ui_test_tune.rs`). Roadmap: continua *planejada* até o 62c.
+  (`ui_test_tune.rs`).
+  **62c.** A ferramenta MCP `tune_tool` (`mcp_tune.rs`): ferramenta, série,
+  `reference` (um projeto de validação, só o corte de calibração, recusado sem
+  ele com a mensagem de `calibration_points`, ou um arquivo vetorial com
+  `field`), anos, tolerância, `k`, `n_sets`, `vary`, `ranges`, `params`, semente,
+  threads (no máximo as do servidor); responde os conjuntos ordenados, a frente
+  de Pareto, a PRCC, o otimismo, `few_changes` e o tempo, e grava `tune.json` e
+  `tune.py`. O Python da busca (`janus-zeit/src/python/tune_script.rs`): o laço
+  em zeit-cdts que lê a série de cada ponto como o script de um pino
+  (`load_raster(..., pixel=)`), escreve os conjuntos por extenso (os valores
+  sorteados, sem gerador), roda a chamada do Zeit uma vez por conjunto em todos
+  os pontos (`zeit.landtrendr` + `extract_events`, `zeit.bfast`, `bfast_lite`,
+  `bfast_monitor`, `ewmacd`), pontua com as definições do `tune.rs` e imprime a
+  tabela e a diferença do F1 com data para a do Janus; *Copy Python* na janela, e
+  a rodada que usa os parâmetros guardados leva `tune.py` na pasta (o histórico
+  mostra a busca antes do script da rodada). Sem laço em Python: CCDC, S-CCD,
+  CODED (ferramentas de bandas) e BEAST. Verificado rodando o script gerado no
+  zeit-cdts: a diferença do F1 com data para o motor é 0 nas cinco ferramentas.
+  Benchmark (`tools/bench_tune`, 300 pontos × 202 conjuntos, 4 threads dos dois
+  lados): LandTrendr 0,16 s no Janus contra 1,23 s (threads) e 4,55 s (4
+  processos) em Python; BFAST 11,8 s contra 12,7 s e 14,7 s; os seis escores de
+  todos os conjuntos iguais bit a bit. O benchmark achou que o motor no binário
+  de teste do `janus-zeit` (alocador do sistema) leva 33 s no BFAST, 2,8× o do
+  binário do app (mimalloc, como a extensão do zeit-cdts). O guia do site
+  (Rondônia) continua pendente. Roadmap: concluída (sem versão).
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

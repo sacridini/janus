@@ -18,6 +18,9 @@ use crate::zeit::JobState;
 pub const FILE: &str = "provenance.json";
 /// a Zeit run's Python, beside its provenance
 pub const SCRIPT: &str = "rerun.py";
+/// The Python of the tuning on samples whose parameters a run used (the `calibration` entry names it): the search,
+/// shown before the run's own script.
+pub const TUNE_SCRIPT: &str = "tune.py";
 
 /// The series a run read.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
