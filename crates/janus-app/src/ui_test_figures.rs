@@ -1,7 +1,7 @@
 //! `--selftest-ui` stages 335-344: figures (figure.rs, figure_ui.rs, graticule.rs). 335 opens the Save figure dialog from
 //! the series chart and writes a PNG (the size mm x dpi, ink on it) and an SVG (the size in mm, text as text, paths); 336
 //! the same from an Analysis tab; 337 the map PNG with the coordinate grid, the north arrow and a title (it differs
-//! from the plain one where the overlay is); 338 the transect's figure (its image read back from the GPU). Then 299, the end.
+//! from the plain one where the overlay is); 338 the transect's figure (its image read back from the GPU). Then 350, the second axis of the chart.
 
 use std::time::Instant;
 
@@ -273,7 +273,7 @@ impl State {
                     next(st, "no other data");
                     if stage == 340 {
                         let _ = std::fs::remove_dir_all(&dir);
-                        st.stage = 299;
+                        st.stage = 350;
                     }
                     return None;
                 };
@@ -351,7 +351,7 @@ impl State {
                 }
                 next(st, "the Analysis tabs' figures on other data");
                 if stage == 340 {
-                    st.stage = 299;
+                    st.stage = 350;
                 }
             }
             _ => {}

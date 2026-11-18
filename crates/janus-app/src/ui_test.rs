@@ -18,6 +18,8 @@ mod animation;
 mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_chart_axis.rs"]
+mod chart_axis_tests;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
 #[path = "ui_test_figures.rs"]
@@ -105,7 +107,7 @@ pub struct UiTest {
     ard: ard::ArdTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
-    /// stages 345-349: the Welcome window (ui_test_welcome.rs)
+    /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs)
     welcome: welcome_tests::WelcomeTest,
 }
 
@@ -1051,6 +1053,7 @@ impl State {
             330..=334 => return self.test_crash_notice(st, t0, ctx),
             345..=349 => return self.test_welcome(st, &input, t0, ctx),
             335..=344 => return self.test_figures(st, t0, ctx),
+            350..=354 => return self.test_chart_axis(st, t0, ctx),
             _ => {}
         }
         None

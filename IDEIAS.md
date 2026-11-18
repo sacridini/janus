@@ -2780,6 +2780,33 @@ independentes para a maior: 58, 59, 60, 61, 62.
      TerraClimate (mensal, 4 km) vale a pena como terceira. A série abre
      como camada na sua grade grossa; a calculadora já casa grades
      diferentes por data.
+- **Feito (2026-11-18, sem versão): item 1** (o eixo da direita; os dados de
+  clima, item 2, seguem planejados). `chart_axis.rs`: o menu *Series axes* do
+  gráfico (com *All visible layers* e duas camadas ou mais) dá a cada camada
+  *Right axis*, *Bars* (barras desde 0, largura 0,8 do passo mediano) e, para
+  uma camada que é o resultado de `corr(x, y, lag=k)` da calculadora (o
+  `provenance.json` da rodada guarda o programa e os apelidos das camadas),
+  *Shift y by the lag (k)* (as datas de y mais k dias, semanas, meses de
+  calendário, anos ou observações; desligado de início). O egui_plot 0.37 só
+  tem uma escala Y: a série da direita é desenhada por um mapa afim
+  `y' = a·y + b` para a escala da esquerda, e os dois eixos são ajustados
+  juntos (o mesmo número de intervalos, 3 a 10, em passos redondos 1/2/5×10^k,
+  o que desperdiça menos das duas faixas; as marcas da esquerda são as da
+  direita e o espaçador de grade vem das duas), o rótulo da direita é o mapa
+  inverso (`AxisHints` com `HPlacement::Right`). O `AsShown` leva o mapa: o
+  gráfico, as bandas, a densidade, a área sob a série e os modelos ajustados
+  passam por ele, o inspetor e as dicas mostram os valores reais (o ponto do
+  inspetor vai para a posição desenhada). A legenda diz *(right)* e
+  *(shifted +k)*. O *Y = map range* da direita (*Right axis = map range*) usa
+  a faixa de cores da camada; as listras continuam as da série do cursor da
+  camada ativa. A dica quieta: com faixas que diferem mais de 10×, o texto do
+  *Right axis* diz isso (nada abre sozinho). Sem camada na esquerda não há
+  eixo da direita (a única escala é a da esquerda). Não vai ao `.janus`: as
+  opções do gráfico (estilo, valores, tendência) também não vão. Testes: o
+  mapa e suas marcas, a faixa degenerada (min = max), os atrasos em dias,
+  meses e observações, o `corr(` no texto da calculadora; autoteste
+  350-354 (A e `A * 300` com o corr de lag 2: as marcas, os números do eixo
+  da direita no SVG da figura, a legenda, as barras, o deslocamento).
 - **Teste:** os valores do CHIRPS num ponto iguais aos do arquivo lido pelo
   rasterio; a agregação do ERA5 igual ao `resample` do xarray, em
   resultado e em tempo; o eixo da direita num autoteste (duas séries de

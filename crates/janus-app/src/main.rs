@@ -21,6 +21,7 @@ mod canvas;
 mod canvas_layer;
 mod chain;
 mod chart;
+mod chart_axis;
 mod chips;
 mod classes;
 mod composite;
