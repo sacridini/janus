@@ -15,6 +15,7 @@ use janus_gpu::Mode;
 use crate::app::State;
 use crate::canvas::{Canvas, FIGURE_FONT_SIZE, Face, Legend, Rgba, draw_credit, draw_legends, draw_scale_bar, rgba};
 use crate::exports::{ExportJob, sanitize, start_export_job};
+use crate::graticule;
 use crate::theme;
 
 /// The GPU target of the offscreen renders.
@@ -22,6 +23,37 @@ pub(crate) const EXPORT_SLOT: i32 = -1;
 /// Pixels per side of a rendered export, and in all (512 MB of RGBA).
 const MAX_EXPORT_SIDE: f64 = 16384.0;
 const MAX_EXPORT_PIXELS: f64 = 128e6;
+
+/// A short text kept in place (up to 120 bytes), so that the options stay `Copy`: the map's title.
+#[derive(Clone, Copy)]
+pub struct ShortText {
+    buf: [u8; 120],
+    len: u8,
+}
+
+impl Default for ShortText {
+    fn default() -> Self {
+        ShortText { buf: [0; 120], len: 0 }
+    }
+}
+
+impl ShortText {
+    /// `s`, cut at a character boundary when it is longer than 120 bytes.
+    pub fn new(s: &str) -> Self {
+        let mut n = s.len().min(120);
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+        let mut t = ShortText::default();
+        t.buf[..n].copy_from_slice(&s.as_bytes()[..n]);
+        t.len = n as u8;
+        t
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.buf[..usize::from(self.len)]).unwrap_or("")
+    }
+}
 
 /// The PNG's choices.
 #[derive(Clone, Copy)]
@@ -38,11 +70,27 @@ pub struct PngOptions {
     pub marks: bool,
     /// ground distance, bottom right
     pub scale_bar: bool,
+    /// the coordinate grid with its values at the edges: 0 none, 1 longitude and latitude, 2 the layer's CRS
+    pub graticule: u8,
+    /// true north, top right (the grid convergence in a projected CRS)
+    pub north_arrow: bool,
+    /// a title, top centre
+    pub title: ShortText,
 }
 
 impl Default for PngOptions {
     fn default() -> Self {
-        PngOptions { scale: 1, background: 0, label: true, legend: true, marks: false, scale_bar: false }
+        PngOptions {
+            scale: 1,
+            background: 0,
+            label: true,
+            legend: true,
+            marks: false,
+            scale_bar: false,
+            graticule: 0,
+            north_arrow: false,
+            title: ShortText::default(),
+        }
     }
 }
 
@@ -54,6 +102,10 @@ pub struct FigureOverlay {
     pub legend: bool,
     pub marks: bool,
     pub scale_bar: bool,
+    /// as `PngOptions`
+    pub graticule: u8,
+    pub north_arrow: bool,
+    pub title: ShortText,
 }
 
 /// The export dialog and the "Save all outputs" one.
@@ -70,6 +122,8 @@ pub struct ExportUi {
     pub view_scale: i32,
     /// "Save all outputs": the result whose run, the folder as typed
     pub save_run: Option<(String, String)>,
+    /// the Save figure dialog (figure_ui.rs)
+    pub figure: crate::figure_ui::FigureUi,
 }
 
 impl Default for ExportUi {
@@ -83,6 +137,7 @@ impl Default for ExportUi {
             values_whole: false,
             view_scale: 1,
             save_run: None,
+            figure: Default::default(),
         }
     }
 }
@@ -501,6 +556,18 @@ impl State {
                 cv.text(tx, ty, &num, fs, col, Face::Bitmap);
             }
         }
+        // the coordinate grid under the label and the legend; the arrow
+        let mut north = None;
+        if (o.graticule > 0 || o.north_arrow)
+            && let Some(gm) = self.export_geo_map(w, h, scale, ppp)
+        {
+            if o.graticule > 0 {
+                let units = if o.graticule == 2 { graticule::Units::Crs } else { graticule::Units::LonLat };
+                let across = ((w as f32 / ps) / 110.0).clamp(3.0, 8.0) as usize;
+                graticule::draw_grid(&mut cv, &graticule::grid_lines(&gm, units, across), ps);
+            }
+            north = gm.north_angle(w as f64 / 2.0, h as f64 / 2.0).filter(|_| o.north_arrow);
+        }
         let t = self.titles();
         if o.label == 2 && t.dated {
             // an animation's date stamp: the date large (the scalable font), the layer and the mode under it
@@ -612,6 +679,24 @@ impl State {
             }
             draw_legends(&mut cv, &legends, ps);
         }
+        if let Some(angle) = north {
+            graticule::draw_north_arrow(&mut cv, angle, ps);
+        }
+        if !o.title.as_str().is_empty() {
+            // top centre, under the label when they would meet
+            let size = fs * 1.5;
+            let text = o.title.as_str();
+            let tw = Canvas::text_width(text, size, Face::Vector);
+            let label_right = if o.label == 1 || (o.label == 2 && t.dated) {
+                10.0 * ps + Canvas::text_width(&t.title, fs, Face::Bitmap) + 12.0 * ps
+            } else {
+                0.0
+            };
+            let x = ((w as f32 - tw) / 2.0).max(8.0 * ps);
+            let y = if x < label_right { 8.0 * ps + fs + 14.0 * ps } else { 8.0 * ps };
+            cv.fill_rect(x - 6.0 * ps, y - 4.0 * ps, x + tw + 6.0 * ps, y + size + 4.0 * ps, rgba(0, 0, 0, 165));
+            cv.text(x, y, text, size, rgba(255, 255, 255, 255), Face::Vector);
+        }
         let credit_top = draw_credit(&mut cv, &self.basemap_attribution(), ps); // whenever the basemap is drawn
         if o.scale_bar {
             // measured at the centre of the view; one target pixel is 1 / (scale ps) layer pixels
@@ -621,12 +706,52 @@ impl State {
         }
     }
 
+    /// The export image's pixels and the active layer's CRS, for the coordinate grid and the north arrow (None: the layer
+    /// has no georeferencing or its CRS is unknown). `w` x `h` pixels, rendered at `scale` x the screen's.
+    fn export_geo_map(&self, w: usize, h: usize, scale: i32, ppp: f32) -> Option<graticule::GeoMap> {
+        let info = &self.session.as_ref()?.info;
+        let gt = info.geo_transform?;
+        let det = gt[1] * gt[5] - gt[2] * gt[4];
+        if info.crs_wkt.is_empty() || det == 0.0 {
+            return None;
+        }
+        let g = self.grid()?;
+        let ps = f64::from(ppp) * f64::from(scale);
+        let (canvas, _) = self.export_size(scale, ppp);
+        let (cx, cy) = (f64::from(canvas[0]) / 2.0, f64::from(canvas[1]) / 2.0);
+        let (mc, msc, fx, fy) = (self.map.center, self.map.scale, g.fx, g.fy);
+        // an image pixel's layer pixel, and back: the map's own transform
+        let to_src = move |tx: f64, ty: f64| ((mc[0] + (tx / ps - cx) / msc) * fx, (mc[1] + (ty / ps - cy) / msc) * fy);
+        let from_src = move |sx: f64, sy: f64| (((sx / fx - mc[0]) * msc + cx) * ps, ((sy / fy - mc[1]) * msc + cy) * ps);
+        graticule::GeoMap::new(
+            (w as f64, h as f64),
+            &info.crs_wkt,
+            move |tx, ty| {
+                let (sx, sy) = to_src(tx, ty);
+                (gt[0] + sx * gt[1] + sy * gt[2], gt[3] + sx * gt[4] + sy * gt[5])
+            },
+            move |x, y| {
+                let (dx, dy) = (x - gt[0], y - gt[3]);
+                let (sx, sy) = ((dx * gt[5] - dy * gt[2]) / det, (dy * gt[1] - dx * gt[4]) / det);
+                Some(from_src(sx, sy))
+            },
+        )
+    }
+
     pub fn export_png(&mut self, path: String, o: PngOptions, ctx: &egui::Context) -> Option<Arc<ExportJob>> {
         let ppp = ctx.pixels_per_point();
         let transparent = o.background == 2;
         let bg = (o.background == 1).then_some([1.0, 1.0, 1.0, 1.0]);
         let (mut img, w, h) = self.render_export(o.scale, transparent, bg, o.marks, ppp)?;
-        let fo = FigureOverlay { label: u8::from(o.label), legend: o.legend, marks: o.marks, scale_bar: o.scale_bar };
+        let fo = FigureOverlay {
+            label: u8::from(o.label),
+            legend: o.legend,
+            marks: o.marks,
+            scale_bar: o.scale_bar,
+            graticule: o.graticule,
+            north_arrow: o.north_arrow,
+            title: o.title,
+        };
         self.draw_figure_overlay(&mut img, w, h, o.scale, fo, ppp);
         let title = format!("Map as PNG, {w} x {h} px");
         let p = path.clone();
@@ -894,7 +1019,12 @@ impl State {
 
     /// The typed file: trimmed (as pasted from Explorer), a name alone in the export folder, `ext` added.
     pub(crate) fn export_target(&self, ext: &str) -> String {
-        let typed = self.export.path.trim_matches([' ', '\t', '"']);
+        self.target_of(&self.export.path, ext)
+    }
+
+    /// `export_target` of any typed path (the figure dialog's).
+    pub(crate) fn target_of(&self, typed: &str, ext: &str) -> String {
+        let typed = typed.trim_matches([' ', '\t', '"']);
         if typed.is_empty() {
             return String::new();
         }
@@ -1059,6 +1189,7 @@ impl State {
             "Export animation",
         ];
         const FILTERS: [&str; 6] = ["", "PNG image", "GeoTIFF", "GeoTIFF", "GeoTIFF", "Animation"];
+        self.figure_dialog(ctx);
         let kind = self.export.kind.min(5);
         if self.export.open {
             self.export.open = false;
@@ -1127,6 +1258,37 @@ impl State {
                     ui.checkbox(&mut o.marks, "Pins, ROI and vector layers");
                     ui.add_enabled(info.geo_transform.is_some() && !info.crs_wkt.is_empty(), egui::Checkbox::new(&mut o.scale_bar, "Scale bar"))
                         .on_hover_text("Ground distance at the centre of the view (the layer needs a CRS)");
+                    // the coordinate grid, the north arrow and a title (a paper's map)
+                    let geo = info.geo_transform.is_some() && !info.crs_wkt.is_empty();
+                    let grids = ["No coordinate grid", "Grid: longitude and latitude", "Grid: the layer's CRS"];
+                    ui.add_enabled_ui(geo, |ui| {
+                        egui::ComboBox::from_id_salt("png grid")
+                            .width(crate::fit::scaled(ui, 240.0))
+                            .selected_text(grids[usize::from(o.graticule).min(2)])
+                            .show_ui(ui, |ui| {
+                                for (k, g) in grids.iter().enumerate() {
+                                    ui.selectable_value(&mut o.graticule, k as u8, *g);
+                                }
+                            });
+                    })
+                    .response
+                    .on_hover_text("Lines at round values with their coordinates at the edges, from the exact transform of the layer's CRS (the lines curve where the CRS does)")
+                    .on_disabled_hover_text("The layer needs a CRS");
+                    ui.add_enabled(geo, egui::Checkbox::new(&mut o.north_arrow, "North arrow"))
+                        .on_hover_text("True north, top right (it leans by the grid convergence in a projected CRS)")
+                        .on_disabled_hover_text("The layer needs a CRS: without one, north is not known and no arrow is drawn");
+                    let mut title = o.title.as_str().to_string();
+                    ui.horizontal(|ui| {
+                        ui.label("Title");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut title)
+                                .desired_width(crate::fit::scaled(ui, 240.0))
+                                .hint_text("(none; up to 120 characters)"),
+                        );
+                    });
+                    if title != o.title.as_str() {
+                        o.title = ShortText::new(&title);
+                    }
                 }
                 2 => {
                     let name = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());

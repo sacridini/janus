@@ -18,6 +18,8 @@ mod animation;
 mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_figures.rs"]
+mod figures;
 #[path = "ui_test_fullres.rs"]
 mod fullres;
 #[path = "ui_test_interface.rs"]
@@ -1038,6 +1040,7 @@ impl State {
             180..=299 => return self.test_interface(st, &input, t0, ctx),
             300..=309 => return self.test_tsa(st, &input, t0, ctx),
             310..=319 => return self.test_ard(st, &input, t0, ctx),
+            335..=344 => return self.test_figures(st, t0, ctx),
             _ => {}
         }
         None

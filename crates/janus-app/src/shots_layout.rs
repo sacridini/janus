@@ -159,6 +159,7 @@ impl State {
             "areas",
             "fields",
             "export",
+            "figure",
             "goto",
             "tasks",
             "log",
@@ -209,6 +210,7 @@ impl State {
         self.poly.show = false;
         self.fields.show = false;
         self.export.open = false;
+        self.export.figure.source = None;
         self.nav.goto_open = false;
         self.zeit.show_tasks = false;
         self.zeit.log.show = false;
@@ -263,6 +265,7 @@ impl State {
                 "areas" => self.open_areas(None),
                 "fields" => self.fields.show = true,
                 "export" => self.open_export(0),
+                "figure" => self.open_figure(crate::figure_ui::Source::Chart),
                 "goto" => self.toggle_goto(),
                 "tasks" => self.zeit.show_tasks = true,
                 "log" => self.zeit.log.show = true,
