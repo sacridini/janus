@@ -149,6 +149,7 @@ impl State {
         for w in [
             "calculator",
             "stac",
+            "climate",
             "regularize",
             "speckle",
             "harmonize",
@@ -203,6 +204,7 @@ impl State {
         self.ml.open = false;
         self.calc.show = false;
         self.stac.show = false;
+        self.climate.show = false;
         self.reg.show = false;
         self.speckle.show = false;
         self.harmonize.show = false;
@@ -254,6 +256,7 @@ impl State {
             Place::Window(w) => match *w {
                 "calculator" => self.calc.show = true,
                 "stac" => self.stac.show = true,
+                "climate" => self.open_climate(),
                 "regularize" => self.reg.show = true,
                 "speckle" => self.speckle.show = true,
                 "harmonize" => self.harmonize.show = true,

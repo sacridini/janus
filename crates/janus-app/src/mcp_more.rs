@@ -15,6 +15,7 @@ use janus_zeit::composite::{CompOptions, Method};
 use serde_json::{Value, json};
 
 use super::{Call, R, Server, out_dir, vector_features};
+use crate::climate;
 
 /// Items a search gets at most (the STAC window's).
 const MAX_ITEMS: usize = 2000;
@@ -316,6 +317,48 @@ impl Server {
 
     /// A series from a search: VRTs reading the catalog in place, downloaded as COGs, or composited (the best
     /// available pixel, the greenest, the medoid, the median), one date or period a file.
+    /// climate_data: CHIRPS's box and period downloaded into a folder (the Climate data window's engine).
+    pub(super) fn climate_data(&self, a: &Value, c: &Call) -> R<Value> {
+        let t0 = Instant::now();
+        let source = match a["source"].as_str() {
+            None => climate::Source::Monthly,
+            Some(s) => climate::Source::from_id(s).ok_or_else(|| format!("source: monthly, pentad or daily, not {s:?}"))?,
+        };
+        let bbox: Vec<f64> =
+            a["bbox_lonlat"].as_array().map(|v| v.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+        let bbox: [f64; 4] =
+            bbox.try_into().map_err(|_| "bbox_lonlat: [lon_min, lat_min, lon_max, lat_max]".to_string())?;
+        let month = |k: &str| -> R<(i32, u32)> {
+            let t = a[k].as_str().unwrap_or_default();
+            let mut p = t.split('-');
+            match (p.next().and_then(|y| y.parse().ok()), p.next().and_then(|m| m.parse::<u32>().ok())) {
+                (Some(y), Some(m)) if (1..=12).contains(&m) => Ok((y, m)),
+                _ => Err(format!("{k}: YYYY-MM, not {t:?}")),
+            }
+        };
+        let (start, end) = (month("start")?, month("end")?);
+        let dir = out_dir(a, &format!("climate_{}", source.id()))?;
+        let spec = climate::Spec { source, bbox, start, end, out_dir: dir.clone() };
+        let est = climate::estimate(&spec)?;
+        let r = climate::download(&spec, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "series": dir.join("*.tif"),
+            "source": source.id(),
+            "unit": source.unit(),
+            "dates": r.files.len(),
+            "first_file": r.files.first(),
+            "last_file": r.files.last(),
+            "read": r.fetched,
+            "kept": r.kept,
+            "failed": r.failed.iter().map(|f| json!({ "file": f.0, "why": f.1 })).collect::<Vec<_>>(),
+            "pixels": { "columns": est.cols, "rows": est.rows, "size_degrees": 0.05 },
+            "license": climate::LICENSE,
+            "citation": climate::CITATION,
+            "data_doi": climate::DATA_DOI,
+            "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+        }))
+    }
+
     pub(super) fn stac_series(&self, a: &Value, c: &Call) -> R<Value> {
         let t0 = Instant::now();
         let (q, items) = search(a, c)?;

@@ -25,6 +25,7 @@ mod chart_axis;
 mod chips;
 mod classes;
 mod composite;
+mod climate;
 mod contents;
 mod crash;
 mod crash_ui;
