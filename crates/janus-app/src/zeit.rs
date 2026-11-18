@@ -290,14 +290,14 @@ fn tool_roles(tool: &Tool) -> (Vec<String>, Vec<String>) {
 }
 
 /// Whether a tool reads bands of each date besides the shown series (multiband tools).
-fn reads_bands(tool: &Tool) -> bool {
+pub(crate) fn reads_bands(tool: &Tool) -> bool {
     let some = |b: &Option<Vec<String>>| b.as_ref().is_some_and(|b| !b.is_empty());
     tool.requires.all_bands == Some(true) || some(&tool.requires.bands) || some(&tool.requires.optional_bands)
 }
 
 /// The bands a multiband tool reads, (role, band of each date): every band (b001, b002...) for a tool on all of
 /// them, else its roles' mapped bands.
-fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
+pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
     if tool.requires.all_bands == Some(true) {
         // ImproPhe's fine series: the quality band is applied to the others, not one of them
         let qa = (tool.id == "improphe" && info.sel.qa_band > 0).then_some(info.sel.qa_band);
@@ -379,7 +379,7 @@ fn placed(mut input: PixelInput, info: &CubeInfo, tool: &str, params: &Params, x
 }
 
 /// A series of a layer as a pixel run gets it.
-fn pixel_input(info: &CubeInfo, tool: &str, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
+pub(crate) fn pixel_input(info: &CubeInfo, tool: &str, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
     // a spectrum's axis: the wavelengths (nm), as the chart draws it
     let x = |i: usize| if info.spectral { info.layers[i].time } else { info.decimal_year(i) };
     PixelInput {
@@ -923,9 +923,27 @@ impl State {
 
         crate::panels::section(ui, "Parameters");
         changed |= self.params_ui(ui, tool);
-        if ui.button("Reset to defaults").clicked() {
-            *self.zeit.params(tool) = tool.params.iter().map(|p| (p.id.clone(), p.default.clone())).collect();
-            changed = true;
+        let mut tune = false;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Reset to defaults").clicked() {
+                *self.zeit.params(tool) = tool.params.iter().map(|p| (p.id.clone(), p.default.clone())).collect();
+                changed = true;
+            }
+            // the tools that give change dates can be tuned on reference points (tune_ui.rs)
+            if janus_zeit::tune::spec(&tool.id).is_some()
+                && ui
+                    .add_enabled(why.is_none(), egui::Button::new("Tune on samples..."))
+                    .on_hover_text(
+                        "Search this tool's parameters on reference points: the calibration points of a \
+                         validation project, or a layer of points with a date field",
+                    )
+                    .clicked()
+            {
+                tune = true;
+            }
+        });
+        if tune {
+            self.open_tune(tool);
         }
         if changed {
             let u = self.zeit.tools.entry(tool.id.clone()).or_default();
@@ -1801,7 +1819,7 @@ pub(crate) fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
     n.chars().map(|c| if matches!(c, ' ' | ':' | '*' | '?') { '_' } else { c }).collect()
 }
 
-fn format_duration(s: f64) -> String {
+pub(crate) fn format_duration(s: f64) -> String {
     if s < 1.0 {
         "under a second".into()
     } else if s < 90.0 {
@@ -2198,6 +2216,10 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let params = self.zeit.params(tool).clone();
         let mut p = Provenance::start("zeit", &tool.id, &tool.name);
         p.set_params(&params);
+        // parameters kept from a tuning on samples say where they came from
+        if let Some(c) = self.tune.calibration_entry(&tool.id, &params) {
+            p.extra.insert("calibration".into(), c);
+        }
         p.scope = scope_name.to_string();
         if tool.input.as_deref() == Some("folder") {
             // no series: Zeit's calls on each scene of the folder

@@ -34,6 +34,8 @@ mod roi;
 mod scripts_check;
 #[path = "ui_test_tsa.rs"]
 mod tsa;
+#[path = "ui_test_tune.rs"]
+mod tune_test;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vector_draw.rs"]
@@ -107,6 +109,8 @@ pub struct UiTest {
     crash: crash_notice::CrashTest,
     /// stages 345-349: the Welcome window (ui_test_welcome.rs)
     welcome: welcome_tests::WelcomeTest,
+    /// stages 355-364: Tune on samples (ui_test_tune.rs)
+    tune: tune_test::TuneTest,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
@@ -139,6 +143,7 @@ fn growing_window(
                 .chain([(egui::Id::new("calculator window"), "Raster calculator")])
                 .chain([(egui::Id::new("tsa window"), "Time series analysis")])
                 .chain([(egui::Id::new("ard window"), "Analysis-ready data")])
+                .chain([(egui::Id::new("tune window"), "Tune on samples")])
                 .chain(tools)
                 .find(|(i, _)| *i == id)
                 .map_or_else(|| format!("{id:?}"), |(_, t)| t.to_string());
@@ -1051,6 +1056,7 @@ impl State {
             330..=334 => return self.test_crash_notice(st, t0, ctx),
             345..=349 => return self.test_welcome(st, &input, t0, ctx),
             335..=344 => return self.test_figures(st, t0, ctx),
+            355..=364 => return self.test_tune(st, t0, ctx),
             _ => {}
         }
         None

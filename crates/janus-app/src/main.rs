@@ -106,6 +106,7 @@ mod trajectory;
 mod transect;
 mod trend_test;
 mod tsa;
+mod tune_ui;
 mod ui_test;
 mod undo;
 mod update;

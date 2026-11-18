@@ -227,6 +227,8 @@ pub struct TuneConfig {
     pub base: BTreeMap<String, Value>,
     /// the parameters that vary (ids of tune.json)
     pub vary: Vec<String>,
+    /// ranges (or options) the caller edited, by parameter id: they replace tune.json's for the search
+    pub ranges: BTreeMap<String, TuneParam>,
     /// Latin hypercube sets (200 by default), besides the defaults and the current values
     pub n_sets: usize,
     pub seed: u64,
@@ -242,6 +244,7 @@ impl TuneConfig {
             tool: tool.into(),
             base: BTreeMap::new(),
             vary,
+            ranges: BTreeMap::new(),
             n_sets: 200,
             seed: 1,
             threads: 1,
@@ -260,7 +263,11 @@ pub fn build_sets(cfg: &TuneConfig) -> Result<Vec<ParamSet>, String> {
     let mut defaults = Vec::new();
     let mut current = Vec::new();
     for id in &cfg.vary {
-        let tp = tt.param(id).ok_or_else(|| format!("{}: {id} is not a tunable parameter", cfg.tool))?;
+        let tp = cfg
+            .ranges
+            .get(id)
+            .or_else(|| tt.param(id))
+            .ok_or_else(|| format!("{}: {id} is not a tunable parameter", cfg.tool))?;
         let mp = tool.params.iter().find(|p| &p.id == id).ok_or_else(|| format!("{}: no parameter {id}", cfg.tool))?;
         defaults.push(mp.default.clone());
         current.push(cfg.base.get(id).cloned().unwrap_or_else(|| mp.default.clone()));
@@ -1184,5 +1191,17 @@ mod tests {
         let mut short = pts.clone();
         short[3].values.pop();
         assert!(run(&cfg, &ctx, &short, &stop, &progress).unwrap_err().contains("point 4"));
+    }
+
+    #[test]
+    fn edited_ranges_replace_the_files() {
+        let mut cfg = config("bfast", &["h", "order"], 20);
+        let mut h = spec("bfast").unwrap().param("h").unwrap().clone();
+        (h.min, h.max) = (Some(0.2), Some(0.25));
+        cfg.ranges.insert("h".into(), h);
+        let sets = build_sets(&cfg).unwrap();
+        for s in sets.iter().filter(|s| s.kind == SetKind::Sampled) {
+            assert!((0.2..=0.25).contains(&num(&s.values[0])), "{:?}", s.values);
+        }
     }
 }

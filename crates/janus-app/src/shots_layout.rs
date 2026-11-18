@@ -171,6 +171,8 @@ impl State {
             "help",
             "welcome",
             "samples",
+            "tune",
+            "tune_results",
         ] {
             v.push(Place::Window(w));
         }
@@ -223,6 +225,8 @@ impl State {
         self.about_open = false;
         self.help_popup = false;
         self.welcome.show = false;
+        self.tune_close_now();
+        self.tune.done = None;
     }
 
     /// Shows a place.
@@ -282,6 +286,15 @@ impl State {
                 "about" => self.about_open = true,
                 "help" => self.help_popup = true,
                 "welcome" => self.open_welcome(),
+                "tune" | "tune_results" => {
+                    if let Some(t) = janus_zeit::manifest().tool("landtrendr") {
+                        if *w == "tune" {
+                            self.open_tune(t);
+                        } else {
+                            self.tune_demo(t);
+                        }
+                    }
+                }
                 "samples" => {
                     self.open_welcome();
                     self.welcome.samples_view = true;

@@ -949,6 +949,9 @@ impl State {
         if pp.excluded > 0 {
             ui.weak(format!("{} point(s) left out by their label (can't tell...)", pp.excluded));
         }
+        if pp.calibration > 0 {
+            ui.weak(format!("{} points calibrate a tool (left out)", pp.calibration));
+        }
         if pp.no_date > 0 {
             ui.colored_label(
                 theme::warning(),

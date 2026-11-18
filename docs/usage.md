@@ -802,6 +802,60 @@ Each tool window has:
   expressions have a `rerun.py` too, see [Python history](#python-history))
   and **Open folder**.
 
+### Tuning on samples
+
+The window of a tool that gives change dates (LandTrendr, CCDC, S-CCD, BFAST,
+BFAST Lite, BFAST Monitor, CODED, EWMACD, BEAST) has **Tune on samples...** beside
+*Reset to defaults*: it searches the tool's parameters on reference points, with
+the tool's own pixel kernel (the date the map would show at each point), instead
+of by eye on a few pins. Algorithms and settings give very different maps of
+disturbance on the same area (Cohen et al. 2017, *Forests* 8: 98).
+
+- **Reference.** Either the **calibration points of the open validation or
+  interpretation project** (a point with a change label has the year of its
+  earliest change, one with a "no change" label none; *What each label means*
+  translates the project's labels to change, no change or left out, starting from
+  the translation of its map of events), or a **vector layer with a date field**
+  (a year or a date such as `2018-05-12`; empty = no change; a text that is not a
+  date is left out and reported). *Years* is the window in which a change counts, in
+  the reference and in the map; *Dates within +-* the tolerance.
+- **The split.** The points that tune a tool must not estimate the accuracy too, or
+  the accuracy would come out optimistic. *Make a calibration split* draws, inside
+  each stratum, a share of the project's points (30% by default, reproducible by its
+  seed) that calibrate; the accuracy uses the rest with the same stratum weights
+  (still a stratified random sample, with larger errors), and the Accuracy tab says
+  "N points calibrate a tool (left out)". The split is saved in the project. The
+  accuracy points themselves are refused, with the reason. A layer of other points
+  needs no split.
+- **Search.** The parameters that vary, three or four by default (the ones the
+  literature finds most influential; hover for the id and the scale), each with its
+  range (log scale where it matters) or its options, both editable; *Sets* (200 by
+  default) of a Latin hypercube over them, plus the defaults and the current values;
+  the seed; and, with a project, *Weight by strata* (each point counts for its
+  stratum's area over the points drawn in it). The points' series are read once at
+  full resolution (the bands too, for the tools that read them), one set is timed,
+  and the estimate ("~25 s on 4 threads") is shown beside **Run**. The search is a
+  task (**Tools > Tasks**: progress and Cancel) on the processing threads of
+  Settings.
+- **Results.** The table of sets, best first by the dated F1 (a change found at the
+  wrong date counts as both an omission and a false change), with omission,
+  commission, F1, the share of dates within the tolerance and the mean date error;
+  the defaults and the current values are marked. The omission x commission scatter
+  has the Pareto front joined. Clicking a row or a point tries that set: its
+  parameters go into the tool's window, so the chart and the pins fit with them at
+  once. **Use these parameters** keeps them; **Back to the current** (or closing the
+  window) restores the earlier ones. *Which parameters matter* shows the partial rank
+  correlation of each varied parameter with the dated F1, in bars; *Optimism* gives
+  the held-out score of a 5-fold check (the best set chosen on four fifths of the
+  points, scored on the fifth left out) beside the best set's own, which shows how
+  much the choice fitted the points. With fewer than 30 points with a change the
+  scores are unreliable, and the window says so.
+- **Provenance.** A run whose parameters were kept from a tuning has a
+  `calibration` entry in its `provenance.json`: the reference (project file or
+  layer and field), the number of points, the split's fraction and seed, the year
+  window, the tolerance, the number of sets and the seed, the set chosen and its
+  scores.
+
 ### Python history
 
 **Tools → Python history...** lists every processing run that finished, newest
