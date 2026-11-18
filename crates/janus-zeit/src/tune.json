@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "tools": {
+    "landtrendr": {
+      "date_output": "yod",
+      "date": "year",
+      "none": "nan",
+      "why": "Kennedy et al. 2010 and Cohen et al. 2017 (Forests 8: 98) name the number of segments, the despiking, the recovery limit and the p-value as the settings that change the disturbance map most; the vertex overshoot and the best-model proportion matter less.",
+      "params": [
+        { "param": "max_segments", "min": 2, "max": 10, "scale": "linear", "int": true, "default_on": true },
+        { "param": "spike_threshold", "min": 0.5, "max": 1.0, "scale": "linear", "int": false, "default_on": true },
+        { "param": "recovery_threshold", "min": 0.05, "max": 1.0, "scale": "log", "int": false, "default_on": true },
+        { "param": "pval_threshold", "min": 0.01, "max": 0.5, "scale": "log", "int": false, "default_on": true },
+        { "param": "best_model_proportion", "min": 0.5, "max": 1.25, "scale": "linear", "int": false, "default_on": false },
+        { "param": "vertex_count_overshoot", "min": 0, "max": 5, "scale": "linear", "int": true, "default_on": false },
+        { "param": "min_observations_needed", "min": 4, "max": 12, "scale": "linear", "int": true, "default_on": false }
+      ]
+    },
+    "ccdc": {
+      "date_output": "largest_break",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Zhu and Woodcock 2014 and Zhu et al. 2020: the change probability and the consecutive observations that confirm a change trade omission for commission; the number of harmonic coefficients sets how much of the seasonal cycle is modelled.",
+      "params": [
+        { "param": "chi2_prob_threshold", "min": 0.9, "max": 0.9999, "scale": "linear", "int": false, "default_on": true },
+        { "param": "conseq_anom", "min": 3, "max": 10, "scale": "linear", "int": true, "default_on": true },
+        { "param": "num_c", "choices": ["4", "6", "8"], "default_on": true },
+        { "param": "tmax_cg_prob_threshold", "min": 0.99, "max": 0.99999999, "scale": "linear", "int": false, "default_on": false },
+        { "param": "max_segments", "min": 2, "max": 12, "scale": "linear", "int": true, "default_on": false }
+      ]
+    },
+    "sccd": {
+      "date_output": "largest_break",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Ye et al. 2021: the change probability, the number of consecutive anomalies (the peek window) and the largest angle between the anomalies' change vectors are the settings that decide whether an anomaly becomes a break.",
+      "params": [
+        { "param": "prob_threshold", "min": 0.9, "max": 0.9999, "scale": "linear", "int": false, "default_on": true },
+        { "param": "conse", "min": 3, "max": 10, "scale": "linear", "int": true, "default_on": true },
+        { "param": "max_angle", "min": 10.0, "max": 90.0, "scale": "linear", "int": false, "default_on": true },
+        { "param": "outlier_prob", "min": 0.99, "max": 0.99999999, "scale": "linear", "int": false, "default_on": false },
+        { "param": "max_segments", "min": 2, "max": 12, "scale": "linear", "int": true, "default_on": false }
+      ]
+    },
+    "bfast": {
+      "date_output": "break_date",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Verbesselt et al. 2010: the minimum segment length h and the number of breaks allowed set how many and how close the breaks can be, the significance level of the stability test whether a component is searched at all, and the harmonic order how well the season is modelled.",
+      "params": [
+        { "param": "h", "min": 0.1, "max": 0.4, "scale": "linear", "int": false, "default_on": true },
+        { "param": "level", "min": 0.005, "max": 0.2, "scale": "log", "int": false, "default_on": true },
+        { "param": "max_breaks_trend", "min": 1, "max": 6, "scale": "linear", "int": true, "default_on": true },
+        { "param": "order", "min": 1, "max": 4, "scale": "linear", "int": true, "default_on": true },
+        { "param": "max_breaks_season", "min": 1, "max": 6, "scale": "linear", "int": true, "default_on": false }
+      ]
+    },
+    "bfast_lite": {
+      "date_output": "break_date",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Masiliunas et al. 2021: the minimum segment length h, the most breaks reported and the harmonic order are the settings of the BIC-selected segmentation.",
+      "params": [
+        { "param": "h", "min": 0.1, "max": 0.4, "scale": "linear", "int": false, "default_on": true },
+        { "param": "max_breaks", "min": 1, "max": 8, "scale": "linear", "int": true, "default_on": true },
+        { "param": "order", "min": 1, "max": 4, "scale": "linear", "int": true, "default_on": true }
+      ]
+    },
+    "bfast_monitor": {
+      "date_output": "break_date",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Verbesselt et al. 2012: the monitoring boundary (the significance level and the monitoring length relative to the history), the moving-sum window h and the harmonic order decide how soon and how surely a departure from the history model is called a break.",
+      "params": [
+        { "param": "alpha", "choices": ["0.01", "0.05", "0.1"], "default_on": true },
+        { "param": "h", "choices": ["0.25", "0.5", "1.0"], "default_on": true },
+        { "param": "order", "min": 1, "max": 4, "scale": "linear", "int": true, "default_on": true },
+        { "param": "period", "choices": ["2", "4", "6", "8", "10"], "default_on": false }
+      ]
+    },
+    "coded": {
+      "date_output": "first_change",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Bullock et al. 2020: how far below the NDFI model an observation must fall (in RMSEs), how many in a row, and how long the training period is decide the disturbances found; the years kept as the cover after a change and the forest NDFI matter less.",
+      "params": [
+        { "param": "thresh", "min": 1.5, "max": 8.0, "scale": "linear", "int": false, "default_on": true },
+        { "param": "consec", "min": 2, "max": 8, "scale": "linear", "int": true, "default_on": true },
+        { "param": "train_years", "min": 1.0, "max": 6.0, "scale": "linear", "int": false, "default_on": true },
+        { "param": "min_years", "min": 1.0, "max": 6.0, "scale": "linear", "int": false, "default_on": false },
+        { "param": "min_obs", "min": 4, "max": 12, "scale": "linear", "int": true, "default_on": false },
+        { "param": "forest_ndfi", "min": -0.2, "max": 0.8, "scale": "linear", "int": false, "default_on": false }
+      ]
+    },
+    "ewmacd": {
+      "date_output": "break_date",
+      "date": "decimal_year",
+      "none": "nan",
+      "why": "Brooks et al. 2014: the weight of the moving average, the control limits in standard deviations and the persistence of a signal set the speed and the false alarms of the control chart.",
+      "params": [
+        { "param": "lambda", "min": 0.05, "max": 0.8, "scale": "linear", "int": false, "default_on": true },
+        { "param": "sigmas", "min": 1.5, "max": 6.0, "scale": "linear", "int": false, "default_on": true },
+        { "param": "persistence", "min": 2, "max": 8, "scale": "linear", "int": true, "default_on": true },
+        { "param": "xbar_train", "min": 1.0, "max": 4.0, "scale": "linear", "int": false, "default_on": false },
+        { "param": "order", "min": 1, "max": 4, "scale": "linear", "int": true, "default_on": false }
+      ]
+    },
+    "beast": {
+      "date_output": "cp_date",
+      "date": "decimal_year",
+      "none": "nan",
+      "gate": { "output": "cp_prob", "min": 0.5 },
+      "why": "Zhao et al. 2019: the most changepoints the trend may have, the degree of its segments and whether a season is modelled are the model's structure; a changepoint counts as a change when its posterior probability is at least 0.5, as the pixel chart draws it. Each pixel is a Monte Carlo run, so a search over many sets is slow.",
+      "params": [
+        { "param": "tcp_max", "min": 1, "max": 10, "scale": "linear", "int": true, "default_on": true },
+        { "param": "torder_max", "min": 0, "max": 2, "scale": "linear", "int": true, "default_on": true },
+        { "param": "season", "choices": ["auto", "harmonic", "none"], "default_on": true },
+        { "param": "scp_max", "min": 0, "max": 10, "scale": "linear", "int": true, "default_on": false }
+      ]
+    }
+  }
+}

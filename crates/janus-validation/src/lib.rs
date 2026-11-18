@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub mod alerts;
 pub mod assess_map;
+pub mod calibration;
 pub mod design;
 pub mod estimate;
 pub mod labels;
@@ -30,6 +31,7 @@ pub mod transitions;
 pub use assess_map::{
     CHANGE, NO_CHANGE, Prepared, change_by_year, default_mapping, map_classes, prepare, python_snippet,
 };
+pub use calibration::{CalibrationSplit, calibration_points, calibration_split};
 pub use design::{Alloc, Expected, Point, allocate, draw_sample, expected_errors, sample_size};
 pub use estimate::{
     Agreement, AreaEstimator, AssessInput, Assessment, ClassArea, DateAgreement, Est, Estimator, assess, cohen,

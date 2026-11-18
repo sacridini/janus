@@ -60,6 +60,7 @@ mod tasseled;
 mod temporal_metrics;
 pub mod texture;
 mod tmask;
+pub mod tune;
 pub mod trend_test;
 pub mod twdtw;
 mod unmix;
