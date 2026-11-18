@@ -168,6 +168,7 @@ impl State {
                     if !failed && !j.output_dir.is_empty() {
                         actions.push(NoticeAction::Folder(j.output_dir.clone()));
                     }
+                    crate::crash::log(&format!("task {}: {text}", j.title));
                     ended.push(Notice { title: j.title.clone(), text, failed, actions, at: Instant::now() });
                 }
             }
@@ -190,6 +191,7 @@ impl State {
                             vec![NoticeAction::Folder(folder), NoticeAction::Exports],
                         ),
                     };
+                    crate::crash::log(&format!("task {}: {text}", e.title));
                     ended.push(Notice { title: e.title.clone(), text, failed, actions, at: Instant::now() });
                 }
             }
@@ -395,6 +397,7 @@ impl State {
     /// The notices shown: their titles, and whether each is of a failure.
     /// A notice of the interface's own (a saved view that cannot be shown here...): failed or not.
     pub(crate) fn notify(&mut self, title: &str, text: &str, failed: bool) {
+        crate::crash::log(&format!("{title}: {text}"));
         let n = Notice { title: title.into(), text: text.into(), failed, actions: vec![], at: Instant::now() };
         self.status.notices.push(n);
         let k = self.status.notices.len();

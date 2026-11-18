@@ -2085,6 +2085,28 @@ and the right of the menu bar shows *Janus X.Y.Z is out (you are using ...)* and
 **Update**, which in the installed program downloads it at once (then **Install
 now**).
 
+### Crash reports
+
+When Janus stops on a bug, it leaves a report for the next start. A panic writes
+`crashes/crash-<date>-<time>.txt` in Janus's data folder (`%LOCALAPPDATA%\Janus` on
+Windows, `~/Library/Application Support/Janus` on macOS, `$XDG_DATA_HOME/janus` on
+Linux; `JANUS_DATA_DIR` names another): the versions of Janus, Zeit and GDAL, the
+system, the GPU and its backend, the processing threads, the thread, the message, the
+backtrace and the last 200 lines of the log. On Windows a native failure (GDAL, a
+driver, an invalid access) also writes a minidump, `crash-<date>-<time>.dmp`, and a
+short text with the exception code and the module it happened in. On Linux and macOS
+a native failure leaves no report of its own, but Janus notices that the last run did
+not close normally (it keeps a `running-<pid>.json` while a window is open and removes
+it on a normal close).
+
+The next time Janus opens, **Janus closed unexpectedly** shows the report. **Restore
+the session** opens the layers of the last automatic save (when there is one), **Open
+folder** shows the reports, **Copy report** puts the text on the clipboard, **Open an
+issue** opens the new-issue page of GitHub in the browser with the report filled in
+(cut to what a link carries; the whole file is in the folder) and **Dismiss** closes the
+notice. Nothing is sent by Janus itself: read the report first, because file paths in it
+may hold the names of people. Reports older than 30 days are deleted at the start.
+
 ## Settings
 
 **File → Settings...** (`Ctrl+,`; Mac: `Command+,`). Everything applies at

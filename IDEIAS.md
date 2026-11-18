@@ -1358,7 +1358,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
 | 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
-| 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | planejada |
+| 58 | — | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída (sem versão) |
 | 59 | — | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | planejada |
 | 60 | — | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | planejada |
 | 61 | — | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS e ERA5 para a área do mapa | planejada |
@@ -2604,6 +2604,20 @@ independentes para a maior: 58, 59, 60, 61, 62.
   falha; o teste confere o arquivo, os campos e o aviso na abertura
   seguinte (o autoteste da UI abre de novo depois da falha provocada). Nos
   três sistemas no CI.
+
+- **Feito (2026-11-18, sem versão):** `crash.rs` (o gancho de panic, o anel
+  de 200 linhas do log, o marcador `running-<pid>.json`, a URL da issue),
+  `crash_ui.rs` (o aviso com *Restaurar a sessão*, *Abrir a pasta*, *Copiar o
+  relatório*, *Abrir uma issue*, *Dispensar*; a opção oculta `--crash-test
+  panic|native`) e os estágios 330-333 do `--selftest-ui`. Difere do plano: as
+  falhas nativas viram minidump só no Windows, no próprio processo
+  (`SetUnhandledExceptionFilter` e `MiniDumpWriteDump`, sem os crates
+  `crash-handler` e `minidumper` nem processo vigia); no Linux e no macOS
+  fica o marcador de saída suja (um processo que sumiu sem fechar), que avisa
+  na abertura seguinte sem minidump. O aviso aparece quando há um marcador de
+  uma execução que acabou, não por qualquer relatório (um pânico de thread
+  capturado não é um fechamento). `JANUS_DATA_DIR` troca a pasta de dados (para
+  os testes).
 
 #### Fase 59 — A porta de entrada
 

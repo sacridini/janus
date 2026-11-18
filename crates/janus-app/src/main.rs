@@ -25,6 +25,8 @@ mod chips;
 mod classes;
 mod composite;
 mod contents;
+mod crash;
+mod crash_ui;
 mod cycles;
 mod display;
 mod downloads;
@@ -280,6 +282,9 @@ Developer options:
   --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT); DIR
                       another kind of series: AlphaEarth 2023-2024 of its visible area (or --roi) downloaded
                       first and added on top
+  --crash-test panic|native  fails on purpose once the window is up (a panic, or a write to a null pointer): the
+                      report in the crashes folder of the data folder (JANUS_DATA_DIR changes it) and the notice
+                      at the next start
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT
                       (tools/compare_golden.py compares two such folders)
 ";
@@ -462,6 +467,9 @@ fn open_files_limit() -> usize {
 
 fn main() -> eframe::Result<()> {
     let t0 = Instant::now();
+    // first of all: a panic leaves a report in the crashes folder (crash.rs), for the window and for `mcp`
+    crash::install_panic_hook();
+    crash::install_native_handler();
     configure_data();
     // GDAL's block cache at 512 MB unless the environment sets it: closing a series of 41 files took 15-20 s with
     // GDAL's default (commit 9d6019c)
@@ -490,6 +498,7 @@ fn main() -> eframe::Result<()> {
                 0 => std::thread::available_parallelism().map_or(4, |n| n.get()),
                 n => n,
             });
+        crash::set_threads(threads);
         std::process::exit(mcp::serve(threads));
     }
     while let Some(a) = args.next() {
@@ -522,6 +531,7 @@ fn main() -> eframe::Result<()> {
                 };
             }
             "--measure-startup" => opts.measure_startup = true,
+            "--crash-test" => opts.crash_test = args.next().filter(|m| matches!(m.as_str(), "panic" | "native")),
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
             "--settings" => opts.settings_open = true,
@@ -772,7 +782,14 @@ fn main() -> eframe::Result<()> {
         persist_window: false,
         ..Default::default()
     };
-    eframe::run_native("Janus", options, Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))))?;
+    let run = eframe::run_native(
+        "Janus",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))),
+    );
+    // a normal close: this run's marker goes (a panic or a crash leaves it, and the next start says so)
+    crash::clean_exit();
+    run?;
     let rc = app::EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed);
     if rc != 0 {
         std::process::exit(rc);

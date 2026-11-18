@@ -11,6 +11,7 @@ use egui::{Id, Ui, ViewportBuilder, ViewportId, WidgetText};
 use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabViewer};
 use janus_gpu::Gpu;
 
+use crate::crash;
 use crate::display::Display;
 use crate::map::MapView;
 use crate::session::{Opening, Session};
@@ -306,6 +307,8 @@ pub struct Options {
     pub full_res: Option<janus_session::FullResMode>,
     pub budget_mb: i64,
     pub measure_startup: bool,
+    /// --crash-test panic|native: fails on purpose once the window is up (crash_ui.rs)
+    pub crash_test: Option<String>,
     /// a PNG of the window once the series is ready, then exit
     pub screenshot: Option<PathBuf>,
     /// the map opened in a window of its own (to check detached panels); with --screenshot, both windows saved
@@ -629,6 +632,8 @@ pub struct State {
     /// Help > About Janus; Help > Check for updates (and the check at the start)
     pub about_open: bool,
     pub update: crate::update::UpdateUi,
+    /// the notice of a run that did not end normally (crash_ui.rs)
+    pub crash_notice: crate::crash_ui::CrashNotice,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
     /// the map targets' egui textures (by slot)
@@ -923,8 +928,21 @@ impl JanusApp {
         crate::downloads::set_context(&cc.egui_ctx);
         crate::downloads::set_at_once(settings.downloads_at_once);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
+        // what a crash report says of this run: the threads, the GPU; and, in a window of its own, the notice of the
+        // last run that did not end (and this run's marker)
+        crash::set_threads(match opts.threads.unwrap_or(settings.threads) {
+            0 => janus_session::default_processing_threads(),
+            n => n,
+        });
+        crash::log(&format!("Janus {} started", env!("CARGO_PKG_VERSION")));
+        let crash_notice = if no_save { Default::default() } else { crate::crash_ui::CrashNotice::at_start() };
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
+        let adapter = render_state.adapter.get_info();
+        crash::set_gpu(
+            format!("{} {}", adapter.name, adapter.driver_info).trim(),
+            &format!("{:?}", adapter.backend),
+        );
         // vector files (and validation projects) among the inputs become layers once the app is made
         // a project file among them is opened at the first frame (project.rs)
         let startup_project = opts.inputs.iter().find(|p| crate::project::is_project_file(p)).map(PathBuf::from);
@@ -1052,6 +1070,7 @@ impl JanusApp {
                 help_popup: false,
                 about_open: false,
                 update: Default::default(),
+                crash_notice,
                 settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
@@ -1271,6 +1290,7 @@ impl JanusApp {
 impl State {
     /// Opens a series in the background; `add` keeps the open ones and adds it as a new layer. One open at a time.
     pub fn open_inputs(&mut self, inputs: Vec<String>, add: bool, ctx: &egui::Context) {
+        crash::log(&format!("open {}", inputs.join(", ")));
         // a project file opens the project (and only it)
         if let Some(p) = inputs.iter().find(|p| crate::project::is_project_file(p)) {
             self.open_project(std::path::Path::new(p), ctx);
@@ -2325,6 +2345,7 @@ impl State {
         }
         self.update_window(ctx);
         self.about_window(ctx);
+        self.crash_window(ctx);
         if self.help_popup {
             let m = egui::Modal::new(egui::Id::new("help")).show(ctx, |ui| {
                 ui.heading("Shortcuts and usage");
@@ -2549,6 +2570,7 @@ impl eframe::App for JanusApp {
         s.pump_chips(&ctx);
         s.pump_provenance();
         s.pump_project(&ctx);
+        s.pump_crash_test();
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
