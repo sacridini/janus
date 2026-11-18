@@ -669,6 +669,8 @@ pub struct State {
     pub web: crate::web_layers::WebState,
     /// official alerts against a map of change (Validation > Alerts): alerts_ui.rs
     pub alerts: crate::alerts_ui::AlertsUi,
+    /// Tune on samples (a change tool's window): tune_ui.rs
+    pub tune: crate::tune_ui::TuneUi,
     /// three bands of each date as RGB (series with several bands per date)
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
@@ -1087,6 +1089,7 @@ impl JanusApp {
                 basemap: Default::default(),
                 web: Default::default(),
                 alerts: Default::default(),
+                tune: Default::default(),
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
@@ -2898,6 +2901,7 @@ impl eframe::App for JanusApp {
         self.state.popups(&ctx);
         self.state.welcome_window(&ctx);
         self.state.tool_windows(&ctx);
+        self.state.tune_window(&ctx);
         self.state.ml_window(&ctx);
         self.state.tsa_window(&ctx);
         self.state.ard_window(&ctx);

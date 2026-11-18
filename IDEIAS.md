@@ -2873,6 +2873,32 @@ independentes para a maior: 58, 59, 60, 61, 62.
   zeit-cdts, em resultado (os mesmos escores) e em tempo; autoteste da
   janela e um guia no site (calibrar o LandTrendr de Rondônia nos pontos
   do guia de validação).
+- **Feito (2026-11-18, sem versão)**: 62a + 62b (o motor e a janela; faltam
+  o MCP, o histórico Python, o benchmark contra o zeit-cdts e o guia do site,
+  62c). `janus-zeit/src/tune.rs` + `tune.json` (o manifesto do que se calibra:
+  por ferramenta a saída que é a data, a faixa e a escala de cada parâmetro, os
+  3-4 ligados por padrão) roda o núcleo raster do Zeit uma vez por conjunto em
+  todos os pontos (uma linha de pixels), com o hipercubo latino, os escores
+  (omissão, comissão, F1, F1 com data, datas a ± k anos, erro médio), a frente
+  de Pareto, a PRCC e a validação cruzada do otimismo;
+  `janus-validation/src/calibration.rs` guarda a separação no projeto
+  (`Project.calibration`: fração, semente e ids, sorteio por estrato, a acurácia
+  usa o resto com os mesmos pesos, `Prepared.calibration` conta os pontos).
+  `tune_ui.rs`: *Tune on samples...* na janela da ferramenta; referência = os
+  pontos de calibração do projeto (rótulo → mudança / sem mudança / fora, a
+  partir da tradução do mapa de eventos; o ano da primeira mudança) ou uma camada
+  vetorial com um campo de data (vazio = sem mudança); sem separação o projeto
+  recusa (com o porquê) e há *Make a calibration split* (30%, semente); os
+  pontos de acurácia são recusados; janela de anos, tolerância, N conjuntos,
+  parâmetros com faixa editável (`TuneConfig::ranges`), ponderação por estratos;
+  as séries lidas uma vez em resolução total (as bandas também), um conjunto
+  cronometrado para a estimativa, a busca como tarefa (Tools > Tasks, cancelável);
+  a tabela ordenada, a dispersão com a frente de Pareto, *Which parameters
+  matter*, *Optimism* (e o aviso com menos de 30 mudanças); clicar num conjunto
+  o põe nos parâmetros da ferramenta (o ajuste ao vivo refaz), *Use these
+  parameters* o mantém e o `provenance.json` da rodada ganha `calibration`; o
+  painel de acurácia diz quantos pontos calibram. Autoteste: estágios 355-364
+  (`ui_test_tune.rs`). Roadmap: continua *planejada* até o 62c.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

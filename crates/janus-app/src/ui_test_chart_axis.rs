@@ -3,7 +3,7 @@
 //! (a result whose provenance names its lag); 352 puts the first on the right axis and checks the axes' marks (the
 //! left in A's range, the right in the other's) and the figure's SVG (the right axis' numbers, the legend's "(right)");
 //! 353 draws it as bars; 354 shifts A by the lag (the menu offers it, the legend says it, the figure changes) and puts
-//! everything back. Then 299, the end.
+//! everything back. Then 355 (Tune on samples, ui_test_tune.rs).
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -77,7 +77,7 @@ impl State {
                     let active = at.iter().position(|&i| i == self.active).filter(|&k| series(k));
                     let Some(k) = active.or_else(|| (0..ls.len()).find(|&k| series(k))) else {
                         println!("    no series open: the second axis is left out");
-                        st.stage = 299;
+                        st.stage = 355; // Tune on samples (355-364, ui_test_tune.rs), then 299
                         return None;
                     };
                     if stage == 350 {
@@ -320,7 +320,7 @@ impl State {
                 }
                 *KEPT.lock().unwrap() = None;
                 next(st, "A shifted by the corr's lag; the chart put back");
-                st.stage = 299;
+                st.stage = 355; // Tune on samples (355-364, ui_test_tune.rs), then 299
             }
             _ => {}
         }
