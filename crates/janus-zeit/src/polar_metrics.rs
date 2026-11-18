@@ -61,9 +61,13 @@ fn setup(p: &Params, input: &PixelInput) -> Result<Setup, String> {
     }
     let gap = days[1] - days[0];
     if gap <= 0 || days.windows(2).any(|w| w[1] - w[0] != gap) {
-        return Err("ValueError: polar_metrics needs a regular series, a constant step of whole days (the dates are \
-                    not evenly spaced): run Interpolate (regular grid) first and run Polar phenology on its result"
-            .into());
+        // calendar months are 28 to 31 days: monthly composites are the usual case of this refusal
+        let monthly = days.windows(2).all(|w| (28..=31).contains(&(w[1] - w[0])));
+        let note = if monthly { " (monthly dates are 28 to 31 days apart, not a constant step)" } else { "" };
+        return Err(format!(
+            "ValueError: polar_metrics needs a regular series, a constant step of whole days (the dates are not \
+             evenly spaced{note}): run Interpolate (regular grid) first and run Polar phenology on its result"
+        ));
     }
     let ymd: Vec<(i64, u32, u32)> = days.iter().map(|&d| civil(d)).collect();
     let first_year = ymd[0].0;

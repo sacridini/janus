@@ -210,8 +210,58 @@ fn worker(rx: Receiver<Request>, tx: Sender<Reply>, ctx: egui::Context) {
     }
 }
 
-/// Why a tool cannot run on a series, if it cannot (the C++'s toolApplicability).
+/// Why the dates are not a regular series (a constant step of whole days, what the polar phenology reads), if so;
+/// `remedy` is what to do about it, appended to the reason.
+pub(crate) fn irregular(info: &CubeInfo, remedy: &str) -> Option<String> {
+    if !info.time_is_date {
+        return Some("needs dates (none were found in the file names or band descriptions)".into());
+    }
+    let n = info.t();
+    if n < 3 {
+        return None;
+    }
+    let gap = info.unix_day(1) - info.unix_day(0);
+    if gap <= 0 || (2..n).any(|t| info.unix_day(t) - info.unix_day(t - 1) != gap) {
+        let gaps: Vec<i64> = (1..n).map(|t| info.unix_day(t) - info.unix_day(t - 1)).collect();
+        let monthly = gaps.iter().all(|g| (28..=31).contains(g));
+        let why = if monthly {
+            "the dates are not evenly spaced (calendar months are 28 to 31 days, not a constant step of whole days)"
+        } else {
+            "the dates are not evenly spaced"
+        };
+        return Some(format!("{why}: {remedy}"));
+    }
+    None
+}
+
+/// Why a tool cannot run on a series, if it cannot (the C++'s toolApplicability). The polar phenology also needs a
+/// regular series over at least 2 calendar years, the output of Interpolate.
 pub fn applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
+    applicability_with(tool, info, false)
+}
+
+/// `applicability`, where `regular` says that an Interpolate comes first in a chain, so the series the tool reads
+/// is regular whatever the dates of this one.
+pub(crate) fn applicability_with(tool: &Tool, info: &CubeInfo, regular: bool) -> Option<String> {
+    if let Some(why) = base_applicability(tool, info) {
+        return Some(why);
+    }
+    if tool.id == "polar_metrics" && !regular {
+        if let Some(why) = irregular(info, "run Interpolate (regular grid) first, then Polar phenology on its result") {
+            return Some(why);
+        }
+        let years = |t: usize| info.decimal_year(t).floor() as i64;
+        if info.t() > 0 && years(info.t() - 1) - years(0) < 1 {
+            return Some(
+                "needs at least 2 calendar years: a season runs from one start of the phenological year to the next"
+                    .into(),
+            );
+        }
+    }
+    None
+}
+
+fn base_applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
     if tool.input.as_deref() == Some("layers") {
         return None; // runs on result maps, whatever the series
     }
