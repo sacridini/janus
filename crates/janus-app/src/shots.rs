@@ -29,6 +29,10 @@ pub enum Target {
     Tab(Tab, bool),
     /// a menu open: its title, its items and the tooltip shown
     Menu(Rect),
+    /// a window (by its id's name): the area it takes
+    Area(&'static str),
+    /// two panels' places and what is between them
+    Union(Tab, Tab),
 }
 
 /// A file of a screenshot: the whole window, a rectangle of it (pixels), or a panel that was not there.
@@ -88,6 +92,7 @@ pub struct Shots {
     /// a panel scrolled to this offset (f32::MAX: its end)
     pub(crate) scroll: Option<(Tab, f32)>,
     pub(crate) val: crate::shots_validation::ValShots,
+    pub(crate) tune: crate::shots_tune::TuneShots,
     /// the stage whose summary was printed (shots_ml.rs)
     pub(crate) printed: usize,
     /// the font sizes' tour (shots_layout.rs)
@@ -292,6 +297,7 @@ impl State {
         sh.done = match sh.tour.as_str() {
             "validation" => self.shots_validation(sh, ctx),
             "alerts" => self.shots_alerts(sh, ctx),
+            "tune" => self.shots_tune(sh, ctx),
             "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
             "clip-explore" | "clip-detect" => self.shots_clips(sh, ctx),
@@ -1257,7 +1263,7 @@ impl State {
             }
             return None;
         }
-        fail(sh, "unknown tour (validation, landtrendr, ccdc, coded, bfast, phenology, snic, ml, presto)")
+        fail(sh, "unknown tour (validation, tune, landtrendr, ccdc, coded, bfast, phenology, snic, ml, presto)")
     }
 }
 
@@ -1368,6 +1374,11 @@ impl JanusApp {
                     Some(&bottom) if fit => Rect::from_min_max(r.min, egui::pos2(r.max.x, r.max.y.min(bottom + 14.0))),
                     _ => r,
                 }),
+                Target::Area(name) => ctx.memory(|m| m.area_rect(egui::Id::new(name))),
+                Target::Union(a, b) => match (sh.rects.get(&a), sh.rects.get(&b)) {
+                    (Some(a), Some(b)) => Some(a.union(*b)),
+                    _ => None,
+                },
                 Target::Menu(title) => sh.popup.map(|p| {
                     let mut r = title.union(p.expand(6.0));
                     for t in &tooltips {

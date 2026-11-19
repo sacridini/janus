@@ -33,6 +33,14 @@ use crate::zeit::{Job, JobLog, JobState, JobStatus, format_duration, pixel_input
 /// The task's name in Tools > Tasks.
 pub(crate) const JOB_TOOL: &str = "tune";
 
+/// A section's title; a tour of the guide's screenshots (`shots_tune.rs`) can ask the window to scroll to it.
+fn section(ui: &mut Ui, t: &TuneUi, title: &str) {
+    crate::panels::section(ui, title);
+    if t.scroll_to == Some(title) {
+        ui.scroll_to_cursor(Some(egui::Align::TOP));
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The reference: dates, labels, weights (no window, no series: tested alone)
 // ---------------------------------------------------------------------------------------------------------------
@@ -390,6 +398,9 @@ pub struct TuneUi {
     pub(crate) kept: Option<Kept>,
     pub(crate) error: String,
     pub(crate) message: String,
+    /// for the guide's screenshots (`--shots tune`): the section the window scrolls to, and where it is placed
+    pub(crate) scroll_to: Option<&'static str>,
+    pub(crate) pos: Option<egui::Pos2>,
 }
 
 impl TuneUi {
@@ -809,6 +820,17 @@ impl State {
         self.tune = t;
     }
 
+    /// The calibration split of the open project drawn (the window's "Make a calibration split" button): for the
+    /// guide's screenshots.
+    pub(crate) fn tune_split_now(&mut self) {
+        let (fraction, seed) = (f64::from(self.tune.split_fraction), self.tune.split_seed);
+        if let Some(p) = self.val.project.as_mut() {
+            p.calibration = Some(CalibrationSplit::draw(&p.points, fraction, seed));
+            self.val.meta_dirty = true;
+            self.val.version += 1;
+        }
+    }
+
     pub(crate) fn tune_keep_now(&mut self) {
         let mut t = std::mem::take(&mut self.tune);
         if let Some(d) = t.done.take() {
@@ -1110,10 +1132,12 @@ impl State {
             if let Some(tool) = manifest().tool(&t.tool) {
                 let mut keep = true;
                 let title = format!("Tune on samples - {}", tool.name);
-                crate::panels::fitted_window(title, ctx, 560.0)
-                    .id(egui::Id::new("tune window"))
-                    .open(&mut keep)
-                    .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.tune_body(ui, &mut t, tool, ctx)));
+                let mut window =
+                    crate::panels::fitted_window(title, ctx, 560.0).id(egui::Id::new("tune window")).open(&mut keep);
+                if let Some(pos) = t.pos {
+                    window = window.current_pos(pos);
+                }
+                window.show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.tune_body(ui, &mut t, tool, ctx)));
                 if !keep {
                     self.tune_close(&mut t);
                 }
@@ -1126,6 +1150,10 @@ impl State {
 
     fn tune_body(&mut self, ui: &mut Ui, t: &mut TuneUi, tool: &'static Tool, ctx: &egui::Context) {
         let Some(spec) = tune::spec(&tool.id) else { return };
+        crate::welcome::guide_button(ui, "tune");
+        if t.scroll_to == Some("top") {
+            ui.scroll_to_cursor(Some(egui::Align::TOP));
+        }
         ui.weak(&spec.why);
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(theme::error(), "No series is open.");
@@ -1148,7 +1176,7 @@ impl State {
     // --- the reference ---
 
     fn tune_reference_ui(&mut self, ui: &mut Ui, t: &mut TuneUi) {
-        crate::panels::section(ui, "Reference");
+        section(ui, t, "Reference");
         let layers: Vec<(u32, String)> = self
             .vectors
             .iter()
@@ -1303,7 +1331,7 @@ impl State {
     // --- the search ---
 
     fn tune_search_ui(&mut self, ui: &mut Ui, t: &mut TuneUi) {
-        crate::panels::section(ui, "Search");
+        section(ui, t, "Search");
         ui.horizontal_wrapped(|ui| {
             ui.label("Years");
             ui.add(egui::DragValue::new(&mut t.window.0).range(1900..=2200));
@@ -1385,7 +1413,7 @@ impl State {
         problem: Option<&str>,
         ctx: &egui::Context,
     ) {
-        crate::panels::section(ui, "Run");
+        section(ui, t, "Run");
         // the points read for this reference: started when none is, or when it changed
         let current = t.prepared.as_ref().is_some_and(|p| p.key == key);
         let failed_now = t.failed.as_ref().is_some_and(|f| f.0 == key);
@@ -1486,7 +1514,7 @@ impl State {
 
     fn tune_results_ui(&mut self, ui: &mut Ui, t: &mut TuneUi, done: &Done) {
         let o = &done.result.opts;
-        crate::panels::section(ui, "Results");
+        section(ui, t, "Results");
         ui.label(format!(
             "{} sets on {} points ({} with a change in {}-{}) from {}, in {}; dates within +-{} y.",
             done.result.sets.len(),
@@ -1518,7 +1546,9 @@ impl State {
             .sense(egui::Sense::click())
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::auto().at_least(k * 40.0))
-            .min_scrolled_height(0.0)
+            // the table's height does not depend on how far down it is: the room left in the window shrinks to
+            // nothing below a long reference section, and the rows would not be drawn
+            .min_scrolled_height(((done.ranked.len() as f32 + 1.0) * row_h).min(k * 220.0))
             .max_scroll_height(k * 220.0);
         for _ in &done.result.vary {
             table = table.column(Column::auto().at_least(k * 40.0));
@@ -1591,10 +1621,10 @@ impl State {
             self.tune_select(t, done, s);
         }
         // which parameters matter
-        crate::panels::section(ui, "Which parameters matter");
+        section(ui, t, "Which parameters matter");
         self.tune_prcc_ui(ui, done);
         // the optimism
-        crate::panels::section(ui, "Optimism");
+        section(ui, t, "Optimism");
         match &done.optimism {
             Some(m) => {
                 ui.label(format!(
@@ -1682,6 +1712,8 @@ impl State {
             .y_axis_label("commission")
             .include_x(0.0)
             .include_y(0.0)
+            // fractions in a short plot: steps of 0.2 (base 10 put the labels 0.1 apart, too close to be drawn)
+            .y_grid_spacer(egui_plot::uniform_grid_spacer(|_| [0.05, 0.2, 1.0]))
             .allow_scroll(false)
             .allow_drag(false)
             .allow_zoom(false)

@@ -1,5 +1,45 @@
 [
   {
+    "tag": "v1.20.0",
+    "version": "1.20.0",
+    "date": "2026-11-18",
+    "blocks": [
+      {
+        "ul": [
+          "crash reports (a panic's report and, on Windows, a minidump; the notice at the next start only after a crash, Restore the session, an issue filled in, nothing sent by itself)",
+          "Help > Welcome with sample data, a ? in every tool window to its guide and the parameters' defaults in their hover (nothing opens by itself at the start)",
+          "Save figure (PNG or SVG in mm and dpi) of the chart, the Analysis tabs and the transect, and a graticule, a north arrow and a title on the map's PNG",
+          "the chart's right Y axis, bars per layer and Shift by the lag of corr()",
+          "File > Climate data (CHIRPS v3 rainfall read for the map's box only)",
+          "Tune on samples (the date tools' parameters searched on calibration points kept apart from the accuracy's: Latin hypercube, Pareto front, PRCC, k-fold optimism, the MCP's tune_tool, the search's Python)",
+          "pins alone on the chart once the pointer leaves the map",
+          "the new version's notice stands out",
+          "Polar phenology says why it cannot run on a series that is not regular (it showed only 'error')"
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "v1.19.2",
+    "version": "1.19.2",
+    "date": "2026-11-17",
+    "blocks": [
+      {
+        "p": "a polygon's outline under the cursor no longer throws spikes across the map zoomed out (egui's closed line joined every corner with a miter, and a small ring thinned to a few points on screen turns back on itself: the WDPA's features of thousands of rings seemed to glow), nor the ROI's or the edited polygon's; the workflows' actions on their Node 24 versions"
+      }
+    ]
+  },
+  {
+    "tag": "v1.19.1",
+    "version": "1.19.1",
+    "date": "2026-11-17",
+    "blocks": [
+      {
+        "p": "the raster calculator's corr(x, y, lag=, method=), the correlation over time of two series (Pearson or Spearman, the driver y leading), and the month unit m in durations (lag(x, 1m), mean(x, 3m)); the phenology tool no longer says Zeit's phenology is a port of phenofit (it is written from the papers), and the phenology guide taken anew (27 seasons)"
+      }
+    ]
+  },
+  {
     "tag": "v1.19.0",
     "version": "1.19.0",
     "date": "2026-11-16",

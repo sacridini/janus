@@ -226,6 +226,7 @@ print(events)
         </table>
       </div>
       <p>The first eight shape the segmentation; the last four only choose which event is mapped. Thresholds are in the units of the series: here NDVI × 10000, so a minimum magnitude of 2500 is a drop of 0.25 NDVI.</p>
+      <p>Instead of choosing them by eye on a few pins, <span class="ui">Tune on samples...</span> (beside <span class="ui">Reset to defaults</span>) searches the four that matter most on reference points, ranks the sets by how well they find and date the changes, and keeps the points that tuned the tool apart from the ones that measure its accuracy: see <a href="tune.html">Tuning a tool on samples</a>.</p>
     </section>
 
     <section id="run">
@@ -316,6 +317,7 @@ print(events)
       <h2><span class="n">09</span>What next</h2>
       <ul>
         <li><strong>Validate it.</strong> The year of detection is a map of events: <a href="validation.html">the Validation guide</a> stratifies it, draws a sample and estimates its accuracy and the area of loss by year, with confidence intervals.</li>
+        <li><strong>Tune it.</strong> <a href="tune.html">Tuning a tool on samples</a> searches LandTrendr's parameters on the calibration points of an interpreted project, with the omission, the commission and the held-out check of each set, and shows the map's accuracy before and after on points that never tuned it.</li>
         <li><strong>Compare it.</strong> <span class="ui">Tools → Change detection → Agreement of change maps</span> takes several maps of dates (LandTrendr, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>, <a href="coded.html">CODED</a>) and maps where and when they agree.</li>
         <li><strong>Export it.</strong> Right click a result in the Layers panel to save it as GeoTIFF, or save the map as a PNG figure.</li>
         <li><strong>Script it.</strong> The same algorithm is <code>zeit.landtrendr</code> and <code>zeit.extract_events</code> in Python.</li>

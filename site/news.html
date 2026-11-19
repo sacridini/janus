@@ -50,14 +50,39 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.19.0; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.20.0; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.20.0">
+      <h2><a href="#v1.20.0">1.20.0</a><time datetime="2026-11-18">2026-11-18</time> <span class="rel-new">Latest</span></h2>
+      <ul>
+        <li>crash reports (a panic's report and, on Windows, a minidump; the notice at the next start only after a crash, Restore the session, an issue filled in, nothing sent by itself)</li>
+        <li>Help &gt; Welcome with sample data, a ? in every tool window to its guide and the parameters' defaults in their hover (nothing opens by itself at the start)</li>
+        <li>Save figure (PNG or SVG in mm and dpi) of the chart, the Analysis tabs and the transect, and a graticule, a north arrow and a title on the map's PNG</li>
+        <li>the chart's right Y axis, bars per layer and Shift by the lag of corr()</li>
+        <li>File &gt; Climate data (CHIRPS v3 rainfall read for the map's box only)</li>
+        <li>Tune on samples (the date tools' parameters searched on calibration points kept apart from the accuracy's: Latin hypercube, Pareto front, PRCC, k-fold optimism, the MCP's tune_tool, the search's Python)</li>
+        <li>pins alone on the chart once the pointer leaves the map</li>
+        <li>the new version's notice stands out</li>
+        <li>Polar phenology says why it cannot run on a series that is not regular (it showed only 'error')</li>
+      </ul>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.20.0">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.19.2">
+      <h2><a href="#v1.19.2">1.19.2</a><time datetime="2026-11-17">2026-11-17</time></h2>
+      <p>a polygon's outline under the cursor no longer throws spikes across the map zoomed out (egui's closed line joined every corner with a miter, and a small ring thinned to a few points on screen turns back on itself: the WDPA's features of thousands of rings seemed to glow), nor the ROI's or the edited polygon's; the workflows' actions on their Node 24 versions</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.19.2">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.19.1">
+      <h2><a href="#v1.19.1">1.19.1</a><time datetime="2026-11-17">2026-11-17</time></h2>
+      <p>the raster calculator's corr(x, y, lag=, method=), the correlation over time of two series (Pearson or Spearman, the driver y leading), and the month unit m in durations (lag(x, 1m), mean(x, 3m)); the phenology tool no longer says Zeit's phenology is a port of phenofit (it is written from the papers), and the phenology guide taken anew (27 seasons)</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.19.1">Release page on GitHub</a></p>
+    </section>
     <section id="v1.19.0">
-      <h2><a href="#v1.19.0">1.19.0</a><time datetime="2026-11-16">2026-11-16</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.19.0">1.19.0</a><time datetime="2026-11-16">2026-11-16</time></h2>
       <ul>
         <li>the Analysis-ready data window (FORCE Level 2, phase 57): NBAR, the spectral adjustment to Sentinel-2A, Tasseled Cap and ImproPhe in one chain, the harmonized multiband series between the steps, To look at, a preview of the chain on the ROI with the swipe against the input series, Use in Time series analysis, provenance and Run again</li>
         <li>the chain's Copy Python through pixel_script (the steps after NBAR or the adjustment read the harmonized series), checked in Zeit</li>
@@ -158,39 +183,42 @@
       </ul>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.12.1">Release page on GitHub</a></p>
     </section>
-    <section id="v1.12.0">
-      <h2><a href="#v1.12.0">1.12.0</a><time datetime="2026-11-04">2026-11-04</time></h2>
-      <ul>
-        <li>OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with their time, features fetched into a GeoPackage as a vector layer)</li>
-        <li>the ROI saved as a GeoPackage or GeoJSON and its vertices edited</li>
-        <li>the profiles of every line of a layer to CSV</li>
-        <li>labels from a column</li>
-        <li>large vector layers drawn whole (up to 100 million vertices)</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.12.0">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.11.0">
-      <h2><a href="#v1.11.0">1.11.0</a><time datetime="2026-11-03">2026-11-03</time></h2>
-      <ul>
-        <li>the area of each transition between two dates with its interval and the model-assisted estimators (difference, ratio) in Validation &gt; Accuracy, the report and Copy Python, the same as R's survey</li>
-        <li>the calculator's own reader of its VRTs (the files read straight, GDAL's values bit for bit, the count over 107 dates 3x faster, a pin's series 12x, a COG 3x)</li>
-        <li>the layout audit at 0 in both interfaces at every font size</li>
-        <li>the website's Atlas with Groups</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.11.0">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.10.0">
-      <h2><a href="#v1.10.0">1.10.0</a><time datetime="2026-11-03">2026-11-03</time></h2>
-      <ul>
-        <li>the Atlas' number of groups chosen (2 to 10)</li>
-        <li>a class map's class names edited in its legend</li>
-        <li>the chart's panel follows the layer on top (Pixel values over a run's map)</li>
-        <li>a series' dates dragged out of it in Layers, or split into layers to show several at once</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.10.0">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.12.0"><summary><span class="rv">1.12.0</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with their time, features fetched into a GeoPackage as a vector layer)</li>
+            <li>the ROI saved as a GeoPackage or GeoJSON and its vertices edited</li>
+            <li>the profiles of every line of a layer to CSV</li>
+            <li>labels from a column</li>
+            <li>large vector layers drawn whole (up to 100 million vertices)</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.12.0">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.11.0"><summary><span class="rv">1.11.0</span><time datetime="2026-11-03">2026-11-03</time><span class="rs">the area of each transition between two dates with its interval and the model-assisted estimators…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>the area of each transition between two dates with its interval and the model-assisted estimators (difference, ratio) in Validation &gt; Accuracy, the report and Copy Python, the same as R's survey</li>
+            <li>the calculator's own reader of its VRTs (the files read straight, GDAL's values bit for bit, the count over 107 dates 3x faster, a pin's series 12x, a COG 3x)</li>
+            <li>the layout audit at 0 in both interfaces at every font size</li>
+            <li>the website's Atlas with Groups</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.11.0">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.10.0"><summary><span class="rv">1.10.0</span><time datetime="2026-11-03">2026-11-03</time><span class="rs">the Atlas' number of groups chosen (2 to 10)</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>the Atlas' number of groups chosen (2 to 10)</li>
+            <li>a class map's class names edited in its legend</li>
+            <li>the chart's panel follows the layer on top (Pixel values over a run's map)</li>
+            <li>a series' dates dragged out of it in Layers, or split into layers to show several at once</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.10.0">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.9.0"><summary><span class="rv">1.9.0</span><time datetime="2026-11-02">2026-11-02</time><span class="rs">k-means in the Classification window and the SOM's and k-means' clusters named by the samples</span></summary>
         <div class="rel-body">
           <ul>

@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tuning a tool on samples · Janus</title>
+<meta name="description" content="A step-by-step guide to Tune on samples in Janus: LandTrendr's parameters searched on the calibration points of an interpreted validation project, with a Pareto front, the parameters that matter, a held-out check, and the map's accuracy on the points that never tuned anything.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Tuning a tool on samples · Janus">
+<meta property="og:description" content="Two hundred sets of LandTrendr's parameters scored on 148 interpreted points in a tenth of a second, and the map they draw checked on 328 other points and against the truth.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/tune/09-live-best.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Tune on samples</p>
+    <p class="eyebrow">Calibration · change detection · validation</p>
+    <h1>Tuning a tool on samples.</h1>
+    <p class="lede">A change map depends on the parameters of the tool that drew it, and the usual way to choose them, dropping a few pins and nudging the sliders until each one looks right, builds the pins' bias into the map. <span class="ui">Tune on samples...</span> searches the parameters on reference points instead, scores every set the way a validation scores a map, and keeps the points that tuned the tool apart from the ones that measure its accuracy. This guide calibrates LandTrendr on an interpreted project and checks the result on the points it never saw.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#problem">The problem</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the window</a></li>
+      <li><a href="#split">The calibration split</a></li>
+      <li><a href="#search">The search</a></li>
+      <li><a href="#results">Reading the results</a></li>
+      <li><a href="#chart">Trying a set on the chart</a></li>
+      <li><a href="#keep">Keeping the parameters</a></li>
+      <li><a href="#maps">The maps, before and after</a></li>
+      <li><a href="#repeat">Doing it again</a></li>
+      <li><a href="#limits">What it cannot do</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="problem">
+      <h2><span class="n">01</span>The problem</h2>
+      <p>Algorithms and settings give very different maps of disturbance on the same area (Cohen et al. 2017), and a LandTrendr map depends on a handful of settings the literature names: how many segments the trajectory may have, how hard a single-year spike is damped, how fast a recovery may be, and the p-value a fitted model must pass (Kennedy et al. 2010; Cohen et al. 2018). The defaults are a compromise for forests and Landsat; your series, your index and your idea of a change are not the compromise.</p>
+      <p>Tuning by eye has two flaws. The pins are the cases you thought of, and a pixel that looked wrong is easier to fix than a hundred that looked fine. And once the pins read as you want, they are the only evidence that the parameters are good: if the same points then estimate the accuracy, the accuracy is optimistic, because the tool was chosen to fit them.</p>
+      <p>The window of this guide does what a careful analyst would do on paper. It takes <strong>reference points</strong>, each with the year of its change or none; runs the tool's own pixel kernel on their series with many sets of parameters (a Latin hypercube over the ranges the literature suggests); scores the date each set would map at each point; and shows what that costs in omissions and false changes. The points that calibrate are set apart from the points that estimate the accuracy.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <div class="note warn">
+        <p class="h">The data are synthetic</p>
+        <p>The series, the labels and the truth come from a script, not from a satellite. That is on purpose: in a real study the truth is unknown, and here the guide can compare the maps with what really happened, at the end, to see whether the tuning helped beyond the points that tuned it. The numbers show how to read the tool; they say nothing about LandTrendr on a real forest.</p>
+      </div>
+      <p>An 18 × 12 km forest frontier (600 × 400 pixels of 30 m, UTM zone 23S), one annual NDVI composite a year from 2000 to 2020, 21 files. Forest stands at 0.82 and pasture at 0.55, a river crosses the scene, and every pixel-year carries a little noise. Patches of forest are cleared in known years (the NDVI falls to 0.30 that year and settles at pasture's 0.55), others are degraded (a dip of up to 0.2 that recovers in about five years), and a few pastures regrow. Where each change happened is saved apart, as the <em>truth</em>.</p>
+      <p>The project is a stratified random sample of 525 points, its strata drawn from the detection map of a LandTrendr-like algorithm (no change, a change in 2000–2009, a change in 2010–2020, and a buffer of two pixels around the changes), already interpreted by two people: Ana labelled 500 of the points and Bruno 300, with disagreements, a few <em>Cloud / no data</em>, and the date of each change. The <a href="validation.html">Validation guide</a> shows how such a project is made; here it is only the reference.</p>
+      <figure class="fig">
+        <a href="assets/img/tune/01-project.jpg"><picture><source type="image/webp" srcset="assets/img/tune/01-project.webp"><img src="assets/img/tune/01-project.jpg" alt="The Janus window with the 2020 NDVI of the synthetic frontier, pasture in light colours on the left and in patches, forest in dark green, a brown river, and the 525 sample points over it; the Validation panel on the right on its Accuracy tab, with the error matrix of the LandTrendr-like map." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>The series and the project</b>, 2020. The sample's 525 points over the NDVI, and the Accuracy tab of the project's own map: the starting point, before any tuning.</figcaption>
+      </figure>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data are the synthetic frontier of Janus's validation tests: a folder with <code>ndvi_annual/</code> (the 21 NDVI files), <code>answers/</code> (the truth) and <code>landtrendr_two_interpreters.gpkg</code> with its strata raster. The tour copies the project into the temporary files first, because the calibration split is saved into the project; the originals are never written. This remakes the screenshots, and prints the numbers quoted below:</p>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code> (<code>DATA</code> is the data folder):</p>
+        <div class="cmd"><code>janus --threads 4 --shots tune DATA shots</code><button class="copy" type="button" data-copy="janus --threads 4 --shots tune DATA shots">Copy</button></div>
+        <p>The tour drives the real window, one step after the other, in 1680 × 1050; the full-window ones are then converted to JPEG, and <code>python tools/make_webp.py</code> makes their WebP twins.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the window</h2>
+      <p>Open the series with <span class="ui">File → Open folder...</span> and the project with <span class="ui">Validation &amp; uncertainty → Open project...</span>. Then open LandTrendr, <span class="ui">Tools → Change detection → LandTrendr</span>: its window has <span class="ui">Tune on samples...</span> beside <span class="ui">Reset to defaults</span>. The tools that give a change date have it (LandTrendr, CCDC, S-CCD, BFAST, BFAST Lite, BFAST Monitor, CODED, EWMACD and BEAST); a tool that cannot run on the series open has it disabled, with the reason.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/tune/02-tool.png"><img src="assets/img/tune/02-tool.png" alt="LandTrendr's window with its parameters at their defaults: event loss, max segments 6, p-value threshold 0.05, recovery threshold 0.25, spike threshold 0.9; the Reset to defaults and Tune on samples buttons under them." loading="lazy"></a>
+        <figcaption><b>LandTrendr's window</b>, with the defaults. They are what the search starts from and what its table is compared with.</figcaption>
+      </figure>
+    </section>
+
+    <section id="split">
+      <h2><span class="n">04</span>The calibration split</h2>
+      <p>The <span class="ui">Reference</span> section of the window offers two sources of points: the <strong>calibration points of the open project</strong>, or a vector layer of points with a field of dates (a year or a date, empty for no change). The project is the one that matters here. A project that never drew a split cannot calibrate anything yet, and the window says so:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/tune/03-window.png"><img src="assets/img/tune/03-window.png" alt="The Tune on samples window for LandTrendr before the split: a warning that the project has no calibration split, the label translation, the search settings, and the Run row saying the accuracy points cannot calibrate." loading="lazy"></a>
+          <figcaption><b>Before the split.</b> The window refuses the project's points, with the reason, and the Run button is off.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/tune/04-reference.png"><img src="assets/img/tune/04-reference.png" alt="The same window after the split: 158 of 525 points calibrate, 30 percent of each stratum, seed 42; 148 points read, 34 with a change in 2001-2020 and 114 without." loading="lazy"></a>
+          <figcaption><b>After the split.</b> 158 of 525 points calibrate; their series are read, and Run is ready.</figcaption>
+        </figure>
+      </div>
+      <p><span class="ui">Make a calibration split</span> draws, inside each stratum, 30% of the points (the share and the seed are the window's to change; this one is 30% with seed 42) and keeps their ids in the project. The draw is reproducible and it is saved: the split is part of the project from then on.</p>
+      <h3>Why the points are kept apart</h3>
+      <p>A tool tuned on a set of points fits them: the parameters that came out on top are the ones that happen to read these points right, noise included. Their accuracy on those same points says how well the search worked, not how good the map is. The accuracy has to come from points the search never scored, so the Validation panel leaves the 158 out ("158 points calibrate a tool (left out)") and estimates on the others with the same stratum weights. That is still a stratified random sample, a smaller one, so the intervals are wider; a design that expects to tune a tool should draw more points. The window refuses the accuracy points as a reference, with the reason, and the box <em>Use the accuracy points</em> is there only to say so.</p>
+      <h3>What each label means</h3>
+      <p>The window translates the project's labels to <em>change</em>, <em>no change</em> or <em>left out</em>, starting from the translation the project already has for its map of events. Here <em>Deforestation</em> and <em>Degradation</em> are changes, <em>Stable forest</em>, <em>Regeneration</em>, <em>Agriculture</em>, <em>Pasture</em>, <em>Water</em> and <em>Other</em> are not, and <em>Cloud / no data</em> is left out, as is any point without a label or whose interpreters disagree and nobody adjudicated. A point of change takes the year of its earliest change, from its date and its events. Of the 158 calibration points, 10 are left out, and the 148 read are 34 with a change between 2001 and 2020 and 114 without.</p>
+      <div class="note">
+        <p class="h">Thirty-four changes is not many</p>
+        <p>With fewer than 30 points with a change the window warns that the scores are unreliable, and 34 is close to that line. It is enough to show how the tool works, and a reason to read the optimism below with some suspicion.</p>
+      </div>
+    </section>
+
+    <section id="search">
+      <h2><span class="n">05</span>The search</h2>
+      <p>The <span class="ui">Search</span> section sets what the sets are scored on and what varies:</p>
+      <dl class="terms">
+        <dt>Years</dt><dd>The window in which a change counts, in the reference and in the map: 2001 to 2020. The series starts in 2000, and a change in its first year has no year before it to be compared with.</dd>
+        <dt>Dates within ±</dt><dd>How far a map's year may be from the reference's and still agree: 1 year. LandTrendr dates a loss at the vertex before the drop, so its year is usually the year before the NDVI is first low; a tolerance of 0 would call that wrong.</dd>
+        <dt>Sets</dt><dd>200 sets of a Latin hypercube over the ranges, plus the defaults and the values the tool's window has now (the <em>current</em> ones): 202 rows. The seed is 1, and the same seed gives the same sets.</dd>
+        <dt>Weight by strata</dt><dd>Off: every point counts once. On, a point counts for its stratum's area over the points drawn in it. It is a calibration, not an area estimate; the weights only matter when the strata are very unequal.</dd>
+      </dl>
+      <p>Four parameters vary by default, the ones the literature finds most influential (hover for the id and the scale), each over its range, editable:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Range</th><th>Scale</th><th>Default</th></tr></thead>
+          <tbody>
+            <tr><td>Max segments</td><td class="num">2 – 10</td><td>whole numbers</td><td class="num">6</td></tr>
+            <tr><td>Spike threshold</td><td class="num">0.5 – 1</td><td>linear</td><td class="num">0.9</td></tr>
+            <tr><td>Recovery threshold</td><td class="num">0.05 – 1</td><td>log</td><td class="num">0.25</td></tr>
+            <tr><td>p-value threshold</td><td class="num">0.01 – 0.5</td><td>log</td><td class="num">0.05</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The best-model proportion, the vertex count overshoot and the minimum observations can be ticked on too. The parameters that choose <em>which</em> event is mapped (the minimum magnitude, the minimum duration, the pre-event threshold) are not searched: they stay as the tool's window has them, and here that is the defaults, 0.</p>
+      <p>The points' series are read once, at full resolution (148 points in 0.4 s), one set is timed, and the estimate stands beside <span class="ui">Run</span>: "under a second on 4 threads". A search is a task, listed in <span class="ui">Tools → Tasks</span> with its progress and a Cancel, on the processing threads of the Settings. It is that fast here because 148 series of 21 years are tiny; on a project of a thousand points with monthly series the estimate says minutes, and says it before you press anything.</p>
+    </section>
+
+    <section id="results">
+      <h2><span class="n">06</span>Reading the results</h2>
+      <p>The 202 sets ran in about a tenth of a second. The window grows a table, a scatter, a bar for each parameter and a check:</p>
+      <figure class="fig">
+        <a href="assets/img/tune/06-results.png"><img src="assets/img/tune/06-results.png" alt="The results of the search: a table of sets ranked by the dated F1 with the four parameters, omission, commission, F1, F1 dated, dates and error; below it the scatter of omission against commission with the Pareto front joined in blue; the partial rank correlation of each parameter; and the optimism check with its held-out scores." loading="lazy"></a>
+        <figcaption><b>The results.</b> The table, the omission × commission scatter with its Pareto front, which parameters matter, and the held-out check.</figcaption>
+      </figure>
+      <h3>The table</h3>
+      <p>The rows are sorted by the <strong>dated F1</strong>: a change found at the wrong date counts as both an omission and a false change, so a set that finds the changes but dates them badly does not win. The columns say what each set costs:</p>
+      <dl class="terms">
+        <dt>Omission</dt><dd>The reference's changes the map misses, of all of them.</dd>
+        <dt>Commission</dt><dd>The map's changes the reference does not have, of all of the map's.</dd>
+        <dt>F1, F1 dated</dt><dd>The balance of the two, without and with the dates counted.</dd>
+        <dt>Dates, Error</dt><dd>Of the changes found, the share whose year is within the tolerance, and the mean error in years.</dd>
+      </dl>
+      <p>The defaults come out 27th of 202: omission 14.7%, commission 34.1%, F1 0.744, dated F1 0.667. The best set, number 169, has 5 segments, a spike threshold of 0.979, a recovery threshold of 0.310 and a p-value of 0.0115: omission 8.8%, commission 6.1%, F1 0.925, dated F1 0.806. It trades a little of the dates (87.1% of the changes it finds are within a year, against 89.7%) for far fewer false changes.</p>
+      <h3>The Pareto front</h3>
+      <p>The scatter puts every set at its omission and its commission. Most are grey; the <strong>Pareto front</strong>, the sets no other beats on both at once, is the blue line (five sets here); the defaults and the current values are marked (they coincide, since nothing was edited). The best dated F1 is one point of the front, not the only reasonable one: the second set misses 2.9% of the changes against 8.8% and pays 10.8% commission against 6.1%, and one set on the front misses none and pays about 21%. Which of them is right depends on what the map is for. A map that guides inspection can accept false changes; one that counts hectares cannot.</p>
+      <h3>Which parameters matter</h3>
+      <p>The bars are the <strong>partial rank correlation</strong> of each varied parameter with the dated F1 over the 202 sets, the others held fixed (Marino et al. 2008). To the right, a larger value gives a better dated F1; to the left, a worse one. Here the p-value threshold matters most (−0.58: the stricter the test, the better; a lax one accepts models that follow the noise), then the spike threshold (+0.24) and the maximum number of segments (+0.20); the recovery threshold barely moves the score (+0.06). A parameter near zero is one you can leave at its default.</p>
+      <h3>The optimism</h3>
+      <p>The best of 202 sets is the best partly by luck. The check is a 5-fold one: the best set is chosen on four fifths of the points and scored on the fifth left out, five times. On all the points the best set has an F1 of 0.925 and a dated F1 of 0.806; held out, 0.861 and 0.750. <em>The choice flatters the F1 by +0.064.</em> The loss is in the commission: 6.1% in sample, 18.4% held out. Read the table's best row as an upper bound, and the held-out row as what to expect on points like these. A gap over 0.1 is shown in a warning colour.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">07</span>Trying a set on the chart</h2>
+      <p>Click a row of the table, or a point of the scatter, and its set is tried: its parameters go into LandTrendr's window, so the chart and the pins fit with them at once, and the selected set is ringed in the scatter. The two pins here are calibration points chosen from the table's own columns: a clearing that the defaults get wrong and the best set gets right (a pixel cleared in 2007–2008), and a forest that stands throughout where the defaults see a change and the best set does not.</p>
+      <figure class="fig">
+        <a href="assets/img/tune/09-live-best.jpg"><picture><source type="image/webp" srcset="assets/img/tune/09-live-best.webp"><img src="assets/img/tune/09-live-best.jpg" alt="The Janus window with the Tune on samples window open over its right half, the first row of the table selected and its set ringed in the scatter, and, on the left, the map and, under it, the chart of two pins with LandTrendr's fit." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Set 169 tried.</b> The row is selected, its point rings in the scatter, and the chart under the map fits the two pins with its parameters.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/tune/08-live-default-chart.png"><img src="assets/img/tune/08-live-default-chart.png" alt="The chart of the two pins with the defaults: the cleared pixel fitted by one descending straight line that ignores the drop of 2008; the forest pixel fitted with a small step around 2014; the Statistics table with 2 vertices and 1 segment for the first pin and 4 vertices for the second." loading="lazy"></a>
+          <figcaption><b>The defaults.</b> The clearing of 2008 becomes one straight line (2 vertices, 1 segment); the forest gets a step in 2014 that is noise.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/tune/09-live-best-chart.png"><img src="assets/img/tune/09-live-best-chart.png" alt="The chart of the two pins with set 169: the cleared pixel fitted with a drop in 2007-2008 and a slow recovery after it; the forest pixel fitted with a flat line; the Statistics table with 4 vertices and 3 segments for the first pin and 2 vertices for the second." loading="lazy"></a>
+          <figcaption><b>Set 169.</b> The drop of 2007–2008 is a segment of its own (4 vertices, 3 segments); the forest is a flat line (2 vertices).</figcaption>
+        </figure>
+      </div>
+      <p>This is what the numbers of the table mean on a pixel, and the reason to look: a set that scores well and fits strange trajectories is a set to doubt. Try a few rows on the Pareto front before choosing, and try one on pins you know that the reference does not hold.</p>
+    </section>
+
+    <section id="keep">
+      <h2><span class="n">08</span>Keeping the parameters</h2>
+      <p><span class="ui">Use these parameters</span> keeps the set tried as LandTrendr's parameters; <span class="ui">Back to the current</span> (or closing the window) puts the earlier ones back. Kept, they are in the tool's window like any others, the maps fit with them, and any run that uses them says where they came from.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/tune/11-tool-tuned.png"><img src="assets/img/tune/11-tool-tuned.png" alt="LandTrendr's window after the set was kept: max segments 5, p-value threshold 0.011532, recovery threshold 0.309919, spike threshold 0.97872, the other parameters at their defaults." loading="lazy"></a>
+        <figcaption><b>The tool's window</b> with set 169: four values changed, the rest untouched.</figcaption>
+      </figure>
+      <p>The record is a <code>calibration</code> entry in the run's <code>provenance.json</code>, and a <code>tune.py</code> beside the run's own <code>rerun.py</code> (the <a href="docs-usage.html#python-history">Python history</a> shows both). Edit a parameter after keeping them and the next run no longer claims they came from the tuning. The entry, shortened:</p>
+      <div class="pycode"><pre class="code" tabindex="0"><code>"calibration": {
+  "reference": { "kind": "project", "file": ".../landtrendr_two_interpreters.gpkg",
+                 "calibration_points": 158, "split": { "fraction": 0.3, "seed": "42", "points": 158 },
+                 "labels": { "Deforestation": "change", "Degradation": "change", "Cloud / no data": "", ... } },
+  "points": 148, "changes_in_window": 34, "year_window": [2001, 2020], "tolerance_years": 1,
+  "weighted": false, "sets": 200, "seed": "1",
+  "varied": ["max_segments", "spike_threshold", "recovery_threshold", "pval_threshold"],
+  "chosen": { "set": "set 169", "rank": 1,
+              "params": { "max_segments": 5, "spike_threshold": 0.9787, "recovery_threshold": 0.3099, "pval_threshold": 0.0115 } },
+  "scores": { "omission": 0.088, "commission": 0.061, "f1": 0.925, "f1_dated": 0.806, ... },
+  "held_out_f1": 0.861, "python": "tune.py"
+}</code></pre></div>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">09</span>The maps, before and after</h2>
+      <p>The proof is the map. LandTrendr was run on the whole image twice (240 000 pixels, a second each): first with the defaults, before the tuning, then with the set kept. Each year of detection was then added to the project, in the <span class="ui">Maps</span> tab of the Validation panel with <span class="ui">Assess another map...</span> (it offers the runs' results), and both are assessed on the same 328 accuracy points, those no calibration touched: 367 points are not in the split, less 21 without a label, 16 in disagreement and 2 left out by their label.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/tune/12-accuracy-defaults.png"><img src="assets/img/tune/12-accuracy-defaults.png" alt="The Validation panel's Accuracy tab for LandTrendr with the defaults: 328 points used, 158 calibrate a tool; overall accuracy 0.712; change user's accuracy 0.224, producer's 1.000, mapped 7,276 ha, area 1,797 ha; the error matrix with 77 false changes." loading="lazy"></a>
+          <figcaption><b>The defaults.</b> Overall accuracy 0.712 ± 0.055; of 153 points the map calls a change, 77 are not.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/tune/13-accuracy-tuned.png"><img src="assets/img/tune/13-accuracy-tuned.png" alt="The same tab for LandTrendr with set 169: overall accuracy 0.955; change user's accuracy 0.648, producer's 1.000, mapped 3,001 ha, area 1,797 ha; the error matrix with 15 false changes." loading="lazy"></a>
+          <figcaption><b>Set 169.</b> Overall accuracy 0.955 ± 0.025; of 91 points called a change, 15 are not.</figcaption>
+        </figure>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th></th><th>Defaults</th><th>Set 169</th></tr></thead>
+          <tbody>
+            <tr><td>Overall accuracy</td><td class="num">0.712 ± 0.055</td><td class="num">0.955 ± 0.025</td></tr>
+            <tr><td>Change: user's accuracy</td><td class="num">0.224 ± 0.040</td><td class="num">0.648 ± 0.129</td></tr>
+            <tr><td>Change: producer's accuracy</td><td class="num">1.000 ± 0.000</td><td class="num">1.000 ± 0.000</td></tr>
+            <tr><td>Area of change, mapped</td><td class="num">7,276 ha</td><td class="num">3,001 ha</td></tr>
+            <tr><td>Area of change, adjusted</td><td class="num">1,797 ± 213 ha</td><td class="num">1,797 ± 213 ha</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The tuned map's user's accuracy nearly triples and its mapped area falls from 7,276 to 3,001 ha, closer to the adjusted 1,797 ha. The <strong>adjusted area is the same</strong> for both: it depends on the reference labels and the strata, not on the map, and it is what a validation reports as the area of change, with its interval. The difference between the maps is in how much correcting they need, and in the interval of the user's accuracy, wider for the tuned map (±0.129) because only 91 points fall on it.</p>
+      <figure class="fig swipe">
+        <picture><source type="image/webp" srcset="assets/img/tune/14-map-defaults.webp"><img class="before" data-label="Defaults" src="assets/img/tune/14-map-defaults.jpg" alt="The year of detection of LandTrendr with the defaults over the frontier: patches of cleared forest in blue, green and yellow, and a speckle of single pixels of every year over the whole forest." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/tune/15-map-tuned.webp"><img class="after" data-label="Set 169" src="assets/img/tune/15-map-tuned.jpg" alt="The year of detection with set 169: the same patches, and far fewer isolated pixels in the forest." width="1680" height="1050" loading="lazy"></picture>
+        <figcaption><b>Drag the divider to compare</b> the year of detection with the defaults (first image, left) and with set 169 (second image, right). The patches are the same; the speckle of the forest is what the defaults add.</figcaption>
+      </figure>
+      <h3>Against the truth</h3>
+      <p>Because the data are synthetic, the maps can also be compared with the changes that really happened, pixel by pixel over the whole image, which no study can do. The truth is 21,827 pixels, 1,964 ha, of clearing or degradation. This comparison was made outside Janus, on the two years of detection and the truth rasters:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th></th><th>Defaults</th><th>Set 169</th></tr></thead>
+          <tbody>
+            <tr><td>Mapped change</td><td class="num">7,276 ha</td><td class="num">3,001 ha</td></tr>
+            <tr><td>True changes missed (omission)</td><td class="num">0.3%</td><td class="num">1.4%</td></tr>
+            <tr><td>False changes (commission)</td><td class="num">73.1%</td><td class="num">35.4%</td></tr>
+            <tr><td>F1</td><td class="num">0.424</td><td class="num">0.780</td></tr>
+            <tr><td>Pixels right</td><td class="num">75.4%</td><td class="num">95.0%</td></tr>
+            <tr><td>Dates within a year of the truth, of the changes found</td><td class="num">87.9%</td><td class="num">90.1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The tuning helped beyond the points. The points said 0.712 and 0.955 for the overall accuracy and the truth says 75.4% and 95.0%, inside the intervals. The stratified estimate of the area, 1,797 ± 213 ha, holds the true 1,964 ha. And the tuning has a visible limit: 35% of what the tuned map calls a change is not one, 1,064 ha. 91% of those false pixels sit in specks of four pixels or fewer (the speckle that remains in the map above), against 26% for the defaults. The four parameters searched do not remove them; a minimum magnitude or a minimum duration would be the filters to try, and they are not among the parameters the search varies. It is the next thing to set, by looking at the same pins, and then to check on the same 328 points, which have still never tuned anything.</p>
+    </section>
+
+    <section id="repeat">
+      <h2><span class="n">10</span>Doing it again</h2>
+      <p>The search is meant to be repeatable by someone who does not use Janus. <span class="ui">Copy Python</span>, beside <span class="ui">Use these parameters</span>, copies a script with Zeit that redoes it: it reads each reference point's series as the script of a pin does, writes out the 202 sets with the values the search sampled (so it needs no random generator to match), runs <code>zeit.landtrendr</code> once per set on all the points together, takes the year of the change the map would show, scores it with the same definitions as the window and prints the table in the same order. This one is 477 lines, the points and the sets being most of them:</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>"""Janus 1.20.0: the search of LandTrendr's parameters on samples (Tune on samples) over ndvi_annual, redone outside Janus with Zeit.
+Reference: the calibration points of landtrendr_two_interpreters.gpkg (158 of 525)
+Needs: pip install "zeit-cdts&gt;=3.2"
+"""
+import numpy as np
+import xarray as xr
+import zeit
+
+SEARCH = True  # False to skip the search (it runs every set on every point)
+N_JOBS = 4  # the threads Zeit uses for each set (the sets run one after the other)</code></pre></div>
+      <p>Run on this project, it prints the table (the same 202 rows, the same order, set 169 first) and ends with a line that says how far it is from Janus: <code>the dated F1 differs from Janus's table by 0 at most</code>. The run also leaves it as <code>tune.py</code> beside the map's script, so the search that chose the parameters travels with the map.</p>
+      <p>An assistant can do the same without the window: the MCP tool <code>tune_tool</code> takes the tool, the series, the reference (a project, whose calibration split it uses and which it refuses without one, or a vector file with its date field) and the same settings, and answers with the table of sets, the Pareto front, which parameters matter, the held-out check and the Python:</p>
+      <div class="pycode"><pre class="code" tabindex="0"><code>{ "tool": "landtrendr",
+  "series": "ndvi_annual",
+  "reference": "landtrendr_two_interpreters.gpkg",
+  "years": [2001, 2020], "tolerance": 1, "n_sets": 200, "seed": 1 }</code></pre></div>
+      <p>The same section of the <a href="docs-usage.html#tuning-on-samples">usage notes</a> has every option.</p>
+    </section>
+
+    <section id="limits">
+      <h2><span class="n">11</span>What it cannot do</h2>
+      <ul>
+        <li><strong>It cannot tell more than the points know.</strong> With 34 changes the scores wobble, the held-out check is itself uncertain, and a rare kind of change (a degradation that recovers in five years, a regrowth) is a handful of points the search can ignore without paying for it. More points with a change, interpreted well, are the best tuning there is.</li>
+        <li><strong>It tunes to the labels, not to the truth.</strong> If the interpreters call a change what the series cannot show, the tool is tuned to find it. The <a href="validation.html">interpretation</a> is the reference; check it first.</li>
+        <li><strong>The accuracy points are for the accuracy.</strong> If you read the accuracy, change the parameters and read it again, you have tuned on the accuracy points. Draw a new calibration split before another round, or a new sample, and say so. The window keeps the split in the project, with its seed.</li>
+        <li><strong>The sets are a hypercube, not an optimiser.</strong> Two hundred sets over four parameters find a good region, not the optimum; a finer search around the best set, with narrower ranges (they are editable), is cheap.</li>
+      </ul>
+      <p>The same window tunes the other tools that give a change date, with their own parameters and their own literature: <a href="ccdc.html">CCDC</a>, <a href="sccd.html">S-CCD</a>, <a href="bfast.html">BFAST</a> and BFAST Lite and Monitor, <a href="coded.html">CODED</a>, <a href="ewmacd.html">EWMACD</a> and <a href="beast.html">BEAST</a>. This guide's tool has its own page, <a href="landtrendr.html">LandTrendr</a>, and the accuracy it ends in is the subject of <a href="validation.html">Validating a map</a>.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">12</span>References</h2>
+      <ul class="refs">
+        <li>Cohen, W. B., Yang, Z., Healey, S. P., Kennedy, R. E., Gorelick, N. (2018). A LandTrendr multispectral ensemble for forest disturbance detection. <em>Remote Sensing of Environment</em>, 205, 131–140.</li>
+        <li>Cohen, W. B., Healey, S. P., Yang, Z., Stehman, S. V., Brewer, C. K., Brooks, E. B., et al. (2017). How similar are forest disturbance maps derived from different Landsat time series algorithms? <em>Forests</em>, 8(4), 98.</li>
+        <li>Kennedy, R. E., Yang, Z., Cohen, W. B. (2010). Detecting trends in forest disturbance and recovery using yearly Landsat time series: 1. LandTrendr — Temporal segmentation algorithms. <em>Remote Sensing of Environment</em>, 114, 2897–2910.</li>
+        <li>Marino, S., Hogue, I. B., Ray, C. J., Kirschner, D. E. (2008). A methodology for performing global uncertainty and sensitivity analysis in systems biology. <em>Journal of Theoretical Biology</em>, 254(1), 178–196.</li>
+        <li>McKay, M. D., Beckman, R. J., Conover, W. J. (1979). A comparison of three methods for selecting values of input variables in the analysis of output from a computer code. <em>Technometrics</em>, 21(2), 239–245.</li>
+        <li>Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. <em>Remote Sensing of Environment</em>, 148, 42–57.</li>
+        <li>Stehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. <em>International Journal of Remote Sensing</em>, 35(13), 4923–4939.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+<script src="assets/main.js" defer></script>
+</body>
+</html>

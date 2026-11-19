@@ -156,7 +156,11 @@ publishes the three packages on a <code>v*</code> tag.</p>
 <h2 id="the-guides-screenshots">The guides' screenshots<a class="anchor" href="#the-guides-screenshots" aria-label="Link to this section"></a></h2>
 <p><code>janus --shots TOUR IN OUT</code> walks through a guide of the website in a window of 1680 × 1050 and
 saves its screenshots in OUT: <code>validation</code> (IN from <code>tools/make_tutorial_data.py</code>), <code>landtrendr</code>,
-<code>ccdc</code> and <code>coded</code> (<code>tools/make_guide_data.py</code>), <code>bfast</code> and <code>phenology</code> (an EVI series).</p>
+<code>ccdc</code> and <code>coded</code> (<code>tools/make_guide_data.py</code>), <code>bfast</code> and <code>phenology</code> (an EVI series).
+<code>tune</code> (the folder of the synthetic forest frontier of the validation tests: <code>ndvi_annual/</code> and
+<code>landtrendr_two_interpreters.gpkg</code> with its strata raster) calibrates LandTrendr on an interpreted project: it
+copies the project into the temporary files, runs the 200 sets, runs the whole image with the defaults and with the
+best set, assesses both maps on the accuracy points, and prints what the guide quotes (<code>janus --threads 4 --shots tune DATA site/assets/img/tune</code>). Its PNGs become the JPEGs and WebPs of the page with ffmpeg and <code>tools/make_webp.py</code>.</p>
     </section>
 
     <section>
