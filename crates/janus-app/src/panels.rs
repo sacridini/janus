@@ -14,12 +14,381 @@ use crate::theme;
 /// A section's title with a line after it (ImGui's SeparatorText).
 /// A window of Janus: its title bar thin (egui's has the window's margin above and below the title: 12 points
 /// each in the modern interface, a bar about twice the text's height).
-pub(crate) fn window<'a>(title: impl Into<egui::WidgetText>, ctx: &egui::Context) -> egui::Window<'a> {
+///
+/// Every such window can leave the main window for an OS window of its own, to take to another screen (see
+/// `PanelWindow`); `no_detach` keeps a transient one (a quick prompt) where it is.
+pub(crate) fn window<'a>(title: impl Into<egui::WidgetText>, ctx: &egui::Context) -> PanelWindow<'a> {
     let style = ctx.global_style();
     let m = style.spacing.window_margin;
     let bar =
         egui::Frame::window(&style).inner_margin(egui::Margin { left: m.left, right: m.right, top: 3, bottom: 3 });
-    egui::Window::new(title).title_frame(bar)
+    let title: egui::WidgetText = title.into();
+    let text = title.text().to_string();
+    let id = egui::Id::new(text.as_str());
+    PanelWindow {
+        win: egui::Window::new(title).title_frame(bar).id(id),
+        title: text,
+        id,
+        size: vec2(340.0, 420.0),
+        detachable: true,
+        own_button: false,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Windows that leave the main window.
+
+/// Where a window of Janus is: in the main window, or in an OS window (an egui viewport) of its own. It lives in the
+/// context's memory under the window's id, so a window needs no field for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Detach {
+    /// In an OS window.
+    pub detached: bool,
+    /// Where (on the screen) and how large the OS window opens, taken from the window as it was drawn.
+    at: Option<egui::Pos2>,
+    size: Option<egui::Vec2>,
+    /// The viewport it was drawn in during the last frame (the main window's is `ViewportId::ROOT`).
+    pub viewport: Option<egui::ViewportId>,
+    /// The size of the content drawn in the OS window during the last frame.
+    pub content: Option<egui::Vec2>,
+    /// The last frame the window was asked for.
+    seen: u64,
+}
+
+impl Detach {
+    /// Takes the window out of the main window, to open at `at` with `size`.
+    pub fn start(&mut self, at: Option<egui::Pos2>, size: Option<egui::Vec2>) {
+        self.detached = true;
+        self.at = at;
+        self.size = size;
+    }
+
+    /// Brings the window back into the main window.
+    pub fn back(&mut self) {
+        *self = Self { seen: self.seen, ..Self::default() };
+    }
+
+    /// Called once in each frame the window is asked for: one that was not asked for in the frame before (it was
+    /// closed) comes back into the main window, so that it opens there the next time.
+    pub fn seen(&mut self, frame: u64) {
+        if self.detached && self.seen.saturating_add(1) < frame {
+            self.back();
+        }
+        self.seen = frame;
+    }
+}
+
+fn detach_key(id: egui::Id) -> egui::Id {
+    egui::Id::new(("detach state", id))
+}
+
+fn detach_load(ctx: &egui::Context, id: egui::Id) -> Detach {
+    ctx.data(|d| d.get_temp::<Detach>(detach_key(id))).unwrap_or_default()
+}
+
+fn detach_store(ctx: &egui::Context, id: egui::Id, st: Detach) {
+    ctx.data_mut(|d| d.insert_temp(detach_key(id), st));
+}
+
+/// Whether the window with this id is in an OS window of its own.
+pub(crate) fn is_detached(ctx: &egui::Context, id: egui::Id) -> bool {
+    detach_load(ctx, id).detached
+}
+
+/// The viewport the window was drawn in during the last frame and the size of its content (None while it is not
+/// drawn in an OS window of its own).
+pub(crate) fn detached_viewport(ctx: &egui::Context, id: egui::Id) -> Option<(egui::ViewportId, egui::Vec2)> {
+    let st = detach_load(ctx, id);
+    st.viewport.zip(st.content)
+}
+
+/// Whether the window with this id was asked for in the last frame or the one before (drawn, in the main window or
+/// in its own).
+pub(crate) fn drawn_last_frame(ctx: &egui::Context, id: egui::Id) -> bool {
+    detach_load(ctx, id).seen + 1 >= ctx.cumulative_frame_nr()
+}
+
+/// Takes the window with this id out of the main window, or brings it back (what the Detach button does).
+pub(crate) fn set_detached(ctx: &egui::Context, id: egui::Id, on: bool) {
+    let mut st = detach_load(ctx, id);
+    if on && !st.detached {
+        // the OS position of the window as it is drawn now (the main window's plus its place in it)
+        let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
+        let area = ctx.memory(|m| m.area_rect(id));
+        st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+        st.seen = ctx.cumulative_frame_nr();
+    } else if !on {
+        st.back();
+    }
+    detach_store(ctx, id, st);
+}
+
+/// The viewport of a window in an OS window of its own.
+fn detached_viewport_id(id: egui::Id) -> egui::ViewportId {
+    egui::ViewportId::from_hash_of(("detached window", id))
+}
+
+/// The OS window's builder: titled, sized and placed from what the window was in the main window.
+fn detached_builder(title: &str, st: &mut Detach, default: egui::Vec2) -> egui::ViewportBuilder {
+    let size = st.size.unwrap_or(default);
+    let mut builder = egui::ViewportBuilder::default()
+        .with_title(format!("Janus - {title}"))
+        .with_inner_size([size.x.max(320.0), size.y.max(200.0)])
+        .with_min_inner_size([240.0, 160.0]);
+    if let Some(at) = st.at.take() {
+        builder = builder.with_position(at);
+    }
+    builder
+}
+
+/// The row at the top of a window's content with the button to take it out of the main window (or, in its own
+/// window, back into it). `width` is how wide the row is in the main window, so that the button is at its right
+/// edge without making the window wider. True when the button was clicked.
+fn detach_row(ui: &mut Ui, width: f32, detached: bool) -> bool {
+    let mut clicked = false;
+    let row = vec2(ui.available_width().min(width), ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let (label, tip) = if detached {
+            ("Back to main window", "This window in the main window again (closing its window does too)")
+        } else {
+            ("Detach", "This window in an OS window of its own, to take to another screen")
+        };
+        clicked = ui.small_button(label).on_hover_text(tip).clicked();
+    });
+    clicked
+}
+
+/// A window of Janus (`window`, `fitted_window`): `egui::Window`'s builder, drawn in the main window or, once it is
+/// detached (its Detach button), in an OS window of its own with the same content. Closing the OS window brings it
+/// back into the main window; the window's X (and what the caller's `open` says) closes it as before.
+#[must_use = "You should call .show()"]
+pub(crate) struct PanelWindow<'a> {
+    win: egui::Window<'a>,
+    title: String,
+    id: egui::Id,
+    /// The default size, for the OS window when the window was not drawn yet.
+    size: egui::Vec2,
+    detachable: bool,
+    /// The window's content has its own button (the calculator's toolbar): none is added.
+    own_button: bool,
+}
+
+impl<'a> PanelWindow<'a> {
+    pub fn id(mut self, id: egui::Id) -> Self {
+        self.win = self.win.id(id);
+        self.id = id;
+        self
+    }
+    pub fn open(mut self, open: &'a mut bool) -> Self {
+        self.win = self.win.open(open);
+        self
+    }
+    pub fn resizable(mut self, r: impl Into<egui::Vec2b>) -> Self {
+        self.win = self.win.resizable(r);
+        self
+    }
+    pub fn collapsible(mut self, c: bool) -> Self {
+        self.win = self.win.collapsible(c);
+        self
+    }
+    pub fn default_pos(mut self, p: impl Into<egui::Pos2>) -> Self {
+        self.win = self.win.default_pos(p);
+        self
+    }
+    pub fn current_pos(mut self, p: impl Into<egui::Pos2>) -> Self {
+        self.win = self.win.current_pos(p);
+        self
+    }
+    pub fn anchor(mut self, a: egui::Align2, offset: impl Into<egui::Vec2>) -> Self {
+        self.win = self.win.anchor(a, offset);
+        self
+    }
+    pub fn pivot(mut self, p: egui::Align2) -> Self {
+        self.win = self.win.pivot(p);
+        self
+    }
+    pub fn default_size(mut self, s: impl Into<egui::Vec2>) -> Self {
+        let s = s.into();
+        self.size = s;
+        self.win = self.win.default_size(s);
+        self
+    }
+    pub fn default_width(mut self, w: f32) -> Self {
+        self.size.x = w;
+        self.win = self.win.default_width(w);
+        self
+    }
+    pub fn default_height(mut self, h: f32) -> Self {
+        self.size.y = h;
+        self.win = self.win.default_height(h);
+        self
+    }
+    pub fn fixed_size(mut self, s: impl Into<egui::Vec2>) -> Self {
+        let s = s.into();
+        self.size = s;
+        self.win = self.win.fixed_size(s);
+        self
+    }
+    pub fn min_size(mut self, s: impl Into<egui::Vec2>) -> Self {
+        self.win = self.win.min_size(s);
+        self
+    }
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.win = self.win.max_width(w);
+        self
+    }
+    pub fn max_height(mut self, h: f32) -> Self {
+        self.win = self.win.max_height(h);
+        self
+    }
+
+    /// A window that stays in the main window (a transient prompt: nobody takes it to another screen).
+    #[allow(dead_code)]
+    pub fn no_detach(mut self) -> Self {
+        self.detachable = false;
+        self
+    }
+
+    /// The content brings its own Detach button (the calculator's toolbar, with `set_detached`): none is added.
+    pub fn own_detach_button(mut self) -> Self {
+        self.own_button = true;
+        self
+    }
+
+    /// Draws the window: in the main window, or in its OS window. The content runs once in either case, but the
+    /// result is only given when the window is in the main window.
+    pub fn show<R>(
+        self,
+        ctx: &egui::Context,
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        let Self { win, title, id, size, detachable, own_button } = self;
+        if !detachable {
+            return win.show(ctx, add);
+        }
+        let mut st = detach_load(ctx, id);
+        st.seen(ctx.cumulative_frame_nr());
+        if st.detached {
+            let builder = detached_builder(&title, &mut st, size);
+            let mut add = Some(add);
+            let mut back = false;
+            let vid = detached_viewport_id(id);
+            let closed = ctx.show_viewport_immediate(vid, builder, |ui, _class| {
+                st.viewport = Some(ui.ctx().viewport_id());
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if !own_button {
+                        back = detach_row(ui, f32::INFINITY, true);
+                    }
+                    if let Some(add) = add.take() {
+                        add(ui);
+                    }
+                    st.content = Some(ui.min_rect().size());
+                });
+                ui.input(|i| i.viewport().close_requested())
+            });
+            // the content's own button (own_button) may have brought it back during the frame
+            if closed || back || !is_detached(ctx, id) {
+                st.back();
+            }
+            detach_store(ctx, id, st);
+            return None;
+        }
+        let prev = ctx.memory(|m| m.area_rect(id));
+        let m = ctx.global_style().spacing.window_margin;
+        let row = prev.map_or(size.x, |r| r.width()) - f32::from(m.left) - f32::from(m.right);
+        let mut asked = false;
+        let out = win.show(ctx, |ui| {
+            if !own_button {
+                asked = detach_row(ui, row.max(80.0), false);
+            }
+            add(ui)
+        });
+        // the content's own button may have changed the state: read it again
+        let mut st = detach_load(ctx, id);
+        if asked {
+            let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
+            let area = ctx.memory(|m| m.area_rect(id));
+            st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+        }
+        st.viewport = None;
+        st.seen = ctx.cumulative_frame_nr();
+        detach_store(ctx, id, st);
+        out
+    }
+}
+
+/// What a dialog's content gave and whether it asks to be closed (`egui::ModalResponse`'s `inner` and
+/// `should_close`).
+pub(crate) struct ModalOut<T> {
+    pub inner: T,
+    close: bool,
+}
+
+impl<T> ModalOut<T> {
+    pub fn should_close(&self) -> bool {
+        self.close
+    }
+}
+
+/// A dialog of Janus (a form with its buttons, not a prompt): an `egui::Modal` in the main window, or, once it is
+/// detached (its Detach button: the main window is not blocked then, to look at the map while filling it in), an OS
+/// window of its own with the same content. Closing the OS window brings it back; Escape closes it in either place.
+#[must_use = "You should call .show()"]
+pub(crate) struct PanelModal {
+    id: egui::Id,
+    title: String,
+}
+
+pub(crate) fn modal(id: egui::Id, title: &str) -> PanelModal {
+    PanelModal { id, title: title.to_string() }
+}
+
+impl PanelModal {
+    pub fn show<T: Default>(self, ctx: &egui::Context, add: impl FnOnce(&mut Ui) -> T) -> ModalOut<T> {
+        let Self { id, title } = self;
+        let mut st = detach_load(ctx, id);
+        st.seen(ctx.cumulative_frame_nr());
+        if st.detached {
+            let builder = detached_builder(&title, &mut st, vec2(480.0, 360.0));
+            let (mut add, mut inner, mut back, mut esc) = (Some(add), None, false, false);
+            let vid = detached_viewport_id(id);
+            let closed = ctx.show_viewport_immediate(vid, builder, |ui, _class| {
+                st.viewport = Some(ui.ctx().viewport_id());
+                egui::CentralPanel::default().show(ui, |ui| {
+                    back = detach_row(ui, f32::INFINITY, true);
+                    if let Some(add) = add.take() {
+                        inner = Some(add(ui));
+                    }
+                    st.content = Some(ui.min_rect().size());
+                });
+                esc = ui.input(|i| i.key_pressed(egui::Key::Escape)) && !egui::Popup::is_any_open(ui.ctx());
+                ui.input(|i| i.viewport().close_requested())
+            });
+            if closed || back || !is_detached(ctx, id) {
+                st.back();
+            }
+            detach_store(ctx, id, st);
+            return ModalOut { inner: inner.unwrap_or_default(), close: esc };
+        }
+        let prev = ctx.memory(|m| m.area_rect(id));
+        let m = ctx.global_style().spacing.window_margin;
+        let row = prev.map_or(300.0, |r| r.width()) - f32::from(m.left) - f32::from(m.right);
+        let mut asked = false;
+        let out = egui::Modal::new(id).show(ctx, |ui| {
+            asked = detach_row(ui, row.max(80.0), false);
+            add(ui)
+        });
+        let close = out.should_close();
+        let mut st = detach_load(ctx, id);
+        if asked {
+            let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
+            let area = ctx.memory(|m| m.area_rect(id));
+            st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+        }
+        st.seen = ctx.cumulative_frame_nr();
+        detach_store(ctx, id, st);
+        ModalOut { inner: out.inner, close }
+    }
 }
 
 /// A window whose height follows its content (what a search or a choice adds below grows it, and it shrinks back),
@@ -29,7 +398,7 @@ pub(crate) fn fitted_window<'a>(
     title: impl Into<egui::WidgetText>,
     ctx: &egui::Context,
     width: f32,
-) -> egui::Window<'a> {
+) -> PanelWindow<'a> {
     let max_h = fitted_height(ctx);
     window(title, ctx).resizable([true, false]).default_width(width).default_height(max_h).max_height(max_h)
 }
@@ -42,7 +411,11 @@ fn fitted_height(ctx: &egui::Context) -> f32 {
 
 /// The content of a `fitted_window`: as tall as it is, up to the screen's height, then scrolled.
 pub(crate) fn fitted_body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let max_h = fitted_height(ui.ctx());
+    let mut max_h = fitted_height(ui.ctx());
+    // in an OS window of its own the content scrolls in what it has (the window is as tall as the user made it)
+    if ui.ctx().viewport_id() != egui::ViewportId::ROOT {
+        max_h = max_h.min(ui.available_height().max(120.0));
+    }
     egui::ScrollArea::vertical().auto_shrink([false, true]).max_height(max_h).show(ui, add).inner
 }
 
@@ -1065,4 +1438,42 @@ pub(crate) fn path_label(ui: &mut Ui, text: &str) -> egui::Response {
     crate::layout_audit::cut_on_purpose(text);
     ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate().show_tooltip_when_elided(false))
         .on_hover_text(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_detached_window_comes_back_when_closed_or_not_asked_for() {
+        let mut d = Detach::default();
+        d.seen(10);
+        d.start(Some(egui::pos2(5.0, 6.0)), Some(vec2(300.0, 200.0)));
+        assert!(d.detached);
+        // asked for every frame: stays where it is
+        d.seen(11);
+        d.seen(12);
+        assert!(d.detached);
+        d.viewport = Some(egui::ViewportId::from_hash_of("w"));
+        // not asked for in frame 13 (closed): back in the main window when asked for again, with nothing kept
+        d.seen(14);
+        assert!(!d.detached);
+        assert_eq!((d.viewport, d.at, d.size), (None, None, None));
+        // the Detach button and the OS window's close
+        d.start(None, None);
+        d.back();
+        assert!(!d.detached);
+    }
+
+    #[test]
+    fn the_state_lives_in_the_context_under_the_windows_id() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("a window");
+        assert!(!is_detached(&ctx, id));
+        set_detached(&ctx, id, true);
+        assert!(is_detached(&ctx, id));
+        assert!(!is_detached(&ctx, egui::Id::new("another")));
+        set_detached(&ctx, id, false);
+        assert!(!is_detached(&ctx, id));
+    }
 }

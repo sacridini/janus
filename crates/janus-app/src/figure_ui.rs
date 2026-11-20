@@ -115,7 +115,7 @@ impl State {
         let mut o = self.export.figure.opts.clone();
         let mut choice = self.export.figure.width_choice;
         let (mut save, mut copy, mut cancel, mut can) = (false, false, false, true);
-        let modal = egui::Modal::new(egui::Id::new("figure dialog")).show(ctx, |ui| {
+        let modal = crate::panels::modal(egui::Id::new("figure dialog"), "Save figure").show(ctx, |ui| {
             ui.heading(format!("Save figure: {title}"));
             ui.add_space(4.0);
             ui.label("Size:");

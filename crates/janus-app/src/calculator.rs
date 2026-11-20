@@ -117,12 +117,6 @@ pub struct Draft {
 
 pub struct CalcUi {
     pub show: bool,
-    /// in a window of its own (an OS window, to take to another screen) instead of a window of the main one
-    pub detached: bool,
-    /// where the OS window opens (the window's place, when it was detached)
-    detach_at: Option<egui::Pos2>,
-    /// the viewport the calculator was drawn in this frame (None: in the main window or closed)
-    pub viewport: Option<egui::ViewportId>,
     pub text: String,
     pub out_name: String,
     /// the name typed (else from the text)
@@ -165,9 +159,6 @@ impl Default for CalcUi {
     fn default() -> Self {
         CalcUi {
             show: false,
-            detached: false,
-            detach_at: None,
-            viewport: None,
             text: String::new(),
             out_name: String::new(),
             name_typed: false,
@@ -579,50 +570,35 @@ impl State {
         }
     }
 
+    /// The calculator's window in the main window (egui's Id).
+    pub(crate) fn calc_window_id() -> egui::Id {
+        egui::Id::new("calculator window")
+    }
+
     pub(crate) fn calculator_window(&mut self, ctx: &egui::Context) {
         // the live result and the chart (gone with the window)
         self.pump_calc_live(ctx);
         if !self.calc.show {
-            self.calc.viewport = None;
             return;
         }
         self.calc.load();
-        if self.calc.detached {
-            // in a window of its own (to take to another screen), as the panels dragged out of the main window:
-            // closing it brings the calculator back into the main window
-            let id = egui::ViewportId::from_hash_of("calculator viewport");
-            let mut builder = egui::ViewportBuilder::default()
-                .with_title("Janus - Raster calculator")
-                .with_inner_size([980.0, 600.0])
-                .with_min_inner_size([560.0, 320.0]);
-            if let Some(at) = self.calc.detach_at.take() {
-                builder = builder.with_position(at);
-            }
-            let mut attach = false;
-            let closed = ctx.show_viewport_immediate(id, builder, |ui, _class| {
-                self.calc.viewport = Some(ui.ctx().viewport_id());
-                egui::CentralPanel::default().show(ui, |ui| self.calculator_ui(ui));
-                ui.input(|i| i.viewport().close_requested())
-            });
-            attach |= closed || !self.calc.detached;
-            if attach {
-                self.calc.detached = false;
-                self.calc.viewport = None;
-                self.calc.popup = None;
-            }
-            return;
-        }
-        self.calc.viewport = None;
+        let was_detached = crate::panels::is_detached(ctx, Self::calc_window_id());
         let mut open = true;
         let max_h = (ctx.content_rect().height() - 60.0).max(300.0);
+        // in a window of its own (to take to another screen) when detached, as the panels dragged out of the main
+        // window: closing it brings the calculator back into the main window
         crate::panels::window("Raster calculator", ctx)
-            .id(egui::Id::new("calculator window"))
+            .id(Self::calc_window_id())
+            .own_detach_button()
             .open(&mut open)
             .resizable(true)
             .default_size(vec2(980.0, 600.0_f32.min(max_h)))
             .min_size(vec2(560.0, 320.0))
             .max_height(max_h)
             .show(ctx, |ui| self.calculator_ui(ui));
+        if was_detached && !crate::panels::is_detached(ctx, Self::calc_window_id()) {
+            self.calc.popup = None;
+        }
         if !open {
             self.calc.show = false;
             self.calc.popup = None;
@@ -719,7 +695,7 @@ impl State {
                  reductions reduce, and a part of the text selected",
             );
             ui.separator();
-            let detached = c.detached;
+            let detached = crate::panels::is_detached(&ctx, Self::calc_window_id());
             if ui
                 .button(if detached { "Back to main window" } else { "Detach" })
                 .on_hover_text(if detached {
@@ -729,12 +705,7 @@ impl State {
                 })
                 .clicked()
             {
-                if !detached {
-                    let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
-                    let at = ctx.memory(|m| m.area_rect(egui::Id::new("calculator window")));
-                    c.detach_at = at.map(|r| origin + r.min.to_vec2());
-                }
-                c.detached = !detached;
+                crate::panels::set_detached(&ctx, Self::calc_window_id(), !detached);
             }
         });
         ui.add_space(2.0);

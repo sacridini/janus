@@ -55,7 +55,7 @@ impl State {
                     st.font = -1;
                 }
                 // the panel, drawn here as well (the Files tab may be hidden)
-                crate::panels::window("Self-test files", ctx).fixed_size([400.0, 600.0]).show(ctx, |ui| {
+                crate::panels::window("Self-test files", ctx).no_detach().fixed_size([400.0, 600.0]).show(ctx, |ui| {
                     let _ = self.files.ui(ui);
                 });
                 if self.files.revealing() {

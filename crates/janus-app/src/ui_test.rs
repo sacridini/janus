@@ -1071,7 +1071,7 @@ impl State {
             350..=354 => return self.test_chart_axis(st, t0, ctx),
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
-            385..=389 => return self.test_calc_detach(st, t0, ctx),
+            385..=399 => return self.test_calc_detach(st, t0, ctx),
             _ => {}
         }
         None

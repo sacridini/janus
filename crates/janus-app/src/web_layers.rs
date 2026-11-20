@@ -640,7 +640,7 @@ impl State {
     fn web_info_window(&mut self, ctx: &egui::Context) {
         let Some(inf) = &self.web.info else { return };
         let mut open = true;
-        egui::Window::new("Map info").open(&mut open).resizable(true).default_width(320.0).show(ctx, |ui| {
+        crate::panels::window("Map info", ctx).open(&mut open).resizable(true).default_width(320.0).show(ctx, |ui| {
             ui.label(RichText::new(format!("{:.5}, {:.5}", inf.at.1, inf.at.0)).weak())
                 .on_hover_text("The latitude and longitude clicked: what the web maps (WMS) say is there");
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {

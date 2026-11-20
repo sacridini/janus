@@ -434,7 +434,7 @@ impl State {
             .map_or(String::new(), |s| format!("{} {}", s.info.crs_name, s.info.crs_authority).trim().to_string());
         let (mut go, mut cancel) = (false, false);
         let mut target = String::new();
-        egui::Modal::new(egui::Id::new("save roi")).show(ctx, |ui| {
+        crate::panels::modal(egui::Id::new("save roi"), "Save ROI as vector").show(ctx, |ui| {
             let s = &mut self.roi_save;
             ui.heading("Save ROI as vector");
             ui.weak(format!(

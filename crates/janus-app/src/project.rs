@@ -1099,7 +1099,7 @@ impl State {
             .and_then(|p| p.file_name())
             .map_or("The project".to_string(), |n| n.to_string_lossy().into_owned());
         let mut choice = None;
-        crate::panels::window("Changes not saved", ctx)
+        crate::panels::window("Changes not saved", ctx).no_detach()
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

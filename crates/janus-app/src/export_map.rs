@@ -1221,7 +1221,7 @@ impl State {
             ["", "png", "tif", "tif", "tif", "gif"][kind]
         };
         let (mut save, mut cancel, mut can) = (false, false, true);
-        let modal = egui::Modal::new(egui::Id::new("export dialog")).show(ctx, |ui| {
+        let modal = crate::panels::modal(egui::Id::new("export dialog"), "Export").show(ctx, |ui| {
             ui.heading(TITLES[kind]);
             let info = self.session.as_ref().unwrap().info.clone();
             // the scale of a rendered export: 1x, 2x, 4x the map's resolution on screen
@@ -1472,7 +1472,7 @@ impl State {
         };
         let outs = self.run_outputs(k);
         let (mut save, mut cancel) = (false, false);
-        let modal = egui::Modal::new(egui::Id::new("save run")).show(ctx, |ui| {
+        let modal = crate::panels::modal(egui::Id::new("save run"), "Save all outputs").show(ctx, |ui| {
             ui.heading("Save all outputs");
             let r = &self.zeit.results[k];
             let tool = r.name.split(':').next().unwrap_or("").to_string();

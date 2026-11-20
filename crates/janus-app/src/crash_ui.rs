@@ -59,7 +59,7 @@ impl State {
         let can_restore = crate::project::session_path().is_file();
         let mut buttons: Vec<&'static str> = Vec::new();
         let screen = ctx.content_rect();
-        let m = egui::Modal::new(Id::new("crash notice")).show(ctx, |ui| {
+        let m = crate::panels::modal(Id::new("crash notice"), "Janus closed unexpectedly").show(ctx, |ui| {
             let width = (crate::fit::scaled(ui, 640.0)).min(screen.width() - 80.0).max(240.0);
             ui.set_width(width);
             ui.heading("Janus closed unexpectedly");

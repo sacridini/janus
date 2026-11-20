@@ -392,7 +392,7 @@ impl State {
         if !self.about_open {
             return;
         }
-        let m = egui::Modal::new(egui::Id::new("about")).show(ctx, |ui| {
+        let m = crate::panels::modal(egui::Id::new("about"), "About Janus").show(ctx, |ui| {
             ui.set_width(360.0);
             ui.heading(format!("Janus {VERSION}"));
             ui.label("Raster time series analysis: change detection and validation");

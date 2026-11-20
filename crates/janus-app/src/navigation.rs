@@ -348,7 +348,7 @@ impl State {
         let mut open = true;
         let mut go = false;
         let preview = self.goto_preview();
-        crate::panels::window("Go to", ctx)
+        crate::panels::window("Go to", ctx).no_detach()
             .open(&mut open)
             .collapsible(false)
             .resizable(false)

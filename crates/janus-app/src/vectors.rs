@@ -854,7 +854,7 @@ impl State {
         let deferred = self.session.as_ref().is_some_and(|s| s.s.defer_random_reads());
         let (mut go, mut cancel) = (false, false);
         let mut target = String::new();
-        egui::Modal::new(egui::Id::new("extract series")).show(ctx, |ui| {
+        crate::panels::modal(egui::Id::new("extract series"), "Extract series").show(ctx, |ui| {
             let v = &self.vectors[li];
             let e = &mut self.extract;
             ui.heading("Extract series");
