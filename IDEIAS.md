@@ -2430,7 +2430,13 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   efetivo, Sidak e FDR); a aba Analysis → Modes (scree, componentes, r por defasagem, histograma,
   Show map, Save figure); o modo da EOF desenhado sobre as anomalias do pixel; Copy Python por
   zeit.eof e zeit.lagged_correlation (Zeit 3.8.0); o guia eof.html (EVI do oeste da França ×
-  CHIRPS v3) e o corr() na página da calculadora; autoteste 320-327.
+  CHIRPS v3) e o corr() na página da calculadora; autoteste 320-327. A tag ficou sem binários (o
+  clippy 1.100 do CI reprovou um laço do autoteste).
+- 1.21.1: toda janela pode sair da principal para uma janela própria do sistema (outra tela), a
+  pedido do usuário: Detach / Back to main window no alto do conteúdo, fechar a janela do sistema a
+  traz de volta; panels::window e panels::modal (31 janelas e 7 diálogos, a calculadora inclusive);
+  os prompts curtos (Go to, Changes not saved) ficam na principal; autoteste 385-392. A correção do
+  clippy da 1.21.0.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
