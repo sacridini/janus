@@ -628,6 +628,15 @@ impl State {
         self.zeit.roles.clone()
     }
 
+    /// The active layer's band roles as `tool` reads them ([`roles_for_tool`]).
+    pub(crate) fn tool_active_roles(&mut self, tool: &Tool) -> BTreeMap<String, i32> {
+        let roles = self.active_roles();
+        match &self.session {
+            Some(s) => roles_for_tool(tool, &s.info, &roles),
+            None => roles,
+        }
+    }
+
     /// Every frame: the fits done, and those wanted asked for.
     pub(crate) fn pump_zeit(&mut self, ctx: &egui::Context) {
         if let Some(rx) = &self.zeit.rx {
@@ -667,7 +676,7 @@ impl State {
         if !tool.modes.iter().any(|m| m == "pixel") || applicability(tool, &info).is_some() {
             return vec![];
         }
-        let roles = self.active_roles();
+        let roles = self.tool_active_roles(tool);
         let (needed, _) = tool_roles(tool);
         let multiband = reads_bands(tool);
         if needed.iter().any(|r| !roles.contains_key(r)) {
@@ -929,7 +938,7 @@ impl State {
         crate::welcome::guide_button(ui, &tool.id);
         ui.label(&tool.description);
         let info = self.session.as_ref().map(|s| s.info.clone());
-        let roles = self.active_roles();
+        let roles = self.tool_active_roles(tool);
         let (needed, optional) = tool_roles(tool);
         let folder = tool.input.as_deref() == Some("folder");
         let mut why = match &info {
@@ -2267,7 +2276,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 .sum();
             scope_name = format!("{n} maps");
         } else {
-            let roles = self.active_roles();
+            let roles = self.tool_active_roles(tool);
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
             if tool.params.iter().any(|p| p.kind == "series") {
                 // a lagged correlation's driver may be a CSV file instead of a series
@@ -2350,7 +2359,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 let inputs = l.map(|l| l.inputs.clone()).unwrap_or_default();
                 let lname = l.map_or(name.to_string(), |l| l.name.clone());
                 p.series = Some(SeriesRecord::of(&info, &lname, &inputs));
-                let roles = self.active_roles();
+                let roles = self.tool_active_roles(tool);
                 if !roles.is_empty() && reads_bands(tool) {
                     p.extra.insert("bands".into(), json!(roles));
                 }
@@ -3125,7 +3134,7 @@ impl State {
 impl State {
     /// The run's time measured again once the series, the parameters or the bands stay for 0.6 s.
     fn update_estimate(&mut self, tool: &'static Tool, ctx: &egui::Context) {
-        let roles = self.active_roles();
+        let roles = self.tool_active_roles(tool);
         let Some(id) = self.session.as_ref().map(|s| s.info.id) else { return };
         let threads = self.zeit.tools.get(&tool.id).and_then(|u| u.threads);
         let key =
@@ -3313,14 +3322,18 @@ pub(crate) fn other_bands(info: &CubeInfo) -> Vec<i32> {
 
 /// The roles of a series' bands (guessed from their names).
 pub(crate) fn guess_roles(info: &CubeInfo) -> BTreeMap<String, i32> {
-    let mut roles: BTreeMap<String, i32> =
-        janus_cube::roles::guess_band_roles(info).into_iter().map(|(r, b)| (r.to_string(), b)).collect();
-    // a series of one band a date (VV alone, from single-band files): its band is VV, which only the radar tools
-    // (the omnibus test, single polarization) read
-    if info.bands_per_date == 1 {
-        roles.entry("vv".into()).or_insert(1);
+    janus_cube::roles::guess_band_roles(info).into_iter().map(|(r, b)| (r.to_string(), b)).collect()
+}
+
+/// The roles a tool reads: the series' (guessed or chosen) and, in a series of one band a date (VV alone, from
+/// single-band files), that band as VV for a tool that needs VV (the omnibus test, single polarization). Only such a
+/// tool sees it: the other tools, the scripts and the windows keep the series' own roles.
+pub(crate) fn roles_for_tool(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> BTreeMap<String, i32> {
+    let mut r = roles.clone();
+    if info.bands_per_date == 1 && tool_roles(tool).0.iter().any(|x| x == "vv") {
+        r.entry("vv".into()).or_insert(1);
     }
-    roles
+    r
 }
 
 /// A series of a series' pixel as a pixel run gets it, its bands read (multiband tools).

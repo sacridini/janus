@@ -1020,8 +1020,12 @@ impl State {
                         ));
                     }
                     let tool = manifest().tool("omnibus")?;
-                    if self.active_roles().get("vv") != Some(&1) {
+                    if self.tool_active_roles(tool).get("vv") != Some(&1) {
                         return fail("the only band of the series should be VV for the omnibus test");
+                    }
+                    // and only for a tool that needs VV: the series' own roles stay as guessed
+                    if self.active_roles().contains_key("vv") {
+                        return fail("a series of one band should not have a VV role for the other tools");
                     }
                     if let Some(why) = crate::zeit::applicability(tool, &info) {
                         return fail(&format!("the omnibus test should apply to a series of one band: {why}"));

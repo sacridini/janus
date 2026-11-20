@@ -74,12 +74,17 @@ impl State {
             _ => return None,
         };
         let path = |p: &str| crate::provenance::absolute(p);
+        // the roles as the chart's tools read them (VV for the omnibus test on a series of one band a date)
+        let roles = tools
+            .iter()
+            .filter_map(|(id, _)| janus_zeit::manifest().tool(id))
+            .fold(self.zeit.roles.clone(), |r, t| crate::zeit::roles_for_tool(t, &info, &r));
         let spec = janus_zeit::python::Spec {
             info: &info,
             version: env!("CARGO_PKG_VERSION"),
             name: &name,
             target,
-            roles: &self.zeit.roles,
+            roles: &roles,
             tools: &tools,
             path: &path,
             other: None,

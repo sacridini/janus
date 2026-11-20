@@ -1321,6 +1321,7 @@ impl Server {
         for (k, v) in a["roles"].as_object().into_iter().flatten() {
             roles.insert(k.clone(), v.as_i64().ok_or(format!("roles: {k} is a band number"))? as i32);
         }
+        let roles = crate::zeit::roles_for_tool(tool, &info, &roles);
         let dir = out_dir(a, id)?;
         let mut spec = crate::zeit::base_spec(&info, tool, &params, info.t().saturating_sub(1), self.threads);
         crate::zeit::series_inputs(&info, tool, &roles, &dir.join("series"), &mut spec)?;
