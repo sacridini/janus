@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Data preparation: topographic correction, co-registration and cloud detection · Janus</title>
+<meta name="description" content="A guide to the data-preparation tools of Janus: the topographic correction of reflectance (the C-correction and SCS+C) with the Copernicus DEM, with its parameters, outputs, Python equivalent and the licence of the elevation model; the co-registration of dates and cloud detection are coming.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Data preparation: topographic correction, co-registration and cloud detection · Janus">
+<meta property="og:description" content="Take the relief's illumination out of surface reflectance with the C-correction or SCS+C, with the Copernicus DEM read for the series' extent and the sun of each date found from its files.">
+<meta name="twitter:card" content="summary">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Data preparation</p>
+    <p class="eyebrow">Data preparation · surface reflectance</p>
+    <h1>Data preparation.</h1>
+    <p class="lede">Three tools put a series in order before it is analysed. The first is here: the <span class="ui">topographic correction</span> takes the relief's illumination out of surface reflectance, so that two slopes of the same forest, one facing the sun and one facing away, look alike. The co-registration of dates and the detection of clouds without a quality band are coming and have their places below. This guide says what the correction does, where it is, what its parameters mean, where its elevation model comes from and how to read what it writes.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#topographic-correction">Topographic correction</a></li>
+      <li><a href="#co-registration">Co-registration of dates</a></li>
+      <li><a href="#cloud-mask">Cloud detection</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="topographic-correction">
+      <h2><span class="n">01</span>Topographic correction</h2>
+      <p>In rough terrain the same cover does not give the same reflectance everywhere. A slope that faces the sun receives more light than the flat ground, and a slope that faces away receives less, so a forest looks bright on one side of a ridge and dark on the other, and a classifier or a change detector reads the shadow of the relief as a difference in the land. The correction here estimates, for each band of each date, how much of the reflectance follows the illumination, and divides it out. It is the one a user of Landsat, Sentinel-2 or HLS reflectance needs when the area has relief and the dates differ in sun, as dates of different seasons do.</p>
+      <p><strong>How it works.</strong> The slope and aspect of an elevation model (Horn 1981) and the sun of the date (its zenith <em>sz</em> and azimuth) give each pixel's illumination, the cosine of the angle between the sun and the surface's normal: <em>cos i = cos sz cos s + sin sz sin s cos(saz &minus; a)</em>, with <em>s</em> the slope and <em>a</em> the aspect. For each band of each date the reflectance is regressed on it, <em>&rho; = b + m cos i</em>, and <em>c = b / m</em>. The two corrections are then:</p>
+      <ul>
+        <li><strong>C-correction</strong> (Teillet, Guindon and Goodenough 1982): <em>&rho; (cos sz + c) / (cos i + c)</em>.</li>
+        <li><strong>SCS+C</strong> (Soenen, Peddle and Coburn 2005), the default: <em>&rho; (cos s cos sz + c) / (cos i + c)</em>. It keeps the sun-canopy-sensor geometry, in which the trees stand vertically on a slope, and so over-corrects less in forests on steep ground.</li>
+      </ul>
+      <p>Zeit's <code>zeit.topographic_correction</code> does the arithmetic; Janus finds the elevation model and each date's sun, makes the sample the regression runs on, and writes the files. The result is empirical and Lambertian: it assumes that the surface reflects equally in all directions and that the same cover grows on every slope. It does not model the light scattered by the sky or by the terrain around.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Topographic correction (C, SCS+C)</span>. The series needs every band of a date in one file (surface reflectance, with the bands named blue to SWIR2), a <strong>projected CRS in metres</strong> (a series in degrees is refused: reproject it to the UTM zone first) and the dates. Single-band series, such as an NDVI, cannot be corrected: the correction is for reflectance. It runs on the whole window (the image, the ROI or the visible area) and not on a pin, because the regression needs the whole scene. The <span class="ui">?</span> button of its window opens this page.</p>
+      <!-- figure: the topographic correction window with the sun of each date -->
+
+      <h3>The sun of each date</h3>
+      <p>Each date has its own sun, and the window lists them under the parameters (date, zenith, azimuth and where it comes from), in red where a date has none. For each date, the first source that has it:</p>
+      <ol>
+        <li><strong>Angle bands</strong> of the series, mapped as <code>sza</code> and <code>saa</code> (HLS, Landsat Collection 2 angle bands), one value for every pixel. Their unit is in the parameter <code>angle_scale</code>: hundredths of a degree for those two products.</li>
+        <li><strong>Sentinel-2 granule metadata</strong> (<code>MTD_TL.xml</code>), for every pixel, from the STAC items the series was made from or the product beside the file.</li>
+        <li>The <strong>STAC item</strong> of the date: <code>s2:mean_solar_zenith</code> and <code>s2:mean_solar_azimuth</code>, or <code>view:sun_elevation</code> (the zenith is 90 minus it) and <code>view:sun_azimuth</code>. A series built from a catalogue in Janus records them in each date's file.</li>
+        <li>The <strong>Landsat MTL</strong> beside a local file (<code>SUN_ELEVATION</code>, <code>SUN_AZIMUTH</code>).</li>
+        <li>The <strong>sun's position</strong> at the acquisition time over the window's centre, when the time of day is known (the STAC item's, or the one in a Sentinel-2 file name). A time is never assumed.</li>
+      </ol>
+      <p>A date with none of them stops the run and is named, unless <code>missing_sun</code> says to use the typed angles (<code>sun_zenith</code> and <code>sun_azimuth</code>), which <code>sun = fixed</code> uses for every date. The source of each date is written in <code>topo_c.csv</code>.</p>
+
+      <h3>The elevation model</h3>
+      <p>The DEM is either <strong>a file</strong> (elevations in metres, any grid and CRS) or the <strong>Copernicus DEM</strong> GLO-30 (30 m) or GLO-90 (90 m, for series of 60 m or coarser), read from Planetary Computer for the series' extent (Earth Search if it does not answer) and mosaicked. It is warped onto the grid of the run's window by GDAL (bilinear by default) and kept as a COG in the <code>dem</code> folder of the results, so the next run on the same grid does not read it again. The vertical datum (EGM2008) does not matter: only the differences of height between neighbours do.</p>
+      <p><strong>It is a surface model.</strong> The Copernicus DEM is a radar (TanDEM-X, X-band) model of the top of what is there: the canopy of a forest and the roofs of a city are in it, not the ground under them. Its sampling is 1&Prime; (about 30 m), coarser than Sentinel-2's 10 m, so the slopes at 10 m are smoothed versions, and a cliff or a small gully is not in it. For a 10 m series the correction is a good first order of the large relief and does not remove the illumination of a feature smaller than three pixels. Zeit's own advice is a DEM of about the resolution of the image: a finer one of your own, as a file, is the better input when you have it.</p>
+
+      <h3>Licence and attribution of the Copernicus DEM</h3>
+      <p>The Copernicus DEM is provided under the &ldquo;Licence for the use of the Copernicus WorldDEM-30&rdquo;: free of charge, worldwide and without time limit, allowing reproduction, distribution, adaptation and combination. Its Article 6 asks for the notice below on what is adapted from it, and Janus writes it in the metadata of the cached DEM and of every corrected file (<code>COPERNICUS_DEM_NOTICE</code>), in the run's provenance and in <code>report.txt</code>. Say it too where you publish a result:</p>
+      <blockquote><p>Produced using Copernicus WorldDEM-30 &copy; DLR e.V. 2010-2014 and &copy; Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.</p></blockquote>
+      <p>For GLO-90 the product is named WorldDEM-90. On redistribution: &ldquo;The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.&rdquo; Nothing implies that they endorse the result.</p>
+
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>method</code></td><td>scs+c</td><td><code>scs+c</code> or <code>c</code>. Zeit's own default in Python is <code>c</code>: the Copy Python script passes the method it ran.</td></tr>
+            <tr><td><code>dem_source</code></td><td>cop-dem-glo-30</td><td><code>cop-dem-glo-30</code>, <code>cop-dem-glo-90</code> (downloaded) or <code>file</code>.</td></tr>
+            <tr><td><code>dem</code></td><td>none</td><td>With <code>file</code>: the elevations in metres, of any grid and CRS.</td></tr>
+            <tr><td><code>dem_resampling</code></td><td>bilinear</td><td>How the DEM is put on the series' grid: <code>bilinear</code>, <code>cubic</code> or <code>near</code>.</td></tr>
+            <tr><td><code>sun</code></td><td>auto</td><td><code>auto</code> (each date's best source, as above), <code>bands</code>, <code>sentinel2</code>, <code>stac</code> (the STAC item, the MTL, the position of the sun) or <code>fixed</code>.</td></tr>
+            <tr><td><code>angle_scale</code></td><td>degrees</td><td>The unit of the angle bands: <code>degrees</code> or <code>hundredths</code> (HLS, Landsat Collection 2).</td></tr>
+            <tr><td><code>missing_sun</code>, <code>sun_zenith</code>, <code>sun_azimuth</code></td><td>error, 35, 135</td><td>What to do for a date without a sun (<code>error</code> or <code>fixed</code>), and the typed zenith and azimuth (degrees, the azimuth clockwise from north).</td></tr>
+            <tr><td><code>sample</code></td><td>slope</td><td>The pixels the regression runs on: <code>slope</code>, every pixel on a slope (Zeit's default), or <code>ndvi</code>, vegetation only (below). The cloud, shadow and snow of the quality band are always left out.</td></tr>
+            <tr><td><code>min_slope</code></td><td>5</td><td>Pixels flatter than this (degrees) stay out of the regression, where cos i carries no information; they are still corrected.</td></tr>
+            <tr><td><code>ndvi_min</code></td><td>0.5</td><td>With the vegetation sample: the NDVI a pixel must exceed. It is the NDVI of the values the series gives, with the file's scale and offset applied: Landsat Collection 2's digital numbers are not reflectance until they are, and give a wrong NDVI otherwise.</td></tr>
+            <tr><td><code>min_sample</code></td><td>100</td><td>Fewest sample pixels for a fit.</td></tr>
+            <tr><td><code>bands</code></td><td>all</td><td>The bands to correct, by name or number. The angle bands and the quality band are never corrected.</td></tr>
+            <tr><td><code>write_cosi</code></td><td>off</td><td>Writes cos i of each date, to inspect the illumination.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The <strong>vegetation sample</strong> answers the assumption of the method that one cover grows on every slope. If the slopes of a scene are forest on one side and pasture on the other, the regression mixes them and the correction over- or under-corrects one of the two; fitting on pixels above an NDVI threshold makes the line the forest's. It needs the bands <code>red</code> and <code>nir</code> mapped.</p>
+
+      <h3>Outputs</h3>
+      <ul>
+        <li>The <strong>corrected series</strong> opens as a new layer: a file a date in the run's <code>series</code> folder, the corrected bands first (float32) and the quality band of the series as it was, last. Clouds, shadows and snow are corrected like any pixel, since the factor is geometry, and stay marked in the quality band, so every tool that reads it leaves them out as before.</li>
+        <li><code>topo_c.csv</code>: for each date and band the regression (<code>c</code>, its slope <code>m</code> and intercept <code>b</code>, the sample pixels <code>n</code>), the pixels left as they were (<code>skipped</code>), whether the band was corrected and why not, the sun and where it came from.</li>
+        <li><code>validation.csv</code>: for each date and band the correlation of the reflectance with cos i on the sample, before and after, and the mean reflectance of the steep slopes (15&deg; or more) that face the sun and of those that face away, before and after.</li>
+        <li><code>report.txt</code>: the summary, the DEM and its notice, the bands copied and why. <code>topocorr.json</code>: the record.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Start with <code>validation.csv</code>. The correlation <code>r_before</code> of a band over rough terrain is clearly positive, and <code>r_after</code> should be much smaller. With the C-correction it is near zero (not exactly: the correction removes the slope of the regression, not the correlation of the noise). With SCS+C it falls but stays above zero on steep ground, by design: its numerator keeps <em>cos s</em>, the cosine of the slope, which is itself correlated with the illumination. The ratio of the sunlit to the shaded slopes' mean should go from well over 1 towards 1 on a uniform cover; over a mixed cover it need not, and that is the scene, not the correction. A band whose <code>r_before</code> is already low had little illumination to remove.</p>
+      <p>Then <code>topo_c.csv</code>. A band that was <strong>copied</strong> (<code>fitted</code> false) says why: fewer pixels than <code>min_sample</code> in the sample, no spread of cos i, or a regression that does not rise with the illumination (<code>m &le; 0</code>), which means the topography is not what drives that band or the sample is wrong, as a snow-covered scene is. A <code>c</code> that is very different between the bands of one date, or between dates of the same season, points to a mixed sample. Pixels in deep shadow (cos i + c under 0.01), where the ratio of two small numbers is noise, are left as they are and counted in <code>skipped</code>. Finally compare a ridge's two sides before and after on the chart.</p>
+      <!-- figure: a ridge before and after the correction -->
+
+      <h3>In Python</h3>
+      <p>Copy Python writes the script of the run: the DEM on the cube's grid, the sun of each date as Janus found it and the call. It needs <code>pip install "zeit-cdts&gt;=3.9"</code>, and, for the Copernicus DEM, <code>planetary-computer</code> and <code>pystac-client</code>. The script leaves as NaN the pixels the quality band masks; Janus corrects them.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+from rasterio.enums import Resampling
+
+cube = zeit.load_raster("series.tif", masked=True)           # (time, band, y, x)
+dem = zeit.load_raster("dem.tif").rio.reproject_match(cube.isel(time=0, band=0), resampling=Resampling.bilinear)
+corrected = zeit.topographic_correction(
+    cube, dem, sun_zenith=[38.1, 41.7], sun_azimuth=[141.2, 139.8],   # one for each date
+    method="scs+c", min_slope=5.0, min_sample=100,
+)
+corrected.coords["topo_c"].to_pandas()                          # c of each date and band</code></pre></div>
+    </section>
+
+    <section id="co-registration">
+      <h2><span class="n">02</span>Co-registration of dates</h2>
+      <p>Coming: the shift of each date to a reference, global or by a grid of points (AROSICS), with the corrected series.</p>
+    </section>
+
+    <section id="cloud-mask">
+      <h2><span class="n">03</span>Cloud detection</h2>
+      <p>Coming: clouds, shadows and snow for a series without a quality band (Fmask).</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">04</span>References</h2>
+      <ul class="refs">
+        <li>Copernicus DEM: European Space Agency, Sinergise (2021). <em>Copernicus Global Digital Elevation Model</em> (GLO-30 and GLO-90). <a href="https://doi.org/10.5270/ESA-c5d3d65">doi:10.5270/ESA-c5d3d65</a>. Licence: <a href="https://dataspace.copernicus.eu/">Licence for the use of the Copernicus WorldDEM-30</a>.</li>
+        <li>Horn, B. K. P. (1981). Hill shading and the reflectance map. <em>Proceedings of the IEEE</em>, 69(1), 14&ndash;47. <a href="https://doi.org/10.1109/PROC.1981.11918">doi:10.1109/PROC.1981.11918</a></li>
+        <li>Soenen, S. A., Peddle, D. R., Coburn, C. A. (2005). SCS+C: a modified sun-canopy-sensor topographic correction in forested terrain. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 43(9), 2148&ndash;2159. <a href="https://doi.org/10.1109/TGRS.2005.852480">doi:10.1109/TGRS.2005.852480</a></li>
+        <li>Teillet, P. M., Guindon, B., Goodenough, D. G. (1982). On the slope-aspect correction of multispectral scanner data. <em>Canadian Journal of Remote Sensing</em>, 8(2), 84&ndash;106. <a href="https://doi.org/10.1080/07038992.1982.10855028">doi:10.1080/07038992.1982.10855028</a></li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.topographic_correction</code>).</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+<script src="assets/main.js" defer></script>
+</body>
+</html>

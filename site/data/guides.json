@@ -188,6 +188,22 @@
     "thumb": null
   },
   {
+    "slug": "data-preparation",
+    "title": "Data preparation: topographic correction",
+    "label": "Surface reflectance, relief",
+    "summary": "Take the relief's illumination out of surface reflectance with the C-correction or SCS+C: the Copernicus DEM for the series' extent, the sun of each date from its files, and a check of the correlation with the illumination before and after.",
+    "track": "data",
+    "minutes": 11,
+    "data": null,
+    "learn": [
+      "Topographic correction",
+      "Co-registration of dates",
+      "Cloud detection"
+    ],
+    "figures": 0,
+    "thumb": null
+  },
+  {
     "slug": "unmixing",
     "title": "Spectral unmixing",
     "label": "Multiband or hyperspectral",

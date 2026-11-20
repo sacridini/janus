@@ -48,7 +48,7 @@
 <section class="guide-hero">
   <div class="wrap">
     <p class="crumbs"><a href="./">Janus</a> / Guides</p>
-    <p class="eyebrow"><!-- n:guide-count -->26<!-- /n:guide-count --> guides · <!-- n:track-count -->5<!-- /n:track-count --> tracks</p>
+    <p class="eyebrow"><!-- n:guide-count -->27<!-- /n:guide-count --> guides · <!-- n:track-count -->5<!-- /n:track-count --> tracks</p>
     <h1>Step by step, on real data.</h1>
     <p class="lede">Every guide follows one dataset from opening it to a result, with the program's own screenshots.</p>
   </div>
@@ -59,7 +59,7 @@
   <nav class="g-tracks" aria-label="Tracks">
     <p>Tracks</p>
     <ul>
-      <li><a href="#data">Get the data<span>2</span></a></li>
+      <li><a href="#data">Get the data<span>3</span></a></li>
       <li><a href="#explore">Explore a series<span>6</span></a></li>
       <li><a href="#change">Find change and trends<span>11</span></a></li>
       <li><a href="#classify">Classify and segment<span>4</span></a></li>
@@ -76,6 +76,7 @@
       <p>Find imagery, build a series from it and save it in the formats other tools read.</p>
     </div>
     <ul class="guide-list g-list">
+      <li><a href="data-preparation.html"><span>Surface reflectance, relief</span><h3>Data preparation: topographic correction</h3><p>Take the relief's illumination out of surface reflectance with the C-correction or SCS+C: the Copernicus DEM for the series' extent, the sun of each date from its files, and a check of the correlation with the illumination before and after.</p><small class="g-facts">11 min read · 0 figures</small><ul class="g-learn" aria-label="You will"><li>Topographic correction</li><li>Co-registration of dates</li><li>Cloud detection</li></ul></a></li>
       <li><a href="stac.html"><picture><source type="image/webp" srcset="assets/img/thumbs/stac.webp"><img class="g-thumb" src="assets/img/thumbs/stac.jpg" alt="STAC catalogs" width="640" height="380" loading="lazy"></picture><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p><small class="g-facts">17 min read · 6 figures</small><ul class="g-learn" aria-label="You will"><li>The catalogs</li><li>Searching</li><li>Bands and cells</li><li>Open as a layer</li></ul></a></li>
       <li><a href="series.html"><picture><source type="image/webp" srcset="assets/img/thumbs/series.webp"><img class="g-thumb" src="assets/img/thumbs/series.jpg" alt="Series in and out" width="640" height="380" loading="lazy"></picture><span>Any series</span><h3>Series in and out</h3><p>36 loose files built into a series, 107 irregular Sentinel-2 dates put every 16 days with their gaps filled, saved as a NetCDF and a Zarr that xarray reads, and a year of Sentinel-1 through a speckle filter.</p><small class="g-facts">17 min read · 7 figures</small><ul class="g-learn" aria-label="You will"><li>Build a series from loose files</li><li>Regularize: one date every 16 days</li><li>Save as COG, NetCDF or Zarr</li><li>Open it in xarray</li></ul></a></li>
     </ul>
