@@ -247,15 +247,7 @@ impl ModesRun {
             }
             _ => return None,
         }
-        Some(ModesRun {
-            run: dir.to_string(),
-            cube,
-            window,
-            title: title.to_string(),
-            maps,
-            eof,
-            corr,
-        })
+        Some(ModesRun { run: dir.to_string(), cube, window, title: title.to_string(), maps, eof, corr })
     }
 
     fn path_of(&self, id: &str) -> Option<&str> {
@@ -291,7 +283,11 @@ pub(crate) fn mixed_text(separable: &[bool]) -> String {
     let list = |g: &[usize]| match g {
         [a] => format!("{a}"),
         [a, b] => format!("{a} and {b}"),
-        _ => format!("{} and {}", g[..g.len() - 1].iter().map(usize::to_string).collect::<Vec<_>>().join(", "), g[g.len() - 1]),
+        _ => format!(
+            "{} and {}",
+            g[..g.len() - 1].iter().map(usize::to_string).collect::<Vec<_>>().join(", "),
+            g[g.len() - 1]
+        ),
     };
     let parts: Vec<String> = groups
         .iter()
@@ -409,12 +405,8 @@ impl State {
         let Some(r) = self.zeit.modes_runs.iter().find(|m| m.run == run) else { return false };
         let id = if rotated { format!("eof_rotated_{mode}") } else { format!("eof_{mode}") };
         let Some(path) = r.path_of(&id).map(str::to_string) else { return false };
-        let siblings: Vec<String> = r
-            .maps
-            .iter()
-            .filter(|(i, _)| i.starts_with("eof_"))
-            .map(|(_, p)| p.clone())
-            .collect();
+        let siblings: Vec<String> =
+            r.maps.iter().filter(|(i, _)| i.starts_with("eof_")).map(|(_, p)| p.clone()).collect();
         let mut found = false;
         for l in self.zeit.results.iter_mut().filter(|l| l.run == run) {
             if l.path == path {
@@ -486,7 +478,9 @@ impl State {
             .allow_zoom(false)
             .allow_boxed_zoom(false)
             .include_y(0.0)
-            .x_axis_formatter(|m, _| if (m.value - m.value.round()).abs() < 1e-9 { format!("{}", m.value.round()) } else { String::new() })
+            .x_axis_formatter(|m, _| {
+                if (m.value - m.value.round()).abs() < 1e-9 { format!("{}", m.value.round()) } else { String::new() }
+            })
             .show(ui, |pu| {
                 for k in 0..m {
                     let x = (k + 1) as f64;
@@ -498,7 +492,9 @@ impl State {
                     if let Some(d) = eof.delta.get(k).filter(|d| d.is_finite()) {
                         let (lo, hi) = (share - 100.0 * d, share + 100.0 * d);
                         let whisker = |a: [f64; 2], b: [f64; 2]| {
-                            Line::new("", PlotPoints::from(vec![a, b])).color(theme::on_plot(Color32::from_gray(200))).width(1.5)
+                            Line::new("", PlotPoints::from(vec![a, b]))
+                                .color(theme::on_plot(Color32::from_gray(200)))
+                                .width(1.5)
                         };
                         pu.line(whisker([x, lo], [x, hi]));
                         pu.line(whisker([x - 0.15, lo], [x + 0.15, lo]));
@@ -532,7 +528,8 @@ impl State {
         });
         let xs: Vec<f64> = eof.years.iter().map(|&y| info.x_from_decimal_year(y)).collect();
         let weak = ui.visuals().weak_text_color();
-        let current = (info.time_is_date && !info.layers.is_empty()).then(|| info.layers[self.display.t.min(info.t() - 1)].time);
+        let current =
+            (info.time_is_date && !info.layers.is_empty()).then(|| info.layers[self.display.t.min(info.t() - 1)].time);
         let on = self.analysis.modes.on.clone();
         let plot = Plot::new(("modes pcs", info.id))
             .height(body * 11.0)
@@ -557,7 +554,12 @@ impl State {
                 }
             }
             if let Some(t) = current {
-                pu.vline(VLine::new("", t).color(theme::on_plot(Color32::from_rgb(255, 153, 51))).width(2.0).allow_hover(false));
+                pu.vline(
+                    VLine::new("", t)
+                        .color(theme::on_plot(Color32::from_rgb(255, 153, 51)))
+                        .width(2.0)
+                        .allow_hover(false),
+                );
             }
         });
         ui.weak("Each component in standard deviations. The orange line is the map's date.");
@@ -600,7 +602,8 @@ impl State {
             self.modes_show_map(&run.run, k, rotated_on);
         }
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Copy PCs").on_hover_text("The components of every date as CSV (pcs.csv of the run)").clicked() {
+            if ui.button("Copy PCs").on_hover_text("The components of every date as CSV (pcs.csv of the run)").clicked()
+            {
                 ui.ctx().copy_text(eof.csv.clone());
             }
             if ui.button("Save PCs...").clicked()
@@ -682,7 +685,9 @@ impl State {
                 }
                 let r = self.analysis.modes.lags_at.as_ref().map(|l| l.3.clone()).unwrap_or_default();
                 let n_eff_here = n_eff
-                    .and_then(|(p, _, _)| self.zeit.results.iter().find(|q| q.path == p).map(|q| f64::from(q.value_at(x, y))))
+                    .and_then(|(p, _, _)| {
+                        self.zeit.results.iter().find(|q| q.path == p).map(|q| f64::from(q.value_at(x, y)))
+                    })
                     .filter(|v| v.is_finite());
                 // the level a correlation must pass: the best lag's p-value adjusted for the lags tried, at p*
                 let lags = corr.lags.len().max(1) as f64;
@@ -701,9 +706,20 @@ impl State {
                     .allow_scroll(false)
                     .allow_zoom(false)
                     .allow_boxed_zoom(false)
-                    .x_axis_formatter(|m, _| if (m.value - m.value.round()).abs() < 1e-9 { format!("{}", m.value.round()) } else { String::new() })
+                    .x_axis_formatter(|m, _| {
+                        if (m.value - m.value.round()).abs() < 1e-9 {
+                            format!("{}", m.value.round())
+                        } else {
+                            String::new()
+                        }
+                    })
                     .show(ui, |pu| {
-                        pu.hline(HLine::new("", 0.0).color(theme::on_plot(Color32::from_gray(150))).width(1.0).allow_hover(false));
+                        pu.hline(
+                            HLine::new("", 0.0)
+                                .color(theme::on_plot(Color32::from_gray(150)))
+                                .width(1.0)
+                                .allow_hover(false),
+                        );
                         if critical.is_finite() {
                             for sign in [1.0, -1.0] {
                                 pu.hline(
@@ -757,7 +773,13 @@ impl State {
                 .allow_scroll(false)
                 .allow_zoom(false)
                 .allow_boxed_zoom(false)
-                .x_axis_formatter(|m, _| if (m.value - m.value.round()).abs() < 1e-9 { format!("{}", m.value.round()) } else { String::new() })
+                .x_axis_formatter(|m, _| {
+                    if (m.value - m.value.round()).abs() < 1e-9 {
+                        format!("{}", m.value.round())
+                    } else {
+                        String::new()
+                    }
+                })
                 .show(ui, |pu| pu.bar_chart(BarChart::new("pixels", bars).color(accent)));
         }
     }
@@ -770,9 +792,12 @@ impl State {
         if !info.time_is_date || values.len() != info.t() {
             return None;
         }
-        let r = self.zeit.results.iter().rev().find(|r| {
-            r.cube == info.id && r.visible && r.eof.as_ref().is_some_and(|m| m.kind != ModeKind::Corr)
-        })?;
+        let r = self
+            .zeit
+            .results
+            .iter()
+            .rev()
+            .find(|r| r.cube == info.id && r.visible && r.eof.as_ref().is_some_and(|m| m.kind != ModeKind::Corr))?;
         let mode = r.eof.as_ref().filter(|m| m.pc.len() == values.len())?;
         let loading = f64::from(r.value_at(at.0, at.1));
         if !loading.is_finite() {
@@ -782,7 +807,8 @@ impl State {
         let v: Vec<f64> = values.iter().map(|&x| f64::from(x)).collect();
         let settings = janus_zeit::eof::anomaly_settings(&mode.params);
         let overlay = janus_zeit::eof::pixel_overlay(&v, &days, &settings, loading, &mode.pc);
-        let pts = (0..info.t()).filter(|&t| overlay[t].is_finite()).map(|t| [info.layers[t].time, overlay[t]]).collect();
+        let pts =
+            (0..info.t()).filter(|&t| overlay[t].is_finite()).map(|t| [info.layers[t].time, overlay[t]]).collect();
         Some((mode.label(), pts))
     }
 
@@ -806,39 +832,6 @@ impl State {
                 .width(2.5)
                 .style(LineStyle::dashed_dense()),
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_mixed_modes_are_named_in_runs() {
-        assert!(mixed_text(&[true, true, true]).starts_with("Every mode is separable"));
-        let t = mixed_text(&[true, true, false, false, true]);
-        assert!(t.starts_with("Modes 3 and 4 are mixed (North et al. 1982): read them together or rotate"), "{t}");
-        let t = mixed_text(&[false, false, false, true, false]);
-        assert!(t.starts_with("Modes 1, 2 and 3 are mixed; mode 5 is mixed with its neighbour"), "{t}");
-    }
-
-    #[test]
-    fn a_component_is_standardized() {
-        let z = standardized(&[1.0, 2.0, 3.0, f64::NAN, 4.0, 5.0]);
-        let v: Vec<f64> = z.iter().copied().filter(|x| x.is_finite()).collect();
-        assert_eq!(v.len(), 5);
-        assert!(v.iter().sum::<f64>().abs() < 1e-12);
-        assert!(((v.iter().map(|x| x * x).sum::<f64>() / 4.0) - 1.0).abs() < 1e-12);
-        assert!(z[3].is_nan());
-    }
-
-    #[test]
-    fn the_best_lags_are_counted_over_the_significant_pixels() {
-        let s = [2.0, 1.0, 2.0, f32::NAN, 2.0, 1.0];
-        let l = [2.0, 3.0, 2.0, 1.0, 0.0, 2.0];
-        let r = lag_summary(&s, &l);
-        assert_eq!((r.valid, r.significant), (5, 3));
-        assert_eq!(r.hist, vec![(0, 1), (2, 2)]);
     }
 }
 
@@ -890,7 +883,8 @@ impl State {
                         continue;
                     };
                     let Ok(k) = k.parse::<usize>() else { continue };
-                    let (pcs, shares) = if kind == ModeKind::Rotated { (&e.rotated_pcs, &e.rotated) } else { (&e.pcs, &e.variance) };
+                    let (pcs, shares) =
+                        if kind == ModeKind::Rotated { (&e.rotated_pcs, &e.rotated) } else { (&e.pcs, &e.variance) };
                     let Some(pc) = pcs.get(k.wrapping_sub(1)) else { continue };
                     r.eof = Some(EofMode {
                         mode: k,
@@ -905,5 +899,38 @@ impl State {
                 self.zeit.modes_runs.push(m);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_mixed_modes_are_named_in_runs() {
+        assert!(mixed_text(&[true, true, true]).starts_with("Every mode is separable"));
+        let t = mixed_text(&[true, true, false, false, true]);
+        assert!(t.starts_with("Modes 3 and 4 are mixed (North et al. 1982): read them together or rotate"), "{t}");
+        let t = mixed_text(&[false, false, false, true, false]);
+        assert!(t.starts_with("Modes 1, 2 and 3 are mixed; mode 5 is mixed with its neighbour"), "{t}");
+    }
+
+    #[test]
+    fn a_component_is_standardized() {
+        let z = standardized(&[1.0, 2.0, 3.0, f64::NAN, 4.0, 5.0]);
+        let v: Vec<f64> = z.iter().copied().filter(|x| x.is_finite()).collect();
+        assert_eq!(v.len(), 5);
+        assert!(v.iter().sum::<f64>().abs() < 1e-12);
+        assert!(((v.iter().map(|x| x * x).sum::<f64>() / 4.0) - 1.0).abs() < 1e-12);
+        assert!(z[3].is_nan());
+    }
+
+    #[test]
+    fn the_best_lags_are_counted_over_the_significant_pixels() {
+        let s = [2.0, 1.0, 2.0, f32::NAN, 2.0, 1.0];
+        let l = [2.0, 3.0, 2.0, 1.0, 0.0, 2.0];
+        let r = lag_summary(&s, &l);
+        assert_eq!((r.valid, r.significant), (5, 3));
+        assert_eq!(r.hist, vec![(0, 1), (2, 2)]);
     }
 }

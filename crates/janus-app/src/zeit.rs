@@ -2265,8 +2265,8 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
             if tool.params.iter().any(|p| p.kind == "series") {
                 // a lagged correlation's driver may be a CSV file instead of a series
-                let by_file = tool.id == "lagged_correlation"
-                    && params.get("y_mode").and_then(Value::as_str) == Some("file");
+                let by_file =
+                    tool.id == "lagged_correlation" && params.get("y_mode").and_then(Value::as_str) == Some("file");
                 match self.picked_series(tool, &params)? {
                     Some((other_name, other)) if !by_file => {
                         let stem = work.join(format!("{name}_{}_other{}", info.id, other.id));
@@ -2615,15 +2615,8 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 .then(|| crate::modes::run_params(&j.tool, &j.output_dir));
             if let Some(p) = &modes_params
                 && !preview
-                && let Some(m) = crate::modes::ModesRun::new(
-                    &j.tool,
-                    &j.output_dir,
-                    j.cube,
-                    res.window,
-                    &j.title,
-                    &res.outputs,
-                    p,
-                )
+                && let Some(m) =
+                    crate::modes::ModesRun::new(&j.tool, &j.output_dir, j.cube, res.window, &j.title, &res.outputs, p)
             {
                 self.zeit.modes_runs.retain(|r| r.run != m.run);
                 self.zeit.modes_runs.push(m);
@@ -2642,9 +2635,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     // chain keeps from the layers (`no_layer`: NBAR's series of each band) is only a file
                     if o["no_layer"].as_bool() != Some(true) {
                         if let Some(r) = o["range"].as_array()
-                            && let (Some(lo), Some(hi)) = (r.first().and_then(Value::as_f64), r.get(1).and_then(Value::as_f64))
+                            && let (Some(lo), Some(hi)) =
+                                (r.first().and_then(Value::as_f64), r.get(1).and_then(Value::as_f64))
                         {
-                            let cmap = o["colormap"].as_str().and_then(janus_gpu::colormaps::by_name).unwrap_or(janus_gpu::colormaps::VIRIDIS);
+                            let cmap = o["colormap"]
+                                .as_str()
+                                .and_then(janus_gpu::colormaps::by_name)
+                                .unwrap_or(janus_gpu::colormaps::VIRIDIS);
                             self.zeit.series_styles.insert(path.clone(), (cmap, [lo as f32, hi as f32]));
                         }
                         self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
@@ -2704,7 +2701,9 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     upgrading: false,
                     preview,
                     eof: eof_params.as_ref().and_then(|p| crate::modes::EofMode::from_output(o, p)),
-                    range: o["range"].as_array().and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32])),
+                    range: o["range"]
+                        .as_array()
+                        .and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32])),
                 };
                 first = false;
                 let loaded = self.zeit.loaded.clone();

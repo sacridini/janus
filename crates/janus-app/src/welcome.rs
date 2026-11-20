@@ -76,6 +76,8 @@ pub const NATIVE_PAGES: &[(&str, &str)] = &[
     ("calculator", "calculator.html"),
     ("validation", "validation.html"),
     ("tune", "tune.html"),
+    ("eof", "eof.html"),
+    ("lagged_correlation", "eof.html"),
     ("alerts", "docs-usage.html#official-alerts-against-a-map-of-change"),
     ("stac", "stac.html"),
     ("classification", "deep-learning.html"),

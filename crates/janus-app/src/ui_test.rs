@@ -18,14 +18,14 @@ mod animation;
 mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
-#[path = "ui_test_eof.rs"]
-mod eof;
 #[path = "ui_test_chart_axis.rs"]
 mod chart_axis_tests;
 #[path = "ui_test_climate.rs"]
 mod climate_tests;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
+#[path = "ui_test_eof.rs"]
+mod eof;
 #[path = "ui_test_figures.rs"]
 mod figures;
 #[path = "ui_test_fullres.rs"]

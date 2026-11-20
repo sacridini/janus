@@ -133,7 +133,7 @@ pub const ZEIT_DEFAULTS: &[(&str, &str, &str)] = &[
     ("zeit.eof", "scaling", "'units'"),
     ("zeit.eof", "solver", "'auto'"),
     ("zeit.eof", "oversampling", "10"),
-    ("zeit.eof", "power_iterations", "2"),
+    ("zeit.eof", "power_iterations", "4"),
     ("zeit.eof", "rotate", "0"),
     ("zeit.eof", "kaiser", "True"),
     ("zeit.eof", "north_n", "'dates'"),

@@ -283,7 +283,9 @@ impl State {
                     return None;
                 }
                 let have = self.layers.len() - st.eof.layers;
-                if have < st.eof.opened || (have > 0 && !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1))) {
+                if have < st.eof.opened
+                    || (have > 0 && !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1)))
+                {
                     return None;
                 }
                 if st.eof.opened < FILES.len() {
@@ -299,7 +301,10 @@ impl State {
                 if info.t() != T || info.width != W || info.height != H || !info.time_is_date {
                     return fail(&format!("Modes should be {T} dates on {W} x {H}: {} dates", info.t()));
                 }
-                next(st, "four series written and opened: Modes (48 x 32, 60 months), Rain (12 x 8, EPSG:4326), Response, RainFine");
+                next(
+                    st,
+                    "four series written and opened: Modes (48 x 32, 60 months), Rain (12 x 8, EPSG:4326), Response, RainFine",
+                );
                 None
             }
             321 => {
@@ -354,7 +359,9 @@ impl State {
                             (s.state, s.error.clone())
                         };
                         match state {
-                            JobState::Failed | JobState::Cancelled => return fail(&format!("the EOF should finish: {error}")),
+                            JobState::Failed | JobState::Cancelled => {
+                                return fail(&format!("the EOF should finish: {error}"));
+                            }
                             JobState::Running => return None,
                             JobState::Done => {}
                         }
@@ -369,8 +376,7 @@ impl State {
                         // the variance: the amplitudes' squared norms of the patterns over their sum
                         let norm: Vec<f64> = (0..2)
                             .map(|k| {
-                                AMPLITUDE[k].powi(2)
-                                    * (0..W * H).map(|i| pattern(k, i % W, i / W).powi(2)).sum::<f64>()
+                                AMPLITUDE[k].powi(2) * (0..W * H).map(|i| pattern(k, i % W, i / W).powi(2)).sum::<f64>()
                             })
                             .collect();
                         let total: f64 = norm.iter().sum();
@@ -419,7 +425,9 @@ impl State {
                                 return fail(&format!("the run's folder should have {f}"));
                             }
                         }
-                        let Some(csv) = self.modes_pcs_csv(&run) else { return fail("the run should be known to Modes") };
+                        let Some(csv) = self.modes_pcs_csv(&run) else {
+                            return fail("the run should be known to Modes");
+                        };
                         if csv.lines().count() != T + 1 || !csv.starts_with("date,year,filled,pc1,pc2,pc3") {
                             return fail("pcs.csv should have a line a date and the three components");
                         }
@@ -441,7 +449,11 @@ impl State {
                             return None;
                         }
                         if self.shown_analysis_tab() != crate::modes::TAB || self.analysis.modes.drawn == 0 {
-                            return if waited > 30.0 { fail("Analysis > Modes should be shown and drawn") } else { None };
+                            return if waited > 30.0 {
+                                fail("Analysis > Modes should be shown and drawn")
+                            } else {
+                                None
+                            };
                         }
                         println!("    Analysis > Modes drawn ({} frames)", self.analysis.modes.drawn);
                         st.eof.phase = 2;
@@ -541,7 +553,10 @@ impl State {
                     }
                     let mut params: std::collections::BTreeMap<String, Value> =
                         tool.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
-                    params.insert("y".into(), json!({ "name": self.layers[rain].name, "inputs": self.layers[rain].inputs }));
+                    params.insert(
+                        "y".into(),
+                        json!({ "name": self.layers[rain].name, "inputs": self.layers[rain].inputs }),
+                    );
                     params.insert("lags".into(), json!(4));
                     params.insert("anomaly".into(), json!("none"));
                     *self.zeit.params(tool) = params;
@@ -568,11 +583,16 @@ impl State {
                 }
                 let before = self.zeit.jobs.len();
                 self.run_tool(tool, ctx);
-                if self.zeit.jobs.len() != before + 1 || self.zeit.jobs.last().is_none_or(|j| j.tool != "lagged_correlation") {
+                if self.zeit.jobs.len() != before + 1
+                    || self.zeit.jobs.last().is_none_or(|j| j.tool != "lagged_correlation")
+                {
                     return fail(&format!("Run should start the lagged correlation as a task: {:?}", self.error_popup));
                 }
                 st.eof.corr_run = self.zeit.jobs.last()?.output_dir.clone();
-                next(st, "Lagged correlation: Response against Rain (another CRS) at lags 0 to 4 months, Run on the whole image");
+                next(
+                    st,
+                    "Lagged correlation: Response against Rain (another CRS) at lags 0 to 4 months, Run on the whole image",
+                );
                 None
             }
             325 => {
@@ -599,13 +619,21 @@ impl State {
                             .and_then(|m| m.corr.as_ref())
                             .and_then(|c| c.r_lags.clone());
                         let series_open = rlags.as_ref().is_some_and(|p| {
-                            self.layers.iter().any(|l| l.inputs.len() == 1 && crate::provenance::absolute(&l.inputs[0]) == crate::provenance::absolute(p))
+                            self.layers.iter().any(|l| {
+                                l.inputs.len() == 1
+                                    && crate::provenance::absolute(&l.inputs[0]) == crate::provenance::absolute(p)
+                            })
                         });
                         if !job.loaded || self.zeit.loads_pending() || self.opening.is_some() || !series_open {
-                            return if waited > 90.0 { fail("the maps and the lags' series should arrive") } else { None };
+                            return if waited > 90.0 {
+                                fail("the maps and the lags' series should arrive")
+                            } else {
+                                None
+                            };
                         }
                         let get = |id: &str| self.eof_test_map(&run, id);
-                        let (Some(lag), Some(r), Some(sig), Some(q)) = (get("best_lag"), get("best_r"), get("significant"), get("q"))
+                        let (Some(lag), Some(r), Some(sig), Some(q)) =
+                            (get("best_lag"), get("best_r"), get("significant"), get("q"))
                         else {
                             return fail("the run should give best_lag, best_r, significant and q");
                         };
@@ -635,18 +663,25 @@ impl State {
                             100.0 * fr
                         );
                         if f2 < 0.95 || fs < 0.95 || fr > 0.12 {
-                            return fail("the best lag should be 2 with r > 0.7 on the left half, few significant on the right");
+                            return fail(
+                                "the best lag should be 2 with r > 0.7 on the left half, few significant on the right",
+                            );
                         }
                         if q.data.iter().filter(|v| v.is_finite()).count() < W * H / 2 {
                             return fail("q should be written for the pixels");
                         }
                         // the lags' series: 5 bands, hidden
                         let k = self.layers.iter().position(|l| {
-                            l.inputs.len() == 1 && crate::provenance::absolute(&l.inputs[0]) == crate::provenance::absolute(rlags.as_deref().unwrap_or(""))
+                            l.inputs.len() == 1
+                                && crate::provenance::absolute(&l.inputs[0])
+                                    == crate::provenance::absolute(rlags.as_deref().unwrap_or(""))
                         })?;
                         let bands = self.layer_session(k)?.info.t();
                         if bands != 5 || self.layers[k].visible {
-                            return fail(&format!("r at the lags should be a hidden series of 5 bands ({bands}, visible {})", self.layers[k].visible));
+                            return fail(&format!(
+                                "r at the lags should be a hidden series of 5 bands ({bands}, visible {})",
+                                self.layers[k].visible
+                            ));
                         }
                         // r's colours: -1 to 1
                         if (r.lo, r.hi) != (-1.0, 1.0) {
@@ -670,7 +705,11 @@ impl State {
                             return None;
                         }
                         let Some(l) = self.analysis.modes.lags_at.clone().filter(|l| l.3.len() == 5) else {
-                            return if waited > 30.0 { fail("Analysis > Modes should read r at the 5 lags of the cursor") } else { None };
+                            return if waited > 30.0 {
+                                fail("Analysis > Modes should read r at the 5 lags of the cursor")
+                            } else {
+                                None
+                            };
                         };
                         let best = l.3.iter().enumerate().max_by(|a, b| a.1.abs().total_cmp(&b.1.abs())).map(|a| a.0);
                         println!("    Modes: r at the lags of the pixel {:?}: {:.3?}", (l.1, l.2), l.3);
@@ -698,7 +737,10 @@ impl State {
                         None
                     }
                     _ => {
-                        next(st, "Lagged correlation: best lag 2 on the left half, few significant on the right, q, r at the lags (5 bands, hidden), Analysis > Modes");
+                        next(
+                            st,
+                            "Lagged correlation: best lag 2 on the left half, few significant on the right, q, r at the lags (5 bands, hidden), Analysis > Modes",
+                        );
                         None
                     }
                 }
@@ -722,7 +764,10 @@ impl State {
                     st.frames = 1;
                     return None;
                 }
-                if self.opening.is_some() || self.layers.len() == st.eof.opened || !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1)) {
+                if self.opening.is_some()
+                    || self.layers.len() == st.eof.opened
+                    || !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1))
+                {
                     if self.emb_downloads.iter().any(|d| d.status.lock().unwrap().state == JobState::Failed) {
                         return fail("the calculator's run failed (Tools > Tasks > Log)");
                     }
@@ -742,11 +787,18 @@ impl State {
                     worst = worst.max((f64::from(v) - want).abs());
                 }
                 if info.t() != 1 || worst > 1e-4 || worst.is_nan() {
-                    return fail(&format!("corr(response, rain, lag=2m) should equal the tool's lag-2 r to 1e-4 ({worst:.2e})"));
+                    return fail(&format!(
+                        "corr(response, rain, lag=2m) should equal the tool's lag-2 r to 1e-4 ({worst:.2e})"
+                    ));
                 }
                 self.calc.show = false;
                 self.remove_layer(k, ctx);
-                next(st, &format!("the calculator's corr(response, rain, lag=2m) equals the tool's r at lag 2 (largest difference {worst:.1e})"));
+                next(
+                    st,
+                    &format!(
+                        "the calculator's corr(response, rain, lag=2m) equals the tool's r at lag 2 (largest difference {worst:.1e})"
+                    ),
+                );
                 None
             }
             327 => {
@@ -785,4 +837,3 @@ impl State {
         }
     }
 }
-
