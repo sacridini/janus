@@ -1467,7 +1467,7 @@ fn topocorr_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
         pieces.push(Piece::Raw(format!(
             "from zeit._topocorr import slope_aspect  # Horn's slope and aspect of the DEM, as the correction takes them\n\
              slope = slope_aspect(dem).slope  # degrees\n\
-             ndvi =(bands_all.sel(band='{nir}') - bands_all.sel(band='{red}')) / (bands_all.sel(band='{nir}') + bands_all.sel(band='{red}'))\n\
+             ndvi = (bands_all.sel(band='{nir}') - bands_all.sel(band='{red}')) / (bands_all.sel(band='{nir}') + bands_all.sel(band='{red}'))\n\
              sample = ((ndvi > {}) & (slope >= {})).values  # vegetation on a slope; the pixels the quality band masks are NaN, so out",
             py_float(set.ndvi_min),
             py_float(set.min_slope)
