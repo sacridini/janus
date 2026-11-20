@@ -171,6 +171,23 @@
     "thumb": "assets/img/hotspots/03-pattern.jpg"
   },
   {
+    "slug": "envi",
+    "title": "Noise and change: MNF, CVA, iMAD and radiometric normalization",
+    "label": "Multiband images, two dates",
+    "summary": "The minimum noise fraction transform to denoise and reduce a multiband image, change vector analysis and iMAD to map the change between two dates, and the radiometric normalization by invariant pixels that puts one date on the scale of another.",
+    "track": "change",
+    "minutes": 19,
+    "data": null,
+    "learn": [
+      "The four tools",
+      "Minimum Noise Fraction",
+      "Change vector analysis",
+      "iMAD"
+    ],
+    "figures": 0,
+    "thumb": null
+  },
+  {
     "slug": "unmixing",
     "title": "Spectral unmixing",
     "label": "Multiband or hyperspectral",

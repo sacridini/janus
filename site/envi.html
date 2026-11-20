@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Noise and change: MNF, CVA, iMAD and radiometric normalization · Janus</title>
+<meta name="description" content="A guide to four ENVI-style tools in Janus: the minimum noise fraction (MNF) transform, change vector analysis (CVA), the iteratively reweighted multivariate alteration detection (iMAD) and the radiometric normalization by its invariant pixels, with their parameters, outputs and Python equivalents.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Noise and change: MNF, CVA, iMAD and radiometric normalization · Janus">
+<meta property="og:description" content="Denoise and reduce a multiband image with the MNF, map the change between two dates with CVA and iMAD, and put a date on the radiometric scale of another.">
+<meta name="twitter:card" content="summary">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Noise and change</p>
+    <p class="eyebrow">Spectral analysis · change detection · data preparation</p>
+    <h1>Noise and change.</h1>
+    <p class="lede">Four tools from the ENVI toolbox now run in Janus on a series of images: the <span class="ui">Minimum Noise Fraction</span> transform, which orders the components of a multiband image by signal-to-noise ratio instead of variance; <span class="ui">change vector analysis</span> and <span class="ui">iMAD</span>, two ways to map the change between two dates using all the bands at once; and the <span class="ui">radiometric normalization</span> that puts one date on the scale of another by the pixels that did not change. This guide says what each does, where it is, what its parameters mean and how to read what it writes.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#intro">The four tools</a></li>
+      <li><a href="#mnf">Minimum Noise Fraction</a></li>
+      <li><a href="#cva">Change vector analysis</a></li>
+      <li><a href="#imad">iMAD</a></li>
+      <li><a href="#radcal">Radiometric normalization</a></li>
+      <li><a href="#chain">Putting them in order</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="intro">
+      <h2><span class="n">01</span>The four tools</h2>
+      <p>All four work on the bands of one or two dates of the active series, so the series needs <strong>two bands or more per date</strong> (red and NIR, say, or six reflectance bands), and the last three need two dates or more. They are Zeit tools (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code> and <code>zeit.radcal</code>) and share a way of working:</p>
+      <ul>
+        <li>The statistics (a noise covariance, a threshold, canonical correlations, a regression) are fitted on a <strong>lattice sample</strong> of the whole window, every <em>s</em>-th row and column, so the same pixels are used on every run. The transformation is then applied to every pixel, <strong>strip by strip</strong>, so a window larger than the memory works.</li>
+        <li>The <strong>quality band</strong>, when the series has one, is applied as a mask: a masked pixel is empty in every output and does not enter the statistics.</li>
+        <li>They write their maps as layers and, in the run's folder, the tables and the JSON of the fit, so the run can be checked later.</li>
+        <li><span class="ui">Tools → Python history</span> keeps the code of each run, and <span class="ui">Copy Python</span> gives a script that calls Zeit with the same parameters; it needs <code>pip install "zeit-cdts&gt;=3.9"</code>.</li>
+      </ul>
+      <p>Each has a <span class="ui">?</span> button in its window that opens this page at its section.</p>
+    </section>
+
+    <section id="mnf">
+      <h2><span class="n">02</span>Minimum Noise Fraction</h2>
+      <p>A principal components analysis orders the components of a multiband image by variance, and a band with large values has a large variance whether it is noisy or not. The <strong>MNF transform</strong> (Green et al. 1988; Lee et al. 1990) orders them by <strong>signal-to-noise ratio</strong>. It first estimates the noise covariance, whitens it (unit variance, no correlation between bands), and then rotates by a principal components analysis of the whitened data. The eigenvalue of each component is 1 plus its SNR: well above 1 is signal, near 1 is noise. It does not depend on the units of the bands, which PCA does.</p>
+      <p>Use it to see how many dimensions of a multiband image carry signal, to reduce the bands before a classification or a change detection, or to <strong>denoise</strong> the image by rebuilding it from the first components only.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools → Spectral analysis → Minimum Noise Fraction (MNF)</span>.</p>
+      <h3>How the noise is estimated</h3>
+      <p>The noise cannot be seen, so it is estimated from the differences between neighbouring pixels: a smooth landscape changes little from one pixel to the next, and what does change is mostly noise. The noise covariance is half the covariance of those differences (<code>noise</code>: the right neighbour, the lower one, the diagonals, or the two main directions pooled, which is the default and the most robust to row or column structure). Pairs with a missing pixel do not count. Two limits follow: <strong>striping and other noise that is correlated from pixel to pixel counts as signal</strong>, and an area full of fine detail (a city, a fragmented field pattern) puts signal into the noise estimate. For such a scene give a <code>noise_region</code>, a polygon or a mask of a uniform area such as a lake or a large field, and the differences are taken only inside it, as ENVI's shift-difference subset does.</p>
+      <!-- figure: the MNF window with the noise estimate, the output and the components kept -->
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>date</code></td><td>0</td><td>The date whose bands are transformed (the nearest date of the series); 0 is the date shown on the map.</td></tr>
+            <tr><td><code>scope</code></td><td>date</td><td><code>date</code>: the statistics of the chosen date. <code>all_dates</code>: pooled over every date, one transform applied to each, so that component <em>i</em> means the same in all of them; the outputs are then series.</td></tr>
+            <tr><td><code>bands</code></td><td>all</td><td>The bands to use, by name or number, separated by commas. The quality band is never one of them.</td></tr>
+            <tr><td><code>noise</code></td><td>diff_hv</td><td>How the noise is estimated from the difference between each pixel and a neighbour: <code>diff_hv</code> (right and lower neighbours, pooled), <code>diff_h</code>, <code>diff_v</code>, <code>diff_diag</code> (lower right), <code>diff_antidiag</code> (lower left).</td></tr>
+            <tr><td><code>noise_region</code></td><td>none</td><td>A polygon file or a mask raster of a homogeneous area (water, a uniform field): the differences are taken only inside it. A raster must be on the series&rsquo; grid; nonzero is inside.</td></tr>
+            <tr><td><code>n_components</code></td><td>0</td><td>How many components to write, the highest SNR first; 0 is all of them.</td></tr>
+            <tr><td><code>output</code></td><td>components</td><td><code>components</code>, <code>denoised</code> (the bands rebuilt by the inverse MNF) or <code>both</code>.</td></tr>
+            <tr><td><code>k</code></td><td>0</td><td>Components kept for the denoised bands; 0 keeps those with an SNR of at least <code>snr_min</code>.</td></tr>
+            <tr><td><code>snr_min</code></td><td>1.0</td><td>With <code>k</code> at 0: the components whose SNR (the eigenvalue minus 1) is at least this are kept.</td></tr>
+            <tr><td><code>scale</code></td><td>noise</td><td><code>noise</code>: the noise has variance 1 and each component&rsquo;s variance is its eigenvalue (ENVI, SPy). <code>unit</code>: every component has unit variance.</td></tr>
+            <tr><td><code>sample_fraction</code></td><td>1.0</td><td>The share of the pixels used for the statistics, picked at random; the transform is applied to every pixel.</td></tr>
+            <tr><td><code>seed</code></td><td>0</td><td>The seed of that sample.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><code>scope</code> decides what &ldquo;the statistics&rdquo; are. With <code>date</code> the transform is fitted on one date. With <code>all_dates</code> it is fitted once on every date pooled and applied to each, so component 1 means the same thing on every date and each component becomes a <strong>series</strong>, one band a date, which can be charted and compared in time.</p>
+      <h3>Outputs</h3>
+      <ul>
+        <li>One layer for each component, named <em>MNF k: SNR x</em>, the first having the most signal.</li>
+        <li><code>mnf_components.tif</code>: all the components in a multiband file.</li>
+        <li><code>mnf_eigenvalues.csv</code>: each component's eigenvalue and SNR.</li>
+        <li><code>mnf_transform.json</code>: the transform (the format <code>zeit-mnf</code> version 1), which can be applied to another image.</li>
+        <li>With <code>output</code> set to <code>denoised</code> or <code>both</code>, a <code>denoised/</code> folder and a new layer, <em>Denoised bands (MNF)</em>, in the units of the input. Only the first <code>k</code> components are kept, or those with an SNR of at least <code>snr_min</code>; the others are set to their mean, which removes the noise they hold and the signal too if too few are kept.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Read the eigenvalue table first. A drop to values near 1 after a few components says that the image has that many dimensions of signal; the components past it are noise and look like it, with a grainy map and no structure. A component among the first few that is a set of stripes is a sensor artefact: a reason to mask it out or to estimate the noise another way. Denoise with the number of components where the table drops, and check a few pixels on the chart against the original: a pixel whose real, narrow feature has gone had too few components. Components of the pooled transform (<code>all_dates</code>) are comparable between dates; those of single-date transforms are not.</p>
+      <!-- figure: the first MNF components as maps and the eigenvalue table -->
+      <!-- figure: a pixel's values before and after the denoising -->
+      <h3>In Python</h3>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+img = zeit.load_raster("scene.tif", masked=True)             # (band, y, x)
+comp, tr = zeit.mnf(img, noise="diff_hv", return_transform=True)
+
+clean = zeit.mnf_denoise(img, snr_min=1.0)                   # or k=4</code></pre></div>
+    </section>
+
+    <section id="cva">
+      <h2><span class="n">03</span>Change vector analysis</h2>
+      <p>The <strong>change vector</strong> of a pixel is the list of the differences, band by band, between two dates. Its length is the <strong>magnitude</strong> of the change; its direction says what kind of change it is (Malila 1980). A pixel is changed when the magnitude is above a threshold. It is the simplest way to use all the bands at once: no model, no training, and the direction tells a loss of vegetation from a flood or from a new bright surface.</p>
+      <p>Use it for a map of where something changed between two dates and of what kind, when the two dates are on the same radiometric scale (see the <a href="#radcal">normalization</a> below if they are not).</p>
+      <p><strong>Where:</strong> <span class="ui">Tools → Change detection → Change vector analysis (CVA)</span>.</p>
+      <h3>The threshold</h3>
+      <p>The magnitude is thresholded by <strong>Otsu's</strong> method (the default; the split of the histogram that maximizes the variance between the two classes), by the <strong><code>em</code></strong> threshold (a mixture of two Gaussians, no change and change, fitted by the EM algorithm, and the threshold of minimum error between them; Bruzzone and Prieto 2000), or by a <strong>fixed</strong> value of your own. Otsu and EM are computed on the lattice sample. Both assume the change is a minority that is separable from the rest; where nearly everything changed, or almost nothing, the threshold is not meaningful and a fixed value is better.</p>
+      <h3>The direction</h3>
+      <p>With <code>direction</code> at <code>auto</code>, the choice depends on the bands. When the series has the <strong>red, NIR and SWIR1 roles mapped</strong>, each pixel gets a sector from the signs of the change of those three bands (eight combinations of up and down, and a class for no change). Without them it falls back to <code>c2va</code>, the compressed CVA of Bovolo et al. (2012): the angle between the change vector and the diagonal of uniform change, from 0 degrees (brighter in every band) to 180 (darker in every band), for any number of bands. <code>polar</code> is the angle of two bands you choose, cut into <code>n_sectors</code> equal sectors, for a pair such as brightness and greenness.</p>
+      <!-- figure: the CVA window, with the direction and the threshold -->
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>before</code></td><td>0</td><td>The first date (the nearest date of the series); 0 is the first date.</td></tr>
+            <tr><td><code>after</code></td><td>0</td><td>The second date; 0 is the last date.</td></tr>
+            <tr><td><code>bands</code></td><td>all</td><td>The bands to use, by name or number. The quality band is never one of them.</td></tr>
+            <tr><td><code>direction</code></td><td>auto</td><td><code>auto</code>: sign sectors when red, NIR and SWIR1 are mapped, else the angle. <code>sign</code>: eight sectors by whether red, NIR and SWIR1 went up (needs the three mapped). <code>c2va</code>: the angle to the diagonal of uniform change, 0 to 180 degrees. <code>polar</code>: the angle of two bands in equal sectors.</td></tr>
+            <tr><td><code>polar_bands</code></td><td>first two</td><td>The two bands of the polar angle.</td></tr>
+            <tr><td><code>n_sectors</code></td><td>4</td><td>The number of equal sectors of the polar angle.</td></tr>
+            <tr><td><code>threshold</code></td><td>otsu</td><td><code>otsu</code>, <code>em</code> (the minimum-error threshold of a two-class Gaussian mixture) or <code>fixed</code>.</td></tr>
+            <tr><td><code>value</code></td><td>0</td><td>The fixed threshold, in the units of the magnitude (after scaling the bands).</td></tr>
+            <tr><td><code>em_init</code></td><td>0.2</td><td>Where the EM starts: magnitudes below M(1&minus;a) are taken as no change and above M(1+a) as change, M being the midpoint of the range.</td></tr>
+            <tr><td><code>scale</code></td><td>none</td><td><code>std</code> divides each band&rsquo;s difference by its standard deviation, so that every band weighs the same.</td></tr>
+            <tr><td><code>sample</code></td><td>1000000</td><td>About this many valid pixels, on a lattice, for the statistics; 0 uses every pixel.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Outputs</h3>
+      <ul>
+        <li><em>Change magnitude</em> and <em>Change direction</em> (an angle, in degrees).</li>
+        <li><em>Change</em>: a two-class map, no change and change.</li>
+        <li><em>Change sectors</em>, with the sign sectors and the &ldquo;Change sectors&rdquo; colormap: no change; darker in all bands (water, flooding, wetting, shadow); turbid water; vegetation gain (greening, regrowth); visible and NIR up; burn scar or drying vegetation; vegetation loss (clearing to soil); NIR and SWIR up; brighter in all bands (bare soil, built-up, bright surfaces).</li>
+        <li><code>cva_sectors.csv</code>: for each sector the pixels, the area and the mean magnitude. <code>cva.json</code>: the threshold and how it was found.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Look at the magnitude map before the sectors: the threshold only cuts it. The sector says <em>which way</em> the bands moved, not what happened; &ldquo;vegetation loss&rdquo; is a pixel that moved the way a clearing does, which a harvest or a drought can do as well. The sectors marked &ldquo;other&rdquo; are sign combinations that no common change of land cover gives, and a large area of them points to misregistration or to a radiometric difference between the dates rather than to change. A difference over the whole scene (haze, another sun angle) moves the whole histogram and Otsu then cuts in the wrong place; normalize first.</p>
+      <!-- figure: the change sectors map with its legend -->
+      <!-- figure: the magnitude map and its histogram with the threshold -->
+      <h3>In Python</h3>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+ts = zeit.load_raster("series.tif", masked=True)             # (time, band, y, x)
+res = zeit.cva(ts, dates=(0, -1), threshold="otsu",
+               direction="sign", roles={"red": 2, "nir": 3, "swir1": 4})
+zeit.cva_table(res)                                          # pixels and area by sector</code></pre></div>
+    </section>
+
+    <section id="imad">
+      <h2><span class="n">04</span>iMAD</h2>
+      <p>The <strong>multivariate alteration detection</strong> (MAD; Nielsen, Conradsen and Simpson 1998) takes the bands of two dates and finds, by canonical correlation analysis, the linear combination of the bands of each date that agree most with the other date. The differences between those pairs, the <strong>MAD variates</strong>, are uncorrelated images of change, ordered from the one with the largest change. The <strong>iteratively reweighted</strong> version (iMAD; Nielsen 2007) weights each pixel by its probability of no change and repeats until the canonical correlations stop changing, so that the change itself stops disturbing the estimate of what does not change.</p>
+      <p>Because it works through canonical correlations, the result is <strong>invariant to gains, offsets and any linear transform of either date</strong>: no radiometric normalization is needed before it, which is its main advantage over CVA. Use it for change between two dates that differ in illumination, season or sensor settings, and as the first step of the normalization below.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools → Change detection → iMAD (iteratively reweighted MAD)</span>.</p>
+      <!-- figure: the iMAD window -->
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>before</code></td><td>0</td><td>The first date, the reference of the canonical analysis; 0 is the first date.</td></tr>
+            <tr><td><code>after</code></td><td>0</td><td>The second date; 0 is the last date.</td></tr>
+            <tr><td><code>bands</code></td><td>all</td><td>The bands to use, by name or number.</td></tr>
+            <tr><td><code>max_iter</code></td><td>50</td><td>The maximum number of iterations; 1 is the original, not iterated, MAD.</td></tr>
+            <tr><td><code>tol</code></td><td>0.001</td><td>The iterations stop when no canonical correlation changed by more than this since the iteration before.</td></tr>
+            <tr><td><code>alpha</code></td><td>0.01</td><td>A pixel changes when its probability of no change is below this.</td></tr>
+            <tr><td><code>lam</code></td><td>0</td><td>Regularization for many correlated bands (hyperspectral), in the units of the variances of the bands; 0 is none. It breaks the invariance to linear transforms.</td></tr>
+            <tr><td><code>penalty</code></td><td>ridge</td><td>With <code>lam</code> above 0: <code>ridge</code> or <code>curvature</code> (second differences along the bands, which need them in order of wavelength).</td></tr>
+            <tr><td><code>standardize</code></td><td>weighted</td><td>How the MAD variates are divided to make the chi-square: <code>weighted</code> (from the canonical correlations, Canty and Nielsen 2008) or <code>all</code> (over all the pixels, Nielsen 2007).</td></tr>
+            <tr><td><code>n_mad</code></td><td>3</td><td>How many MAD variates open as layers; all of them are in the multiband file.</td></tr>
+            <tr><td><code>sample</code></td><td>1000000</td><td>About this many valid pixels, on a lattice, for the statistics; 0 uses every pixel.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Outputs</h3>
+      <ul>
+        <li><em>MAD 1</em> to <em>MAD n</em> as layers (<code>n_mad</code>, in red-blue, the first with the most change), and all of them in <code>imad.tif</code>, which also holds the chi-square, the probability of no change and the change map.</li>
+        <li><em>Chi-square of change</em>: the sum of the squared MAD variates, each divided by its variance. Under no change it follows a chi-square distribution with as many degrees of freedom as bands.</li>
+        <li><em>Probability of no change</em> (<code>p_nochange</code>, 0 to 1): the chance, under no change, of a chi-square as large as the pixel's.</li>
+        <li><em>Change (iMAD)</em>: the pixels with a <code>p_nochange</code> below <code>alpha</code> (0.01).</li>
+        <li><code>imad_rho.csv</code>: the canonical correlations of each iteration, to see whether it converged. <code>imad.json</code>: the transformation.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>The canonical correlations in <code>imad_rho.csv</code> should settle in a few iterations; if they are still moving at <code>max_iter</code>, raise it. A low last correlation is a band pair with little in common between the dates, which is where the change is. MAD 1 is the strongest change and MAD 2 the next; the last variates are mostly noise, so look at the first ones and at the chi-square, which sums them all. The probability map is a continuous measure of change; the change map is one cut of it.</p>
+      <div class="note warn">
+        <p class="h">A caveat on the test</p>
+        <p>With the default <code>weighted</code> standardization (the convention of Canty and Nielsen 2008) the chi-square test is <strong>anti-conservative</strong>: on data with little noise it flags more no-change pixels as changed than <code>alpha</code> suggests, so the count in <em>Change (iMAD)</em> cannot be taken at face value. Read the chi-square and probability maps rather than trusting the count, and compare with <code>standardize="all"</code> (Nielsen 2007), which reweights less when much has changed, before quoting an area.</p>
+      </div>
+      <!-- figure: MAD 1 to MAD 3 side by side -->
+      <!-- figure: the probability of no change and the change map -->
+      <h3>In Python</h3>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+ts = zeit.load_raster("series.tif", masked=True)             # (time, band, y, x)
+res = zeit.imad(ts, dates=(0, -1), alpha=0.01)
+zeit.imad_table(res)                                         # canonical correlations by iteration</code></pre></div>
+    </section>
+
+    <section id="radcal">
+      <h2><span class="n">05</span>Radiometric normalization</h2>
+      <p>Two images of the same place differ in more than the land: the sun, the atmosphere and the sensor change the numbers. Before a comparison by CVA, a threshold or a classifier trained on another date, they should be put on one scale. The <strong>relative normalization</strong> here (Canty, Nielsen and Schmidt 2004) takes one date as the <strong>reference</strong> and the pixels that <em>did not change</em> between it and each other date, found by iMAD, and fits for each band a line from the date to the reference. Every pixel of the date is then <em>gain × value + offset</em>.</p>
+      <p>Two things make it better than a regression on all the pixels. The invariant pixels are chosen by the data, with no hand-picked targets. And the regression is <strong>orthogonal</strong>: the errors of both dates enter, not only those of the reference, so the slope is not biased towards a flatter line.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools → Data preparation → Radiometric normalization (iMAD invariant pixels)</span>.</p>
+      <!-- figure: the radiometric normalization window -->
+      <h3>The test of the fit</h3>
+      <p>The invariant pixels are split: two thirds fit the line, and the third left out (<code>holdout</code>, every third pixel in raster order) tests it. On those pixels the reference and the normalized date should agree: a paired t-test compares their means and an F-test their variances. A small p-value says the normalization left a difference. At least 30 invariant pixels are needed for a fit, and about 5 % of the pixels are expected to have a probability of no change above the threshold; a scene that changed a lot, or two dates of very different sensors, may not give enough.</p>
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>reference</code></td><td>0</td><td>The date the others are normalized to (the nearest date of the series); 0 is the first date.</td></tr>
+            <tr><td><code>target</code></td><td>0</td><td>Only this date; 0 is every date but the reference.</td></tr>
+            <tr><td><code>bands</code></td><td>all</td><td>The bands to use, by name or number.</td></tr>
+            <tr><td><code>threshold</code></td><td>0.95</td><td>Pixels whose probability of no change is above this are the invariant pixels.</td></tr>
+            <tr><td><code>holdout</code></td><td>0.333</td><td>The share of the invariant pixels kept for the tests and left out of the fit (every third one, in raster order); 0 uses all for the fit and runs no tests. At least 30 pixels are needed for the fit.</td></tr>
+            <tr><td><code>max_iter</code></td><td>50</td><td>The maximum number of iterations of the iMAD of each pair.</td></tr>
+            <tr><td><code>tol</code></td><td>0.001</td><td>The tolerance of that iMAD.</td></tr>
+            <tr><td><code>sample</code></td><td>1000000</td><td>About this many valid pixels, on a lattice, for the statistics; 0 uses every pixel.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Outputs</h3>
+      <ul>
+        <li>The <strong>normalized series</strong> opens as a new layer: a file a date, with all the bands. The reference, and the dates not chosen, are copied unchanged, so the layer is a complete series.</li>
+        <li><code>radcal_fits.csv</code>: for each date and band the gain and offset, the number of invariant pixels and the two tests.</li>
+        <li><code>radcal.json</code>: the iMAD summary of each pair.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Open <code>radcal_fits.csv</code>. A gain near 1 and an offset near 0 say the date was close to the reference already. A gain far from 1 in one band only points to a band with a sensor or processing problem. Look at the tests: where they reject, the band is not well normalized and the invariant pixels are suspect, usually because few were found or because they cover only part of the range of values. Then compare a stable target, such as a lake or a bare surface, before and after on the chart: its values on the dates should now agree.</p>
+      <!-- figure: a stable pixel's series before and after the normalization -->
+      <h3>In Python</h3>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+ts = zeit.load_raster("series.tif", masked=True)             # (time, band, y, x)
+norm = zeit.radcal(ts, reference=0, threshold=0.95)
+zeit.radcal_table(norm)                                      # gain, offset and tests by date and band</code></pre></div>
+    </section>
+
+    <section id="chain">
+      <h2><span class="n">06</span>Putting them in order</h2>
+      <p>The usual order for a change study on a series of images is:</p>
+      <ol>
+        <li><strong>Normalize</strong> the dates to a reference with the radiometric normalization, when the scenes differ in conditions and the next step is not invariant to them.</li>
+        <li><strong>Denoise or reduce</strong> with the MNF, when the bands are many or noisy: a change map made of the first components carries the signal and leaves the noise out. Use the pooled statistics (<code>all_dates</code>) so that the components mean the same on both dates.</li>
+        <li><strong>Map the change</strong> with CVA, which needs the normalized dates and gives a direction, or iMAD, which does not need them and gives a probability.</li>
+      </ol>
+      <p>iMAD is also the engine of the normalization: it is an iMAD between the reference and each date followed by a regression. Run iMAD on the original dates and CVA on the normalized ones, and compare the two change maps; where they disagree, look at the magnitude and the probability maps there.</p>
+      <p>The tools that follow a series through time rather than two dates (<a href="landtrendr.html">LandTrendr</a>, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>) have their own guides in <a href="guides.html">the list</a>, and every tool is in the <a href="methods.html">methods</a>.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">07</span>References</h2>
+      <ul class="refs">
+        <li>Bovolo, F., Marchesi, S., Bruzzone, L. (2012). A framework for automatic and unsupervised detection of multiple changes in multitemporal images. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 50(6), 2196&ndash;2212. <a href="https://doi.org/10.1109/TGRS.2011.2171493">doi:10.1109/TGRS.2011.2171493</a></li>
+        <li>Bruzzone, L., Prieto, D. F. (2000). Automatic analysis of the difference image for unsupervised change detection. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 38(3), 1171&ndash;1182. <a href="https://doi.org/10.1109/36.843009">doi:10.1109/36.843009</a></li>
+        <li>Canty, M. J., Nielsen, A. A. (2008). Automatic radiometric normalization of multitemporal satellite imagery with the iteratively re-weighted MAD transformation. <em>Remote Sensing of Environment</em>, 112(3), 1025&ndash;1036. <a href="https://doi.org/10.1016/j.rse.2007.07.013">doi:10.1016/j.rse.2007.07.013</a></li>
+        <li>Canty, M. J., Nielsen, A. A., Schmidt, M. (2004). Automatic radiometric normalization of multitemporal satellite imagery. <em>Remote Sensing of Environment</em>, 91(3&ndash;4), 441&ndash;451. <a href="https://doi.org/10.1016/j.rse.2003.10.024">doi:10.1016/j.rse.2003.10.024</a></li>
+        <li>Green, A. A., Berman, M., Switzer, P., Craig, M. D. (1988). A transformation for ordering multispectral data in terms of image quality with implications for noise removal. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 26(1), 65&ndash;74. <a href="https://doi.org/10.1109/36.3001">doi:10.1109/36.3001</a></li>
+        <li>Lee, J. B., Woodyatt, A. S., Berman, M. (1990). Enhancement of high spectral resolution remote-sensing data by a noise-adjusted principal components transform. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 28(3), 295&ndash;304. <a href="https://doi.org/10.1109/36.54356">doi:10.1109/36.54356</a></li>
+        <li>Malila, W. A. (1980). Change vector analysis: an approach for detecting forest changes with Landsat. <em>Proceedings of the Machine Processing of Remotely Sensed Data Symposium</em>, 326&ndash;335. Purdue University.</li>
+        <li>Nielsen, A. A. (2007). The regularized iteratively reweighted MAD method for change detection in multi- and hyperspectral data. <em>IEEE Transactions on Image Processing</em>, 16(2), 463&ndash;478. <a href="https://doi.org/10.1109/TIP.2006.888195">doi:10.1109/TIP.2006.888195</a></li>
+        <li>Nielsen, A. A., Conradsen, K., Simpson, J. J. (1998). Multivariate alteration detection (MAD) and MAF postprocessing in multispectral, bitemporal image data: new approaches to change detection studies. <em>Remote Sensing of Environment</em>, 64(1), 1&ndash;19. <a href="https://doi.org/10.1016/S0034-4257(97)00162-4">doi:10.1016/S0034-4257(97)00162-4</a></li>
+        <li>Otsu, N. (1979). A threshold selection method from gray-level histograms. <em>IEEE Transactions on Systems, Man, and Cybernetics</em>, 9(1), 62&ndash;66. <a href="https://doi.org/10.1109/TSMC.1979.4310076">doi:10.1109/TSMC.1979.4310076</a></li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code>, <code>zeit.radcal</code>).</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+<script src="assets/main.js" defer></script>
+</body>
+</html>

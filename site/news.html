@@ -50,14 +50,19 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.21.0; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.21.1; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.21.1">
+      <h2><a href="#v1.21.1">1.21.1</a><time datetime="2026-11-20">2026-11-20</time> <span class="rel-new">Latest</span></h2>
+      <p>every window can leave the main one for a window of its own (another screen): Detach / Back to main window at the top of its content, closing the OS window brings it back (31 windows and 7 dialogs, the Raster calculator included; short prompts stay in the main window); the clippy fix that kept 1.21.0's binaries from being built</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.21.1">Release page on GitHub</a></p>
+    </section>
     <section id="v1.21.0">
-      <h2><a href="#v1.21.0">1.21.0</a><time datetime="2026-11-20">2026-11-20</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.21.0">1.21.0</a><time datetime="2026-11-20">2026-11-20</time></h2>
       <ul>
         <li>Temporal dynamics &gt; Temporal EOF (the modes of the anomalies as maps, the principal components, the variance explained, North's test with the effective dates, varimax; exact up to 1000 dates) and Lagged correlation (each pixel against a driver series on another grid and CRS, the window's mean or a CSV: r, the best lag, p with the effective n, Sidak and FDR), on Zeit 3.8.0</li>
         <li>Analysis &gt; Modes (scree, components, r by lag, the best lag's histogram, Show map, Save figure)</li>
@@ -171,20 +176,21 @@
       </ul>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.14.0">Release page on GitHub</a></p>
     </section>
-    <section id="v1.13.0">
-      <h2><a href="#v1.13.0">1.13.0</a><time datetime="2026-11-04">2026-11-04</time></h2>
-      <ul>
-        <li>official alerts (DETER, GLAD-L, GLAD-S2, RADD and GFW's integrated alerts against a run's map of change dates: areas in both, detected and confirmed shares, Dice, the lag, the agreement map; the same numbers as geopandas, rasterio, numpy and scipy, faster)</li>
-        <li>the Python history (every finished run as Python, kept between sessions, in an editor to copy or save as a .py or a notebook; real scripts for the Zeit tools, Reproject, resample, clip and Rasterize, their files equal to Janus')</li>
-        <li>vector lines without specks (the union of their segments' capsules)</li>
-        <li>a closer zoom (1024 screen points per pixel of the finest layer, vector layers alone 8 times closer still)</li>
-        <li>the raster calculator's example a hint</li>
-        <li>thin window title bars</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.13.0">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.13.0"><summary><span class="rv">1.13.0</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">official alerts (DETER, GLAD-L, GLAD-S2, RADD and GFW's integrated alerts against a run's map of change…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>official alerts (DETER, GLAD-L, GLAD-S2, RADD and GFW's integrated alerts against a run's map of change dates: areas in both, detected and confirmed shares, Dice, the lag, the agreement map; the same numbers as geopandas, rasterio, numpy and scipy, faster)</li>
+            <li>the Python history (every finished run as Python, kept between sessions, in an editor to copy or save as a .py or a notebook; real scripts for the Zeit tools, Reproject, resample, clip and Rasterize, their files equal to Janus')</li>
+            <li>vector lines without specks (the union of their segments' capsules)</li>
+            <li>a closer zoom (1024 screen points per pixel of the finest layer, vector layers alone 8 times closer still)</li>
+            <li>the raster calculator's example a hint</li>
+            <li>thin window title bars</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.13.0">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.12.1"><summary><span class="rv">1.12.1</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">1.12.0's release, which its tests' build never published (GDAL's drivers registered by two threads at once…</span></summary>
         <div class="rel-body">
           <ul>

@@ -1,5 +1,15 @@
 [
   {
+    "tag": "v1.21.1",
+    "version": "1.21.1",
+    "date": "2026-11-20",
+    "blocks": [
+      {
+        "p": "every window can leave the main one for a window of its own (another screen): Detach / Back to main window at the top of its content, closing the OS window brings it back (31 windows and 7 dialogs, the Raster calculator included; short prompts stay in the main window); the clippy fix that kept 1.21.0's binaries from being built"
+      }
+    ]
+  },
+  {
     "tag": "v1.21.0",
     "version": "1.21.0",
     "date": "2026-11-20",
