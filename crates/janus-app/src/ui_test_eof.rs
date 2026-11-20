@@ -386,8 +386,8 @@ impl State {
                             let want = norm[k] / total;
                             // the map against the pattern, the component against the known one
                             let (mut a, mut b) = (vec![], vec![]);
-                            for i in 0..W * H {
-                                let v = f64::from(layer.data[i]);
+                            for (i, &x) in layer.data.iter().enumerate().take(W * H) {
+                                let v = f64::from(x);
                                 if v.is_finite() {
                                     a.push(v);
                                     b.push(pattern(k, i % W, i / W));
