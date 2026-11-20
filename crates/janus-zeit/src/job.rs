@@ -1156,6 +1156,9 @@ pub fn run_job(
     if spec.tool == "topocorr" {
         return crate::topocorr::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "coregister" {
+        return crate::coregister::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -1329,6 +1332,9 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     }
     if spec.tool == "topocorr" {
         return crate::topocorr::estimate(spec, &p, cells);
+    }
+    if spec.tool == "coregister" {
+        return crate::coregister::estimate(spec, &p, cells);
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

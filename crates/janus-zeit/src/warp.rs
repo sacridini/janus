@@ -53,7 +53,13 @@ pub struct WarpOptions {
     /// a vector file and its layer whose polygons cut the result (-cutline), the result cropped to them
     pub cutline: Option<(String, String)>,
     pub resampling: String,
+    /// the source's NoData (None: the source's own)
+    pub src_nodata: Option<f64>,
     pub dst_nodata: Option<f64>,
+    /// a source with ground control points warped by a thin plate spline (-tps), or by a polynomial of this order
+    /// (-order 1 to 3); none of them: the source's geotransform
+    pub tps: bool,
+    pub order: Option<u8>,
     /// Byte, Int16, UInt16, Int32, Float32... (None: the source's)
     pub data_type: Option<String>,
     pub format: Format,
@@ -103,6 +109,14 @@ impl WarpOptions {
             }
         }
         push(&["-r", if self.resampling.is_empty() { "near" } else { &self.resampling }]);
+        if self.tps {
+            push(&["-tps"]);
+        } else if let Some(o) = self.order {
+            push(&["-order", &o.to_string()]);
+        }
+        if let Some(v) = self.src_nodata {
+            push(&["-srcnodata", &num(v)]);
+        }
         if let Some(v) = self.dst_nodata {
             push(&["-dstnodata", &num(v)]);
         }

@@ -18,6 +18,7 @@ mod clear_observations;
 pub mod cluster;
 mod coded;
 pub mod composite;
+pub mod coregister;
 pub mod correlation;
 pub mod dem;
 pub mod eof;
