@@ -50,14 +50,25 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.20.0; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.21.0; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.21.0">
+      <h2><a href="#v1.21.0">1.21.0</a><time datetime="2026-11-20">2026-11-20</time> <span class="rel-new">Latest</span></h2>
+      <ul>
+        <li>Temporal dynamics &gt; Temporal EOF (the modes of the anomalies as maps, the principal components, the variance explained, North's test with the effective dates, varimax; exact up to 1000 dates) and Lagged correlation (each pixel against a driver series on another grid and CRS, the window's mean or a CSV: r, the best lag, p with the effective n, Sidak and FDR), on Zeit 3.8.0</li>
+        <li>Analysis &gt; Modes (scree, components, r by lag, the best lag's histogram, Show map, Save figure)</li>
+        <li>a mode of the EOF drawn over the pixel's anomalies</li>
+        <li>their Python by zeit.eof and zeit.lagged_correlation (a driver of monthly files read with its format and put on the series' grid)</li>
+        <li>the guide The vegetation and the rain and corr() in the calculator's page</li>
+      </ul>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.21.0">Release page on GitHub</a></p>
+    </section>
     <section id="v1.20.0">
-      <h2><a href="#v1.20.0">1.20.0</a><time datetime="2026-11-18">2026-11-18</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.20.0">1.20.0</a><time datetime="2026-11-18">2026-11-18</time></h2>
       <ul>
         <li>crash reports (a panic's report and, on Windows, a minidump; the notice at the next start only after a crash, Restore the session, an issue filled in, nothing sent by itself)</li>
         <li>Help &gt; Welcome with sample data, a ? in every tool window to its guide and the parameters' defaults in their hover (nothing opens by itself at the start)</li>
@@ -172,19 +183,20 @@
       </ul>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.13.0">Release page on GitHub</a></p>
     </section>
-    <section id="v1.12.1">
-      <h2><a href="#v1.12.1">1.12.1</a><time datetime="2026-11-04">2026-11-04</time></h2>
-      <ul>
-        <li>1.12.0's release, which its tests' build never published (GDAL's drivers registered by two threads at once crashed janus-geo's tests on Windows and Linux): OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with their time, features fetched into a GeoPackage as a vector layer)</li>
-        <li>the ROI saved as a GeoPackage or GeoJSON and its vertices edited</li>
-        <li>the profiles of every line of a layer to CSV</li>
-        <li>labels from a column</li>
-        <li>large vector layers drawn whole (up to 100 million vertices)</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.12.1">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.12.1"><summary><span class="rv">1.12.1</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">1.12.0's release, which its tests' build never published (GDAL's drivers registered by two threads at once…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>1.12.0's release, which its tests' build never published (GDAL's drivers registered by two threads at once crashed janus-geo's tests on Windows and Linux): OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with their time, features fetched into a GeoPackage as a vector layer)</li>
+            <li>the ROI saved as a GeoPackage or GeoJSON and its vertices edited</li>
+            <li>the profiles of every line of a layer to CSV</li>
+            <li>labels from a column</li>
+            <li>large vector layers drawn whole (up to 100 million vertices)</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.12.1">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.12.0"><summary><span class="rv">1.12.0</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">OGC web layers (WMS, WMTS, WFS, OGC API - Features; TerraBrasilis and IBGE presets; maps as layers with…</span></summary>
         <div class="rel-body">
           <ul>

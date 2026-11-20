@@ -1,5 +1,21 @@
 [
   {
+    "tag": "v1.21.0",
+    "version": "1.21.0",
+    "date": "2026-11-20",
+    "blocks": [
+      {
+        "ul": [
+          "Temporal dynamics > Temporal EOF (the modes of the anomalies as maps, the principal components, the variance explained, North's test with the effective dates, varimax; exact up to 1000 dates) and Lagged correlation (each pixel against a driver series on another grid and CRS, the window's mean or a CSV: r, the best lag, p with the effective n, Sidak and FDR), on Zeit 3.8.0",
+          "Analysis > Modes (scree, components, r by lag, the best lag's histogram, Show map, Save figure)",
+          "a mode of the EOF drawn over the pixel's anomalies",
+          "their Python by zeit.eof and zeit.lagged_correlation (a driver of monthly files read with its format and put on the series' grid)",
+          "the guide The vegetation and the rain and corr() in the calculator's page"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v1.20.0",
     "version": "1.20.0",
     "date": "2026-11-18",
