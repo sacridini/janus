@@ -1362,7 +1362,8 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 59 | 1.20.0 | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída |
 | 60 | 1.20.0 | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída |
 | 61 | 1.20.0 | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída |
-| 62 | 1.20.0 | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída (o guia do site pendente) |
+| 62 | 1.20.0 | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída |
+| 63 | 1.21.0 | **EOF temporal e correlação com defasagem**: os modos das anomalias como mapas, componentes, North, varimax; o r de cada pixel com uma série motora (chuva do CHIRPS), a melhor defasagem, o p com o n efetivo e o FDR; a aba Analysis → Modes | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -2406,8 +2407,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
 - 1.19.1: a calculadora ganha corr(x, y, lag=, method=) (Pearson ou Spearman, y à frente) e a
   unidade m (meses) nas durações (lag(x, 1m), mean(x, 3m)); a ferramenta de fenologia não diz mais
   que é um port do phenofit (escrita a partir dos artigos), e o guia de fenologia refeito (27 estações).
-  As ferramentas EOF e correlação defasada (Zeit 3.8.0) estão no branch eof-tools, a parte do app em
-  andamento.
+  As ferramentas EOF e correlação defasada (Zeit 3.8.0) entraram na 1.21.0.
 - 1.19.2: o contorno de um polígono desenhado pela CPU (a feição sob o cursor, o ROI, o polígono em
   edição) como linha aberta que começa no meio da primeira aresta (ring_line): a linha fechada do egui
   junta todo canto em ponta, e de longe um anel pequeno reduzido a poucos pontos volta sobre si e
@@ -2423,6 +2423,14 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   tune_tool no MCP, o Python da busca). Também: os pins sem o cursor quando o mouse sai do mapa,
   o aviso de nova versão em destaque, e o polar phenology diz por que não roda numa série que não
   é regular (antes só "error").
+- 1.21.0 (fase 63, item 4 do ENVI): Temporal dynamics → Temporal EOF (modos das anomalias como
+  mapas, componentes principais, variância explicada, teste de North com as datas efetivas,
+  varimax; exato até 1000 datas, aleatorizado acima) e Lagged correlation (cada pixel contra uma
+  série motora em outra grade e CRS, a média da janela ou um CSV; r, melhor defasagem, p com o n
+  efetivo, Sidak e FDR); a aba Analysis → Modes (scree, componentes, r por defasagem, histograma,
+  Show map, Save figure); o modo da EOF desenhado sobre as anomalias do pixel; Copy Python por
+  zeit.eof e zeit.lagged_correlation (Zeit 3.8.0); o guia eof.html (EVI do oeste da França ×
+  CHIRPS v3) e o corr() na página da calculadora; autoteste 320-327.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
@@ -2517,6 +2525,11 @@ deslocamento, uma nuvem ou uma mudança conhecidos); um guia no site; o
      do bloco na memória.
    - **Teste/comparação:** contra o `xeofs` ou o `eofs` e o `xarray.corr`
      (resultado e tempo) num cubo de NDVI com uma série de chuva do ERA5.
+   - **Feito (1.21.0, fase 63):** no Zeit 3.8.0 (anomaly.rs, correlation.rs,
+     eof.rs; EOF exata contra eofs/xeofs a 1e-14, r igual ao xr.corr, 3-8×
+     mais rápido) e no Janus (eof.rs, correlation.rs, modes.rs, shots_eof.rs;
+     mapas iguais aos do zeit.eof a 3e-6). A chuva é o CHIRPS v3 (o ERA5 do
+     Planetary Computer acaba em 2020-12).
 
 5. **CVA, iMAD e o teste omnibus de Wishart para radar** (Change detection).
    - **Por quê:** a mudança entre duas datas com todas as bandas, não com um
