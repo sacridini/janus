@@ -162,6 +162,8 @@ pub fn mosaic_on_grid(
     n_jobs: usize,
     scratch: &Path,
 ) -> Result<Vec<f32>, String> {
+    // gdalbuildvrt opens the tiles through the C API: the drivers are registered by the first use of the crate's
+    let _ = DriverManager::get_driver_by_name("GTiff");
     let vrt = scratch.join(format!("dem_mosaic_{}.vrt", grid_hash(grid)));
     crate::series_io::build_vrt(&vrt, sources, &["-resolution".into(), "highest".into()])?;
     let r = on_grid(&vrt, grid, method, n_jobs);
