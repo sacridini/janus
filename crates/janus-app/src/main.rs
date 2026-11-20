@@ -106,6 +106,7 @@ mod stac;
 mod status;
 mod style;
 mod theme;
+mod topocorr_ui;
 mod tour;
 mod trajectory;
 mod transect;

@@ -430,11 +430,11 @@ fn angle_bands_are_the_sun_of_each_pixel() {
     f.run(&[("angle_scale", json!("hundredths"))]).unwrap();
     let z: Vec<f64> = dem().iter().map(|&v| f64::from(v)).collect();
     let (slope, aspect) = topocorr::slope_aspect(&z, H, W, 30.0, -30.0, 1);
-    for t in 0..T {
+    for (t, sun) in SUNS.iter().enumerate() {
         let zen: Vec<f32> =
-            (0..N).map(|i| ((100.0 * (SUNS[t][0] + 0.001 * (i % W) as f64)) as f32 as f64 / 100.0) as f32).collect();
+            (0..N).map(|i| ((100.0 * (sun[0] + 0.001 * (i % W) as f64)) as f32 as f64 / 100.0) as f32).collect();
         let azi: Vec<f32> =
-            (0..N).map(|i| ((100.0 * (SUNS[t][1] + 0.001 * (i % W) as f64)) as f32 as f64 / 100.0) as f32).collect();
+            (0..N).map(|i| ((100.0 * (sun[1] + 0.001 * (i % W) as f64)) as f32 as f64 / 100.0) as f32).collect();
         let x: Vec<f32> = f.cube[t].iter().flatten().copied().collect();
         let mut out = vec![0f32; x.len()];
         topocorr::topo_correct(

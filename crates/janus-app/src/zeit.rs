@@ -173,6 +173,8 @@ pub struct ZeitUi {
     /// the colormap and fixed range of the series being opened, by its file
     pub series_styles: HashMap<String, (usize, [f32; 2])>,
     pub open_style: Option<(usize, [f32; 2])>,
+    /// the quality band of a series a run wrote (its band number and rule), by its folder: opened with it
+    pub series_quality: HashMap<String, (i32, janus_cube::QaRule)>,
     /// the run folders looked at for an EOF run (a project's maps)
     pub(crate) modes_checked: std::collections::HashSet<String>,
     /// the temporal EOF and lagged-correlation runs of this session (Analysis > Modes)
@@ -365,10 +367,19 @@ pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, 
     if tool.requires.all_bands == Some(true) {
         // ImproPhe's fine series and the tools of change (MNF, CVA, iMAD, radiometric normalization): the quality band
         // is applied to the others, not one of them
-        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal") && info.sel.qa_band > 0)
+        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal" | "topocorr")
+            && info.sel.qa_band > 0)
             .then_some(info.sel.qa_band);
-        let mut all: Vec<(String, i32)> =
-            (1..=info.bands_per_date as i32).filter(|&b| Some(b) != qa).map(|b| (format!("b{b:03}"), b)).collect();
+        // the topographic correction reads the angle bands as the sun, and corrects none of them
+        let angles: Vec<i32> = if tool.id == "topocorr" {
+            janus_zeit::topocorr::ANGLE_ROLES.iter().filter_map(|r| roles.get(*r).copied()).collect()
+        } else {
+            vec![]
+        };
+        let mut all: Vec<(String, i32)> = (1..=info.bands_per_date as i32)
+            .filter(|&b| Some(b) != qa && !angles.contains(&b))
+            .map(|b| (format!("b{b:03}"), b))
+            .collect();
         // the roles a tool of every band also reads (CVA's red, NIR and SWIR1 of the sign sectors)
         let (_, optional) = tool_roles(tool);
         all.extend(optional.iter().filter_map(|r| roles.get(r).map(|&b| (r.clone(), b))));
@@ -1008,6 +1019,9 @@ impl State {
 
         crate::panels::section(ui, "Parameters");
         changed |= self.params_ui(ui, tool);
+        if tool.id == "topocorr" && why.is_none() {
+            self.sun_preview_ui(ui, tool);
+        }
         let mut tune = false;
         ui.horizontal_wrapped(|ui| {
             if ui.button("Reset to defaults").clicked() {
@@ -2326,6 +2340,12 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let params = self.zeit.params(tool).clone();
         let mut p = Provenance::start("zeit", &tool.id, &tool.name);
         p.set_params(&params);
+        // the Copernicus DEM's licence asks for its notice on what is made from it
+        if tool.id == "topocorr"
+            && let Some(dem) = params.get("dem_source").and_then(Value::as_str).filter(|s| s.starts_with("cop-dem"))
+        {
+            p.extra.insert("dem_notice".into(), json!(janus_zeit::dem::notice(dem)));
+        }
         // parameters kept from a tuning on samples say where they came from
         if let Some(mut c) = self.tune.calibration_entry(&tool.id, &params) {
             // the loop in Python that redoes the search, beside the run's own script (the history shows both)
@@ -2659,6 +2679,11 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                                 .unwrap_or(janus_gpu::colormaps::VIRIDIS);
                             self.zeit.series_styles.insert(path.clone(), (cmap, [lo as f32, hi as f32]));
                         }
+                        // a series that keeps the quality band (the topographic correction's): opened with it
+                        if let Some(q) = o["qa_band"].as_i64().filter(|&q| q > 0) {
+                            let rule = o["qa_rule"].as_str().and_then(janus_cube::QaRule::from_id).unwrap_or_default();
+                            self.zeit.series_quality.insert(path.clone(), (q as i32, rule));
+                        }
                         self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
                     }
                     continue;
@@ -2763,7 +2788,15 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             self.zeit.keep_active = Some(self.active);
             self.zeit.open_hidden = hidden;
             self.zeit.open_style = self.zeit.series_styles.remove(&path);
-            self.open_inputs(vec![path], true, ctx);
+            match self.zeit.series_quality.remove(&path) {
+                Some((qa_band, qa_rule)) => {
+                    let sel = janus_cube::BandSelection { qa_band, qa_rule, chosen: true, ..Default::default() };
+                    self.error = None;
+                    let add = !self.layers.is_empty();
+                    self.opening = Some(crate::session::Opening::start_with(vec![path], add, sel, ctx));
+                }
+                None => self.open_inputs(vec![path], true, ctx),
+            }
         }
     }
 
@@ -3270,6 +3303,16 @@ pub(crate) fn series_inputs(
         if tool.requires.all_bands == Some(true) {
             spec.band_names
                 .insert(role, info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}")));
+        }
+    }
+    if tool.id == "topocorr" {
+        // what each date's files say of its sun, and the quality band's name for the series it writes
+        spec.suns = janus_zeit::sun::of_series(info);
+        if info.sel.qa_band > 0 {
+            spec.band_names.insert(
+                "qa".into(),
+                info.band_names.get(info.sel.qa_band as usize - 1).cloned().unwrap_or_else(|| "quality".into()),
+            );
         }
     }
     spec.sensors = sensors_for(&tool.id, info);

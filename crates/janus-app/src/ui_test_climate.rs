@@ -2,7 +2,7 @@
 //! tiny months (a value says its month and pixel) and opens the window on a box; 366 checks it is drawn (the credit
 //! included) and presses Download; 367 waits for the job and the layer (three dates, named for the rain, the series
 //! studied still active) and reads the files' values; 368 downloads into a folder with two of the months (kept; only the
-//! third is read) and checks the rain is drawn as bars in the chart; 369 puts everything back. Then 385 (ui_test_calc_detach.rs), then 299.
+//! third is read) and checks the rain is drawn as bars in the chart; 369 puts everything back. Then 370 (ui_test_topocorr.rs), 385 (ui_test_calc_detach.rs), then 299.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -231,7 +231,7 @@ impl State {
                 let _ = std::fs::remove_dir_all(&dir);
                 *KEPT.lock().unwrap() = None;
                 next(st, "Climate data: everything put back");
-                st.stage = 385; // the detached calculator (385-388, ui_test_calc_detach.rs), then 299
+                st.stage = 370; // the topographic correction (370-374, ui_test_topocorr.rs), then 385 and 299
             }
             _ => {}
         }

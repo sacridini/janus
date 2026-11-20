@@ -207,19 +207,19 @@ fn check_band(
     let steep = STEEP.to_radians() as f32;
     let (mut sb, mut sa, mut ns_l) = (0.0, 0.0, 0usize);
     let (mut hb, mut ha, mut ns_h) = (0.0, 0.0, 0usize);
-    for p in 0..before.len() {
-        if !(slope[p] >= steep && before[p].is_finite() && after[p].is_finite()) || usable.is_some_and(|u| !u[p]) {
+    for (p, ((&b, &a), (&s, &asp))) in before.iter().zip(after).zip(slope.iter().zip(aspect)).enumerate() {
+        if !(s >= steep && b.is_finite() && a.is_finite()) || usable.is_some_and(|u| !u[p]) {
             continue;
         }
         let saz = f64::from(azi[if ns == 1 { 0 } else { p }]);
-        let facing = f64::from(aspect[p]).to_degrees();
+        let facing = f64::from(asp).to_degrees();
         if angle_between(facing, saz) <= 45.0 {
-            sb += f64::from(before[p]);
-            sa += f64::from(after[p]);
+            sb += f64::from(b);
+            sa += f64::from(a);
             ns_l += 1;
         } else if angle_between(facing, saz + 180.0) <= 45.0 {
-            hb += f64::from(before[p]);
-            ha += f64::from(after[p]);
+            hb += f64::from(b);
+            ha += f64::from(a);
             ns_h += 1;
         }
     }
@@ -258,6 +258,10 @@ fn corrected_bands(spec: &JobSpec, p: &Params) -> Result<planes::BandSet, String
 
 /// The sun of a date, as the fits' table says it: the scene's, or the mean over the pixels that have one.
 fn sun_numbers(zen: &[f32], azi: &[f32]) -> (f64, f64) {
+    // the sun of the scene: its own numbers
+    if let ([z], [a]) = (zen, azi) {
+        return (f64::from(*z), f64::from(*a));
+    }
     let mean = |v: &[f32]| {
         let ok: Vec<f64> = v.iter().filter(|x| x.is_finite()).map(|&x| f64::from(x)).collect();
         if ok.is_empty() { f64::NAN } else { ok.iter().sum::<f64>() / ok.len() as f64 }
@@ -402,13 +406,13 @@ pub(crate) fn run(
     let mut guards: Vec<String> = vec![];
     let mut sources: Vec<String> = vec![];
     let (mut sum_before, mut sum_after, mut count_r) = (0.0, 0.0, 0usize);
-    for k in 0..t {
+    for (k, (source, label)) in plan.iter().zip(&labels).enumerate() {
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".into());
         }
-        progress(0.05 + 0.9 * k as f64 / t as f64, &format!("{} ({}/{t})", labels[k], k + 1));
+        progress(0.05 + 0.9 * k as f64 / t as f64, &format!("{} ({}/{t})", label, k + 1));
         // the sun: one for the scene, or per pixel
-        let (zen, azi, ns): (Vec<f32>, Vec<f32>, usize) = match &plan[k] {
+        let (zen, azi, ns): (Vec<f32>, Vec<f32>, usize) = match source {
             Source::Scene { zenith, azimuth, .. } => (vec![*zenith as f32], vec![*azimuth as f32], 1),
             Source::Bands => {
                 let scale = if p.str("angle_scale") == "hundredths" { 100.0 } else { 1.0 };
@@ -428,7 +432,7 @@ pub(crate) fn run(
             Source::Missing(_) => return Err("a date has no sun".into()),
         };
         let (sun_z, sun_a) = sun_numbers(&zen, &azi);
-        sources.push(plan[k].name().to_string());
+        sources.push(source.name().to_string());
         // the bands of the date, strip by strip into float32
         let mut x = vec![0f32; nb * n];
         let mut r = 0;
@@ -491,11 +495,11 @@ pub(crate) fn run(
             }
             let why = why_not(fit, set.min_sample);
             if !why.is_empty() {
-                guards.push(format!("{} {}: copied unchanged ({why})", labels[k], bands.names[b]));
+                guards.push(format!("{} {}: copied unchanged ({why})", label, bands.names[b]));
             }
             let num = planes::csv_num;
             fit_rows.push(vec![
-                labels[k].clone(),
+                label.clone(),
                 bands.names[b].clone(),
                 p.str("method").to_string(),
                 num(fit.c),
@@ -507,10 +511,10 @@ pub(crate) fn run(
                 why,
                 num(sun_z),
                 num(sun_a),
-                plan[k].name().to_string(),
+                source.name().to_string(),
             ]);
             check_rows.push(vec![
-                labels[k].clone(),
+                label.clone(),
                 bands.names[b].clone(),
                 num(c.r_before),
                 num(c.r_after),

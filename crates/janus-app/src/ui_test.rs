@@ -42,6 +42,8 @@ mod misc;
 mod roi;
 #[path = "ui_test_scripts.rs"]
 mod scripts_check;
+#[path = "ui_test_topocorr.rs"]
+mod topocorr_test;
 #[path = "ui_test_tsa.rs"]
 mod tsa;
 #[path = "ui_test_tune.rs"]
@@ -120,6 +122,8 @@ pub struct UiTest {
     /// stages 400-409: the MNF, the change vector analysis, the iMAD, the normalization and the radar omnibus test
     /// (ui_test_envi.rs)
     envi: envi::EnviTest,
+    /// stages 370-374: the topographic correction (ui_test_topocorr.rs)
+    topo: topocorr_test::TopoTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
     /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs);
@@ -1076,6 +1080,7 @@ impl State {
             350..=354 => return self.test_chart_axis(st, t0, ctx),
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
+            370..=374 => return self.test_topocorr(st, t0, ctx),
             385..=399 => return self.test_calc_detach(st, t0, ctx),
             400..=406 => return self.test_envi(st, t0, ctx),
             407..=409 => return self.test_omnibus(st, t0, ctx),
