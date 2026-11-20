@@ -594,8 +594,11 @@ impl Writer<'_> {
                     let (qa_path, qa_out) = (part("_qa_src"), part("_qa"));
                     write_vrt(&qa_path, &source, &as_bands(&qa_src), rect)?;
                     opts.resampling = "near".into();
+                    // the codes are all values: no NoData (GDAL would move a code equal to it), the cells brought in from
+                    // outside start as the rule's refused code
                     opts.src_nodata = None;
-                    opts.dst_nodata = Some(fill_code(self.qa_rule.as_deref()));
+                    opts.dst_nodata = None;
+                    opts.init_dest = Some(fill_code(self.qa_rule.as_deref()));
                     warp::warp(&qa_path, &qa_out, &opts, &step)?;
                     final_qa = vec![(qa_out, 1)];
                 } else {
@@ -1593,6 +1596,37 @@ mod tests {
             // the codes stay codes
             assert!(read_band(&file, 2).iter().all(|c| [0.0, 4.0, 255.0].contains(c)), "{name}");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Under the rule that refuses code 0 the cloud's cells must stay 0 when they are moved (the cells that come in
+    /// from outside are 0 too): GDAL's destination NoData would turn them into 1.
+    #[test]
+    fn a_quality_band_of_zeros_and_ones_keeps_its_zeros_when_moved() {
+        let dir = std::env::temp_dir().join(format!("janus-coregister-unit-zeros-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (band, _, grid) = sources(&dir);
+        let qa = {
+            let path = dir.join("qa01.tif");
+            let drv = DriverManager::get_driver_by_name("GTiff").unwrap();
+            let mut ds = drv.create_with_band_type::<f32, _>(&path, grid.w, grid.h, 1).unwrap();
+            ds.set_geo_transform(&grid.gt).unwrap();
+            ds.set_projection(&grid.wkt).unwrap();
+            let v: Vec<f32> = (0..grid.w * grid.h).map(|i| if i % grid.w < 8 { 0.0 } else { 1.0 }).collect();
+            ds.rasterband(1).unwrap().write((0, 0), (grid.w, grid.h), &mut Buffer::new((grid.w, grid.h), v)).unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let mut wr = writer(&dir, &grid, &band, &qa, None);
+        wr.qa_rule = Some("nonzero".into());
+        let out = wr.date(0, "z", &Motion::Shift(3.0, -2.0), &AtomicBool::new(false)).unwrap();
+        let q = read_band(&out, 2);
+        let w = grid.w;
+        // columns 0-2 came from outside (refused: 0), the cloud's columns 0-7 are now 3-10, the rest clear
+        assert_eq!((q[10 * w + 1], q[10 * w + 5], q[10 * w + 12]), (0.0, 0.0, 1.0));
+        assert!(q.iter().all(|c| *c == 0.0 || *c == 1.0));
+        // the 11 columns of the rows that have a source, and the two rows that came in from below
+        assert_eq!(q.iter().filter(|c| **c == 0.0).count(), 11 * (grid.h - 2) + 2 * grid.w);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

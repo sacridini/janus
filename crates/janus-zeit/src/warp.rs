@@ -56,6 +56,9 @@ pub struct WarpOptions {
     /// the source's NoData (None: the source's own)
     pub src_nodata: Option<f64>,
     pub dst_nodata: Option<f64>,
+    /// the value the cells no source reaches start with (-wo INIT_DEST): unlike NoData it takes no value from the
+    /// cells that are reached (GDAL moves a result equal to the destination's NoData by one)
+    pub init_dest: Option<f64>,
     /// a source with ground control points warped by a thin plate spline (-tps), or by a polynomial of this order
     /// (-order 1 to 3); none of them: the source's geotransform
     pub tps: bool,
@@ -119,6 +122,9 @@ impl WarpOptions {
         }
         if let Some(v) = self.dst_nodata {
             push(&["-dstnodata", &num(v)]);
+        }
+        if let Some(v) = self.init_dest {
+            push(&["-wo", &format!("INIT_DEST={}", num(v))]);
         }
         if let Some(t) = &self.data_type {
             push(&["-ot", t]);
