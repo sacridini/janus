@@ -24,6 +24,8 @@ mod calc_detach_tests;
 mod chart_axis_tests;
 #[path = "ui_test_climate.rs"]
 mod climate_tests;
+#[path = "ui_test_coregister.rs"]
+mod coreg_test;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
 #[path = "ui_test_envi.rs"]
@@ -42,8 +44,6 @@ mod misc;
 mod roi;
 #[path = "ui_test_scripts.rs"]
 mod scripts_check;
-#[path = "ui_test_coregister.rs"]
-mod coreg_test;
 #[path = "ui_test_topocorr.rs"]
 mod topocorr_test;
 #[path = "ui_test_tsa.rs"]

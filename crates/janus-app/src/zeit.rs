@@ -367,9 +367,10 @@ pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, 
     if tool.requires.all_bands == Some(true) {
         // ImproPhe's fine series and the tools of change (MNF, CVA, iMAD, radiometric normalization): the quality band
         // is applied to the others, not one of them
-        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal" | "topocorr" | "coregister")
-            && info.sel.qa_band > 0)
-            .then_some(info.sel.qa_band);
+        let qa =
+            (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal" | "topocorr" | "coregister")
+                && info.sel.qa_band > 0)
+                .then_some(info.sel.qa_band);
         // the topographic correction reads the angle bands as the sun, and corrects none of them
         let angles: Vec<i32> = if tool.id == "topocorr" {
             janus_zeit::topocorr::ANGLE_ROLES.iter().filter_map(|r| roles.get(*r).copied()).collect()
