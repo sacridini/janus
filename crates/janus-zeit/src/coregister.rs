@@ -866,20 +866,31 @@ fn largest_valid_square(a: &[bool], b: &[bool], w: usize, h: usize) -> Option<(f
     (side > 0).then(|| (x as f64 + 1.0 - f64::from(side) / 2.0, y as f64 + 1.0 - f64::from(side) / 2.0, side as usize))
 }
 
-/// The shift of a date to the reference. Where the window cannot be placed at the middle of what the images share (a
-/// cloud is there) it is tried again at the largest square they have clear, when that holds a window of 32 pixels or
-/// more; the answer says whether it was.
+/// The shift of a date to the reference. AROSICS puts its window at the middle of what the images share and grows it
+/// from there until it meets a pixel without data, so a cloud near the middle leaves it small, or none at all. Where
+/// the window cannot be placed or comes out under three quarters of the side a clear square of the images would give,
+/// it is tried again at the largest clear square (when that holds a window of 32 pixels or more), and that answer is
+/// kept if it succeeded and is more reliable; the answer says whether it was.
 fn match_global(reference: &Img, target: &Img, w: usize, h: usize, p: &coreg::Params) -> (Outcome, bool) {
     let first = coreg::coregister(&reference.image(w, h), &target.image(w, h), p);
-    if first.success || !matches!(first.failure, Some(Failure::WindowTooSmall | Failure::WindowShrink)) {
+    let side = |o: &Outcome| (o.window[2].saturating_sub(o.window[0])).min(o.window[3].saturating_sub(o.window[1]));
+    let unplaced = matches!(first.failure, Some(Failure::WindowTooSmall | Failure::WindowShrink));
+    let cut = first.window[2] > first.window[0] && side(&first) < p.window_size;
+    if !unplaced && !cut {
         return (first, false);
     }
-    let Some((cx, cy, side)) = largest_valid_square(&reference.valid, &target.valid, w, h).filter(|s| s.2 >= 32) else {
+    let Some((cx, cy, clear)) = largest_valid_square(&reference.valid, &target.valid, w, h).filter(|s| s.2 >= 32)
+    else {
         return (first, false);
     };
-    let moved = coreg::Params { window_pos: Some((cx, cy)), window_size: p.window_size.min(side & !1), ..p.clone() };
+    // the window the clear square would hold, against the one the first try had
+    if !unplaced && 4 * side(&first) >= 3 * p.window_size.min(clear) {
+        return (first, false);
+    }
+    let moved = coreg::Params { window_pos: Some((cx, cy)), window_size: p.window_size.min(clear & !1), ..p.clone() };
     let second = coreg::coregister(&reference.image(w, h), &target.image(w, h), &moved);
-    if second.success { (second, true) } else { (first, false) }
+    let better = second.success && (!first.success || second.reliability >= first.reliability);
+    if better { (second, true) } else { (first, false) }
 }
 
 /// A date that could not be matched, as a row.
@@ -931,7 +942,8 @@ pub(crate) fn run(
     if w < 32 || h < 32 {
         return Err(format!("ValueError: the window ({w} x {h} pixels) is too small to match"));
     }
-    let dir = PathBuf::from(&spec.output_dir);
+    // the VRTs of the series name their sources by absolute paths
+    let dir = std::path::absolute(&spec.output_dir).unwrap_or_else(|_| PathBuf::from(&spec.output_dir));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let labels = crate::job::date_labels(spec);
     let n_jobs = spec.n_jobs();
@@ -1196,7 +1208,7 @@ pub(crate) fn run(
             for ((d, _, share), (o, replaced)) in read.iter().zip(outcomes) {
                 if replaced {
                     notes.push(format!(
-                        "{}: the window could not sit at the middle of what the images share (cloud): it sits at the largest clear square, {} x {} pixels.",
+                        "{}: a cloud is near the middle of what the images share, where the window would sit: it sits at the largest clear square, {} x {} pixels.",
                         labels[*d],
                         o.window[2] - o.window[0],
                         o.window[3] - o.window[1]
@@ -1306,7 +1318,9 @@ pub(crate) fn run(
             writer.date(d, stem, &motions[d], cancel)?;
         }
         if cog {
+            // the COGs hold everything: the VRTs they were made from are not needed
             let _ = std::fs::remove_dir_all(&writer.parts);
+            let _ = std::fs::remove_dir_all(&sources);
         }
         series_written = Some((has_qa, nb));
     }

@@ -306,7 +306,7 @@ fn the_shifts_are_the_cores_and_the_truth() {
     assert_eq!(layer.feature_count(), 3);
     let report = std::fs::read_to_string(f.out("report.txt")).unwrap();
     assert!(report.contains("3 of 4 dates moved") && report.contains("AROSICS"), "{report}");
-    assert!(report.contains("2022-01-24: the window could not sit"), "{report}");
+    assert!(report.contains("2022-01-24: a cloud is near the middle"), "{report}");
 }
 
 /// A shift of whole pixels copies the cells: the date moved is the reference where both have data. The others are the
@@ -652,4 +652,41 @@ fn mistakes_are_said() {
     assert!(e.contains("not mapped"), "{e}");
     let e = fails(f.run(&[("reference", json!("layer"))]));
     assert!(e.contains("reference layer"), "{e}");
+}
+
+/// A cloud beside the middle of what the dates share leaves AROSICS' window small (it grows from the middle until it
+/// meets the cloud): the run puts it at the largest clear square, and the shift is found.
+#[test]
+fn a_cloud_beside_the_middle_moves_the_window_to_a_clear_square() {
+    let mut f = fixture("near_cloud", true);
+    // the block 100-170: the middle of the images (192, 192) is clear, 22 pixels from its corner
+    for i in 0..N {
+        let (x, y) = (i % W, i / W);
+        let cloud = (100..170).contains(&x) && (100..170).contains(&y);
+        f.codes[1][i] = if cloud { 4.0 } else { 0.0 };
+        f.nir[1][i] = if cloud { 0.9 } else { Scene(1).at(x as f64 + 0.5 + 3.0, y as f64 + 0.5 - 2.0) };
+    }
+    write_tif(&f.dir.join("nir.tif"), &f.nir);
+    let codes = f.codes.clone();
+    write_tif(&f.dir.join("qa.tif"), &codes);
+    // what the core makes of the middle window
+    let core = core_global(&f, 1);
+    let side = core.window[2].saturating_sub(core.window[0]);
+    f.run(&[]).unwrap();
+    let rows = csv(&f.out("shifts.csv"));
+    let (dx, dy, win0, win2) = (
+        column(&rows, "x_shift_px"),
+        column(&rows, "y_shift_px"),
+        column(&rows, "window_x0"),
+        column(&rows, "window_x1"),
+    );
+    assert!(
+        (number(&rows[2], dx) - 3.0).abs() < 0.2 && (number(&rows[2], dy) + 2.0).abs() < 0.2,
+        "{:?} (the core's window: {side} pixels)",
+        rows[2]
+    );
+    let moved = rows[2][win2].parse::<usize>().unwrap() - rows[2][win0].parse::<usize>().unwrap();
+    assert!(moved > side, "the window should be larger than the core's {side}: {moved}");
+    let report = std::fs::read_to_string(f.out("report.txt")).unwrap();
+    assert!(report.contains("a cloud is near the middle"), "{report}");
 }
