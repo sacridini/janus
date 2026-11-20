@@ -21,10 +21,14 @@ mod canvas;
 mod canvas_layer;
 mod chain;
 mod chart;
+mod chart_axis;
 mod chips;
 mod classes;
+mod climate;
 mod composite;
 mod contents;
+mod crash;
+mod crash_ui;
 mod cycles;
 mod display;
 mod downloads;
@@ -34,12 +38,15 @@ mod embeddings_test;
 mod export_map;
 mod exports;
 mod fields_ui;
+mod figure;
+mod figure_ui;
 mod files;
 mod fit;
 mod folds_ui;
 mod fraction;
 mod gif;
 mod golden;
+mod graticule;
 mod groups;
 mod harmonize_ui;
 mod highres;
@@ -89,6 +96,7 @@ mod shots_alerts;
 mod shots_clips;
 mod shots_layout;
 mod shots_ml;
+mod shots_tune;
 mod shots_validation;
 mod similarity;
 mod speckle_ui;
@@ -102,6 +110,7 @@ mod trajectory;
 mod transect;
 mod trend_test;
 mod tsa;
+mod tune_ui;
 mod ui_test;
 mod undo;
 mod update;
@@ -116,6 +125,7 @@ mod views;
 mod warp_ui;
 mod wavelet;
 mod web_layers;
+mod welcome;
 mod zeit;
 mod zonal_ui;
 
@@ -255,6 +265,7 @@ Developer options:
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
                       (IN from tools/make_tutorial_data.py), alerts (the same IN; DETER and GLAD-S2 fetched),
+                      tune (IN: the folder of the synthetic validation project, janus_validation),
                       landtrendr, ccdc, coded (tools/make_guide_data.py),
                       bfast, phenology (an EVI series); layout (IN any series: every panel, window and menu at
                       font sizes of 10 to 28 px, the texts that do not fit their place in OUT/report.txt);
@@ -281,6 +292,9 @@ Developer options:
   --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT); DIR
                       another kind of series: AlphaEarth 2023-2024 of its visible area (or --roi) downloaded
                       first and added on top
+  --crash-test panic|native  fails on purpose once the window is up (a panic, or a write to a null pointer): the
+                      report in the crashes folder of the data folder (JANUS_DATA_DIR changes it) and the notice
+                      at the next start
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT
                       (tools/compare_golden.py compares two such folders)
 ";
@@ -463,6 +477,9 @@ fn open_files_limit() -> usize {
 
 fn main() -> eframe::Result<()> {
     let t0 = Instant::now();
+    // first of all: a panic leaves a report in the crashes folder (crash.rs), for the window and for `mcp`
+    crash::install_panic_hook();
+    crash::install_native_handler();
     configure_data();
     // GDAL's block cache at 512 MB unless the environment sets it: closing a series of 41 files took 15-20 s with
     // GDAL's default (commit 9d6019c)
@@ -491,6 +508,7 @@ fn main() -> eframe::Result<()> {
                 0 => std::thread::available_parallelism().map_or(4, |n| n.get()),
                 n => n,
             });
+        crash::set_threads(threads);
         std::process::exit(mcp::serve(threads));
     }
     while let Some(a) = args.next() {
@@ -523,6 +541,7 @@ fn main() -> eframe::Result<()> {
                 };
             }
             "--measure-startup" => opts.measure_startup = true,
+            "--crash-test" => opts.crash_test = args.next().filter(|m| matches!(m.as_str(), "panic" | "native")),
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
             "--settings" => opts.settings_open = true,
@@ -774,7 +793,14 @@ fn main() -> eframe::Result<()> {
         persist_window: false,
         ..Default::default()
     };
-    eframe::run_native("Janus", options, Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))))?;
+    let run = eframe::run_native(
+        "Janus",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))),
+    );
+    // a normal close: this run's marker goes (a panic or a crash leaves it, and the next start says so)
+    crash::clean_exit();
+    run?;
     let rc = app::EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed);
     if rc != 0 {
         std::process::exit(rc);

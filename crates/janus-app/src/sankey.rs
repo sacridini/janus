@@ -275,7 +275,7 @@ impl State {
         }
         let w = ui.text_style_height(&egui::TextStyle::Body) * 6.5;
         let (mut remove, mut add) = (None, false);
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             let n = a.flow_dates.len();
             for (k, t) in a.flow_dates.iter_mut().enumerate() {
                 egui::ComboBox::from_id_salt(("flow date", k)).width(w).selected_text(&info.layers[*t].label).show_ui(

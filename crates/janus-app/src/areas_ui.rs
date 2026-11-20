@@ -12,6 +12,7 @@ use egui_plot::{Bar, BarChart, Legend, Plot};
 use janus_zeit::areas::{AreaOptions, AreaSource, AreaTable, areas};
 
 use crate::app::State;
+use crate::figure::FigurePlot;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
 const UNITS: [&str; 3] = ["ha", "km²", "%"];
@@ -147,9 +148,9 @@ impl State {
         }
         let series = self.layers.get(self.active).map_or("the active series".into(), |l| l.name.clone());
         let mut own = self.areas.threads;
-        self.threads_ui(ui, &mut own);
+        crate::figure::chrome(ui, |ui| self.threads_ui(ui, &mut own));
         self.areas.threads = own;
-        ui.horizontal(|ui| {
+        crate::figure::controls(ui, |ui| {
             ui.label("Map");
             let shown = self
                 .areas
@@ -180,7 +181,7 @@ impl State {
                 self.areas_run(ui.ctx());
             }
         });
-        if !self.areas.status.is_empty() {
+        if !self.areas.status.is_empty() && !crate::figure::active() {
             ui.weak(&self.areas.status);
         }
         let Some((t, meta)) = self.areas.table.clone() else {
@@ -190,8 +191,13 @@ impl State {
             );
             return;
         };
-        ui.separator();
-        ui.horizontal(|ui| {
+        let figure = crate::figure::active();
+        if figure {
+            ui.strong(&meta.title);
+        } else {
+            ui.separator();
+        }
+        crate::figure::controls(ui, |ui| {
             ui.strong(&meta.title);
             for (k, u) in UNITS.iter().enumerate() {
                 ui.radio_value(&mut self.areas.unit, k, *u);
@@ -208,7 +214,9 @@ impl State {
                 self.error_popup = Some(format!("{}: {e}", p.display()));
             }
         });
-        ui.weak(format!("Pixel areas: {}. {:.1} s; the CSV in {}.", t.note, meta.seconds, meta.folder));
+        if !figure {
+            ui.weak(format!("Pixel areas: {}. {:.1} s; the CSV in {}.", t.note, meta.seconds, meta.folder));
+        }
         let unit = self.areas.unit;
         let value = |s: usize, k: usize| {
             let a = t.m2[s][k];
@@ -221,7 +229,8 @@ impl State {
                 }
             }
         };
-        let h = (ui.available_height() * 0.55).clamp(140.0, 320.0);
+        // a figure: the plot is all of it
+        let h = if figure { ui.available_height() } else { (ui.available_height() * 0.55).clamp(140.0, 320.0) };
         let n_src = t.labels.len();
         if n_src == 1 {
             // one map: a bar per value (a year, a class)
@@ -229,7 +238,7 @@ impl State {
             Plot::new("areas one")
                 .height(h)
                 .y_axis_label(UNITS[unit])
-                .x_axis_formatter(move |m, _| {
+                .x_labels(move |m, _| {
                     let i = m.value.round();
                     if (m.value - i).abs() < 1e-6 && i >= 0.0 {
                         ticks.get(i as usize).cloned().unwrap_or_default()
@@ -256,7 +265,7 @@ impl State {
                 .height(h)
                 .y_axis_label(UNITS[unit])
                 .legend(Legend::default().position(egui_plot::Corner::RightTop).background_alpha(0.6))
-                .x_axis_formatter(move |m, _| {
+                .x_labels(move |m, _| {
                     let i = m.value.round();
                     if (m.value - i).abs() < 1e-6 && i >= 0.0 {
                         ticks.get(i as usize).cloned().unwrap_or_default()
@@ -279,6 +288,9 @@ impl State {
                         pu.bar_chart(c);
                     }
                 });
+        }
+        if figure {
+            return;
         }
         // the table of a date
         let s = if n_src == 1 {

@@ -149,6 +149,7 @@ impl State {
         for w in [
             "calculator",
             "stac",
+            "climate",
             "regularize",
             "speckle",
             "harmonize",
@@ -159,6 +160,7 @@ impl State {
             "areas",
             "fields",
             "export",
+            "figure",
             "goto",
             "tasks",
             "log",
@@ -168,6 +170,10 @@ impl State {
             "updates",
             "about",
             "help",
+            "welcome",
+            "samples",
+            "tune",
+            "tune_results",
         ] {
             v.push(Place::Window(w));
         }
@@ -200,6 +206,7 @@ impl State {
         self.ml.open = false;
         self.calc.show = false;
         self.stac.show = false;
+        self.climate.show = false;
         self.reg.show = false;
         self.speckle.show = false;
         self.harmonize.show = false;
@@ -209,6 +216,7 @@ impl State {
         self.poly.show = false;
         self.fields.show = false;
         self.export.open = false;
+        self.export.figure.source = None;
         self.nav.goto_open = false;
         self.zeit.show_tasks = false;
         self.zeit.log.show = false;
@@ -218,6 +226,9 @@ impl State {
         self.update.open = false;
         self.about_open = false;
         self.help_popup = false;
+        self.welcome.show = false;
+        self.tune_close_now();
+        self.tune.done = None;
     }
 
     /// Shows a place.
@@ -249,6 +260,7 @@ impl State {
             Place::Window(w) => match *w {
                 "calculator" => self.calc.show = true,
                 "stac" => self.stac.show = true,
+                "climate" => self.open_climate(),
                 "regularize" => self.reg.show = true,
                 "speckle" => self.speckle.show = true,
                 "harmonize" => self.harmonize.show = true,
@@ -263,6 +275,7 @@ impl State {
                 "areas" => self.open_areas(None),
                 "fields" => self.fields.show = true,
                 "export" => self.open_export(0),
+                "figure" => self.open_figure(crate::figure_ui::Source::Chart),
                 "goto" => self.toggle_goto(),
                 "tasks" => self.zeit.show_tasks = true,
                 "log" => self.zeit.log.show = true,
@@ -275,6 +288,20 @@ impl State {
                 "updates" => self.update.open = true,
                 "about" => self.about_open = true,
                 "help" => self.help_popup = true,
+                "welcome" => self.open_welcome(),
+                "tune" | "tune_results" => {
+                    if let Some(t) = janus_zeit::manifest().tool("landtrendr") {
+                        if *w == "tune" {
+                            self.open_tune(t);
+                        } else {
+                            self.tune_demo(t);
+                        }
+                    }
+                }
+                "samples" => {
+                    self.open_welcome();
+                    self.welcome.samples_view = true;
+                }
                 _ => {}
             },
         }

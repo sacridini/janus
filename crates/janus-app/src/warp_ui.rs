@@ -134,6 +134,7 @@ impl State {
     }
 
     fn warp_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "warp");
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.weak("Open a series first.");
             return;

@@ -27,6 +27,8 @@ use crate::ml::Site;
 
 #[path = "mcp_more.rs"]
 mod more;
+#[path = "mcp_tune.rs"]
+mod tune;
 
 /// The versions of the protocol spoken (the newest first): the client's, when it is one of them.
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -42,7 +44,7 @@ the alias alone is the quantity the layer shows (its expression), `s2.nir` a ban
 `ndvi < 0.2 = 0`, `max(ndvi) by year`. list_indices gives the spectral indices' formulas. Zeit's tools \
 (list_tools, describe_tool, run_tool) write maps of change, trends, phenology, classes. A series from a STAC catalog \
 (stac_catalogs, stac_search, stac_series: Sentinel-2, Landsat, HLS, Sentinel-1 over an area and dates, read in \
-place, downloaded or composited) is a folder like any other. describe_vector and vector_series read vector files. \
+place, downloaded or composited) is a folder like any other. climate_data downloads CHIRPS rainfall for a box as a series of GeoTIFFs. describe_vector and vector_series read vector files. \
 Every result is files on disk, their paths in the answer; open_in_janus shows them to the user in Janus.";
 
 /// The server's output, shared by the calls that answer from their threads: a message per line.
@@ -205,6 +207,7 @@ impl Server {
             "list_tools" => Ok(list_tools()),
             "describe_tool" => describe_tool(&a),
             "run_tool" => self.run_tool(&a, c),
+            "tune_tool" => self.tune_tool(&a, c),
             "regularize" => self.regularize(&a, c),
             "warp" => self.warp(&a, c),
             "zonal" => self.zonal(&a, c),
@@ -219,6 +222,7 @@ impl Server {
             "stac_catalogs" => self.stac_catalogs(&a),
             "stac_search" => self.stac_search(&a, c),
             "stac_series" => self.stac_series(&a, c),
+            "climate_data" => self.climate_data(&a, c),
             "describe_vector" => self.describe_vector(&a),
             "vector_series" => self.vector_series(&a, c),
             _ => Err(format!("no tool {name:?}")),
@@ -404,6 +408,37 @@ fn catalogue() -> Vec<Value> {
                 area_props(),
             ),
             &["tool"],
+            false,
+        ),
+        tool(
+            "tune_tool",
+            "Tune a change tool's parameters on reference points",
+            "Searches a change tool's parameters (LandTrendr, CCDC, S-CCD, BFAST, BFAST Lite, BFAST Monitor, CODED, EWMACD, BEAST: list_tools) on reference points that have the date of the change (or none): Latin hypercube sets (200 by default, besides the tool's defaults and `params`) each run on every point's series, scored by omission, commission, F1, F1 with the date (the table's order), the share of dates within `tolerance` years and the mean date error. The reference is `reference`: a validation project (.gpkg: only its calibration split, which the project must have, so the accuracy points do not calibrate; a project without one is refused) or a vector file of points with a date field (`field`; a year or a date, empty = no change). Answers the sets sorted (parameters and scores), the Pareto front of omission x commission, the partial rank correlation of each parameter with the dated F1 (which ones matter), the k-fold optimism of the best set (chosen on k-1 folds, scored on the rest) and a warning with few changes (under 30). Writes tune.json and tune.py (the same search in Python with zeit-cdts) in the folder.",
+            with(
+                json!({
+                    "tool": { "type": "string", "description": "the tool to tune (describe_tool); not every tool has a change date" },
+                    "series": series_schema(),
+                    "reference": { "type": "string", "description": "a validation project (.gpkg) or a vector file of points" },
+                    "field": { "type": "string", "description": "a vector file's date field (a year, a date or a decimal year; empty = no change)" },
+                    "layer": { "type": "string", "description": "the vector file's layer (the first by default)" },
+                    "labels": { "type": "object", "description": "a project's labels as \"change\", \"no change\" or \"\" (left out); by default read from the names of its labels" },
+                    "use_accuracy": { "type": "boolean", "description": "true asks for the project's accuracy points as the reference: refused, they estimate the accuracy" },
+                    "years": { "type": "array", "items": { "type": "integer" }, "description": "[first, last] year a change counts in, in the reference and in the map (default: the series' years)" },
+                    "tolerance": { "type": "integer", "description": "years within which a found change's date agrees (default 1)" },
+                    "k": { "type": "integer", "description": "folds of the optimism check (default 5)" },
+                    "n_sets": { "type": "integer", "description": "sets of the Latin hypercube (default 200, at most 5000)" },
+                    "vary": { "type": "array", "items": { "type": "string" }, "description": "the parameters that vary (default: the tool's three or four most influential; describe_tool for their ids)" },
+                    "ranges": { "type": "object", "description": "{param: {min, max}} or {param: {choices: [...]}} to search other ranges than the default" },
+                    "params": { "type": "object", "description": "the tool's parameters held at these values (the rest at their defaults); the `current` set" },
+                    "roles": { "type": "object", "description": "multiband tools: the band of each role" },
+                    "weighted": { "type": "boolean", "description": "a project: each point counts its stratum's area over the points drawn in it" },
+                    "seed": { "type": "integer", "description": "the search's seed (default 1): the same seed gives the same sets" },
+                    "threads": { "type": "integer", "description": "threads of the search, at most the server's" },
+                    "output_dir": out_dir
+                }),
+                json!({}),
+            ),
+            &["tool", "series", "reference"],
             false,
         ),
         tool(
@@ -601,6 +636,20 @@ fn catalogue() -> Vec<Value> {
             ),
             &["collection", "bbox_lonlat", "start", "end"],
             true,
+        ),
+        tool(
+            "climate_data",
+            "Download rainfall (CHIRPS v3) for an area",
+            "CHIRPS v3 rainfall (Climate Hazards Center, 0.05 degrees, 60S-60N, from 1981; public domain, cite Funk et al., Scientific Data, doi:10.1038/s41597-026-07096-4, data doi:10.15780/G2JQ0P): only the box is read from each remote file, one GeoTIFF a date (mm per month, pentad or day) with the date in its name. The folder is a series for the other tools (pixel_series, calculate: its coarse grid is matched to another series by date). A file already there is kept, so calling again retries the dates that failed.",
+            json!({
+                "source": { "type": "string", "enum": ["monthly", "pentad", "daily"], "description": "default monthly (pentad: six a month; daily: the pentads spread by ERA5)" },
+                "bbox_lonlat": { "type": "array", "items": { "type": "number" }, "description": "[lon_min, lat_min, lon_max, lat_max]" },
+                "start": { "type": "string", "description": "YYYY-MM (from 1981-01)" },
+                "end": { "type": "string", "description": "YYYY-MM (included; up to the month before today's)" },
+                "output_dir": out_dir.clone()
+            }),
+            &["bbox_lonlat", "start", "end"],
+            false,
         ),
         tool(
             "stac_series",

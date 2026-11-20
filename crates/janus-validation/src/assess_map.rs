@@ -111,6 +111,8 @@ pub struct Prepared {
     pub conflicts: i32,
     pub unmapped: i32,
     pub excluded: i32,
+    /// points that calibrate a tool (the project's calibration split): left out of the assessment
+    pub calibration: i32,
     pub no_date: i32,
     pub off_map: i32,
     pub unmapped_labels: BTreeSet<String>,
@@ -159,6 +161,10 @@ pub fn prepare(
     o.ref_year = vec![0; n];
     for i in 0..n {
         if !use_points.is_empty() && !use_points.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        if p.calibration.as_ref().is_some_and(|c| c.has(p.points[i].id)) {
+            o.calibration += 1;
             continue;
         }
         o.input.stratum[i] = p.strata.index_of_code(p.points[i].stratum);
@@ -254,6 +260,10 @@ pub fn change_by_year(p: &Project, m: &AssessedMap, confidence: f64) -> Vec<(i32
     let (mut y0, mut y1) = (i32::MAX, i32::MIN);
     let period = m.rule.kind == MapKind::Events && m.rule.bins.len() >= 2;
     for i in 0..n {
+        // the points that calibrate do not estimate
+        if p.calibration.as_ref().is_some_and(|c| c.has(p.points[i].id)) {
+            continue;
+        }
         let (Some(l), _) = resolve(&labels, i) else { continue };
         let (ys, any) = change_years(l, &m.mapping);
         if any && ys.is_empty() {

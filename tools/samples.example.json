@@ -1,0 +1,17 @@
+[
+  {
+    "id": "rondonia-ndvi",
+    "title": "Annual NDVI of a Rondônia forest frontier, 1985–2024",
+    "description": "Forty years of Landsat NDVI, one band a year, for the LandTrendr guide. Landsat is in the public domain.",
+    "size_mb": 74.5,
+    "guide": "landtrendr",
+    "files": [
+      {
+        "url": "https://github.com/sacridini/janus/releases/download/sample-data-v1/rondonia_ndvi_1985_2024.tif",
+        "name": "rondonia_ndvi_1985_2024.tif",
+        "sha256": "c9bb48d3f484b206db9f88cd6bce52450d0d6e29b331bf5b50734593c228abda"
+      }
+    ],
+    "open": "rondonia_ndvi_1985_2024.tif"
+  }
+]

@@ -295,6 +295,7 @@ impl State {
     }
 
     fn fields_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "fields");
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.weak("Open a Sentinel-2 series (red, green, blue and NIR bands) first.");
             return;

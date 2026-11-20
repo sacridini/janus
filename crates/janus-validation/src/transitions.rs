@@ -218,6 +218,10 @@ pub fn prepare_transitions(
         if !use_points.is_empty() && !use_points.get(i).copied().unwrap_or(false) {
             continue;
         }
+        if p.calibration.as_ref().is_some_and(|c| c.has(p.points[i].id)) {
+            o.prep.calibration += 1;
+            continue;
+        }
         o.prep.input.stratum[i] = p.strata.index_of_code(p.points[i].stratum);
         let a = rf.class_of(from_values.get(i).copied().unwrap_or(f64::NAN));
         let b = rt.class_of(to_values.get(i).copied().unwrap_or(f64::NAN));

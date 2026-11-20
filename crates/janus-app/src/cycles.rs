@@ -197,7 +197,7 @@ impl State {
         let current = times[self.display.t.min(times.len() - 1)];
         let c = &mut self.cycles;
         let src = sources.iter().position(|s| s.0 == c.source).unwrap_or(0);
-        ui.horizontal(|ui| {
+        crate::figure::controls(ui, |ui| {
             egui::ComboBox::from_id_salt("cycles source")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 13.0)
                 .selected_text(&sources[src].1)
@@ -230,21 +230,30 @@ impl State {
                 return;
             }
         };
-        if c.image.as_ref().is_none_or(|t| t.0 != key) {
+        // (a figure has a context of its own: its texture is its own too)
+        let figure = crate::figure::active();
+        let mut own_texture = None;
+        if figure || c.image.as_ref().is_none_or(|t| t.0 != key) {
             let range = power_range(s);
             let tex = ui.ctx().load_texture("cycles", image_of(s, range), egui::TextureOptions::LINEAR);
-            c.image = Some((key, tex, range.0, range.1));
+            if figure {
+                own_texture = Some((key, tex, range.0, range.1));
+            } else {
+                c.image = Some((key, tex, range.0, range.1));
+            }
         }
-        let (tex, lo, hi) = c.image.as_ref().map(|t| (t.1.id(), t.2, t.3)).unwrap();
-        ui.weak(format!(
-            "{} dates, a step of {:.0} days. Power: over the series' variance ({}; white noise 1). Outlined: above \
+        let (tex, lo, hi) = own_texture.as_ref().or(c.image.as_ref()).map(|t| (t.1.id(), t.2, t.3)).unwrap();
+        if !figure {
+            ui.weak(format!(
+                "{} dates, a step of {:.0} days. Power: over the series' variance ({}; white noise 1). Outlined: above \
              red noise at 95 % (lag-1 correlation {:.2}). Darkened: the cone of influence, where the ends weigh on \
              the power. Pale: across a gap.",
-            s.observations,
-            s.dt / 86400.0,
-            format_g(s.variance, 3),
-            s.alpha
-        ));
+                s.observations,
+                s.dt / 86400.0,
+                format_g(s.variance, 3),
+                s.alpha
+            ));
+        }
 
         let (n, rows) = (s.n, s.periods.len());
         let (x0, x1) = (s.time(0) - 0.5 * s.dt, s.time(n - 1) + 0.5 * s.dt);
@@ -315,7 +324,9 @@ impl State {
                         .style(LineStyle::dashed_dense())
                         .allow_hover(false),
                 );
-                p.vline(VLine::new("", current).color(theme::on_plot(ORANGE)).width(2.0).allow_hover(false));
+                if !figure {
+                    p.vline(VLine::new("", current).color(theme::on_plot(ORANGE)).width(2.0).allow_hover(false));
+                }
                 p.pointer_coordinate()
             });
             // the 95 % contours, over the image

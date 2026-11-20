@@ -224,8 +224,58 @@ fn worker(rx: Receiver<Request>, tx: Sender<Reply>, ctx: egui::Context) {
     }
 }
 
-/// Why a tool cannot run on a series, if it cannot (the C++'s toolApplicability).
+/// Why the dates are not a regular series (a constant step of whole days, what the polar phenology reads), if so;
+/// `remedy` is what to do about it, appended to the reason.
+pub(crate) fn irregular(info: &CubeInfo, remedy: &str) -> Option<String> {
+    if !info.time_is_date {
+        return Some("needs dates (none were found in the file names or band descriptions)".into());
+    }
+    let n = info.t();
+    if n < 3 {
+        return None;
+    }
+    let gap = info.unix_day(1) - info.unix_day(0);
+    if gap <= 0 || (2..n).any(|t| info.unix_day(t) - info.unix_day(t - 1) != gap) {
+        let gaps: Vec<i64> = (1..n).map(|t| info.unix_day(t) - info.unix_day(t - 1)).collect();
+        let monthly = gaps.iter().all(|g| (28..=31).contains(g));
+        let why = if monthly {
+            "the dates are not evenly spaced (calendar months are 28 to 31 days, not a constant step of whole days)"
+        } else {
+            "the dates are not evenly spaced"
+        };
+        return Some(format!("{why}: {remedy}"));
+    }
+    None
+}
+
+/// Why a tool cannot run on a series, if it cannot (the C++'s toolApplicability). The polar phenology also needs a
+/// regular series over at least 2 calendar years, the output of Interpolate.
 pub fn applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
+    applicability_with(tool, info, false)
+}
+
+/// `applicability`, where `regular` says that an Interpolate comes first in a chain, so the series the tool reads
+/// is regular whatever the dates of this one.
+pub(crate) fn applicability_with(tool: &Tool, info: &CubeInfo, regular: bool) -> Option<String> {
+    if let Some(why) = base_applicability(tool, info) {
+        return Some(why);
+    }
+    if tool.id == "polar_metrics" && !regular {
+        if let Some(why) = irregular(info, "run Interpolate (regular grid) first, then Polar phenology on its result") {
+            return Some(why);
+        }
+        let years = |t: usize| info.decimal_year(t).floor() as i64;
+        if info.t() > 0 && years(info.t() - 1) - years(0) < 1 {
+            return Some(
+                "needs at least 2 calendar years: a season runs from one start of the phenological year to the next"
+                    .into(),
+            );
+        }
+    }
+    None
+}
+
+fn base_applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
     if tool.input.as_deref() == Some("layers") {
         return None; // runs on result maps, whatever the series
     }
@@ -304,14 +354,14 @@ fn tool_roles(tool: &Tool) -> (Vec<String>, Vec<String>) {
 }
 
 /// Whether a tool reads bands of each date besides the shown series (multiband tools).
-fn reads_bands(tool: &Tool) -> bool {
+pub(crate) fn reads_bands(tool: &Tool) -> bool {
     let some = |b: &Option<Vec<String>>| b.as_ref().is_some_and(|b| !b.is_empty());
     tool.requires.all_bands == Some(true) || some(&tool.requires.bands) || some(&tool.requires.optional_bands)
 }
 
 /// The bands a multiband tool reads, (role, band of each date): every band (b001, b002...) for a tool on all of
 /// them, else its roles' mapped bands.
-fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
+pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
     if tool.requires.all_bands == Some(true) {
         // ImproPhe's fine series: the quality band is applied to the others, not one of them
         let qa = (tool.id == "improphe" && info.sel.qa_band > 0).then_some(info.sel.qa_band);
@@ -393,7 +443,13 @@ fn placed(mut input: PixelInput, info: &CubeInfo, tool: &str, params: &Params, x
 }
 
 /// A series of a layer as a pixel run gets it.
-fn pixel_input(info: &CubeInfo, tool: &str, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
+pub(crate) fn pixel_input(
+    info: &CubeInfo,
+    tool: &str,
+    values: &[f32],
+    t: usize,
+    roles: &BTreeMap<String, i32>,
+) -> PixelInput {
     // a spectrum's axis: the wavelengths (nm), as the chart draws it
     let x = |i: usize| if info.spectral { info.layers[i].time } else { info.decimal_year(i) };
     PixelInput {
@@ -864,6 +920,7 @@ impl State {
     }
 
     pub(crate) fn tool_window(&mut self, ui: &mut Ui, tool: &'static Tool) {
+        crate::welcome::guide_button(ui, &tool.id);
         ui.label(&tool.description);
         let info = self.session.as_ref().map(|s| s.info.clone());
         let roles = self.active_roles();
@@ -936,9 +993,27 @@ impl State {
 
         crate::panels::section(ui, "Parameters");
         changed |= self.params_ui(ui, tool);
-        if ui.button("Reset to defaults").clicked() {
-            *self.zeit.params(tool) = tool.params.iter().map(|p| (p.id.clone(), p.default.clone())).collect();
-            changed = true;
+        let mut tune = false;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Reset to defaults").clicked() {
+                *self.zeit.params(tool) = tool.params.iter().map(|p| (p.id.clone(), p.default.clone())).collect();
+                changed = true;
+            }
+            // the tools that give change dates can be tuned on reference points (tune_ui.rs)
+            if janus_zeit::tune::spec(&tool.id).is_some()
+                && ui
+                    .add_enabled(why.is_none(), egui::Button::new("Tune on samples..."))
+                    .on_hover_text(
+                        "Search this tool's parameters on reference points: the calibration points of a \
+                         validation project, or a layer of points with a date field",
+                    )
+                    .clicked()
+            {
+                tune = true;
+            }
+        });
+        if tune {
+            self.open_tune(tool);
         }
         if changed {
             let u = self.zeit.tools.entry(tool.id.clone()).or_default();
@@ -998,7 +1073,8 @@ impl State {
         egui::Grid::new(("params", &tool.id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             for p in &tool.params {
                 let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
-                let help = |r: egui::Response| if p.help.is_empty() { r } else { r.on_hover_text(&p.help) };
+                let hover = crate::welcome::param_help(p);
+                let help = |r: egui::Response| if hover.is_empty() { r } else { r.on_hover_text(&hover) };
                 match p.kind.as_str() {
                     "int" => {
                         help(ui.label(&p.label));
@@ -1125,10 +1201,11 @@ fn path_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value) -> bool {
     let mut x = v.as_str().unwrap_or("").to_string();
     ui.horizontal(|ui| {
         let edit = egui::TextEdit::singleline(&mut x).desired_width(crate::fit::scaled(ui, 170.0));
-        if ui.add(edit).on_hover_text(&p.help).changed() {
+        let hover = crate::welcome::param_help(p);
+        if ui.add(edit).on_hover_text(&hover).changed() {
             changed = true;
         }
-        if ui.button("Browse...").on_hover_text(&p.help).clicked() {
+        if ui.button("Browse...").on_hover_text(&hover).clicked() {
             let picked = if p.kind == "folder" {
                 rfd::FileDialog::new().pick_folder()
             } else {
@@ -1825,7 +1902,7 @@ pub(crate) fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
     n.chars().map(|c| if matches!(c, ' ' | ':' | '*' | '?') { '_' } else { c }).collect()
 }
 
-fn format_duration(s: f64) -> String {
+pub(crate) fn format_duration(s: f64) -> String {
     if s < 1.0 {
         "under a second".into()
     } else if s < 90.0 {
@@ -2234,6 +2311,16 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let params = self.zeit.params(tool).clone();
         let mut p = Provenance::start("zeit", &tool.id, &tool.name);
         p.set_params(&params);
+        // parameters kept from a tuning on samples say where they came from
+        if let Some(mut c) = self.tune.calibration_entry(&tool.id, &params) {
+            // the loop in Python that redoes the search, beside the run's own script (the history shows both)
+            if let Some(code) = self.tune.calibration_python(&tool.id, &params)
+                && std::fs::write(out.join(crate::provenance::TUNE_SCRIPT), code).is_ok()
+            {
+                c["python"] = json!(crate::provenance::TUNE_SCRIPT);
+            }
+            p.extra.insert("calibration".into(), c);
+        }
         p.scope = scope_name.to_string();
         if tool.input.as_deref() == Some("folder") {
             // no series: Zeit's calls on each scene of the folder

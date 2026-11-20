@@ -1582,7 +1582,7 @@
    "id": "phenology",
    "name": "Phenology",
    "category": "Temporal dynamics",
-   "description": "Land surface phenology as implemented in Zeit (a port of phenofit): smooths the series, splits it into growing seasons, fits a curve to each season and derives its start (SOS), peak (POS) and end (EOS). Needs a sub-annual vegetation index series (e.g. NDVI/EVI, 8-16 day or monthly). Maps summarize the seasons per pixel (median, latest or a given year); dates are days of the year of the season's peak.",
+   "description": "Land surface phenology as implemented in Zeit (written from the papers, with the methods of phenofit): smooths the series, splits it into growing seasons, fits a curve to each season and derives its start (SOS), peak (POS) and end (EOS). Needs a sub-annual vegetation index series (e.g. NDVI/EVI, 8-16 day or monthly). Maps summarize the seasons per pixel (median, latest or a given year); dates are days of the year of the season's peak.",
    "requires": {
     "time": "any",
     "min_per_year": 6,

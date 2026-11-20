@@ -12,12 +12,14 @@ use crate::temporal_metrics::unique_options;
 
 mod level2;
 mod script;
+mod tune_script;
 mod zeit_defaults;
 
 pub use zeit_defaults::ZEIT_DEFAULTS;
 
 pub use level2::level2_script;
 pub use script::{Roi, Spec, Step, Target, pixel_script};
+pub use tune_script::{TunePointAt, TuneScriptSet, TuneScriptSpec, tune_functions, tune_script};
 
 /// A float as Python's repr.
 pub fn py_float(v: f64) -> String {
@@ -90,6 +92,15 @@ pub struct ToolCall {
     /// the code reads `values` (the series as a flat array)
     pub needs_values: bool,
     tool: String,
+}
+
+/// One Zeit call as data: the function (`zeit.bfast`), its positional arguments and its keywords (plumbing included),
+/// each value as the Python text that writes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallData {
+    pub func: String,
+    pub pos: Vec<String>,
+    pub kw: Vec<(String, String)>,
 }
 
 fn call(var: &'static str, func: &'static str, args: Vec<Arg>) -> Piece {
@@ -175,6 +186,21 @@ impl ToolCall {
             }
         }
         out
+    }
+
+    /// The Zeit calls as data (the lines of plain code are not calls and are left out), in the order they run.
+    pub fn data(&self) -> Vec<CallData> {
+        self.pieces
+            .iter()
+            .filter_map(|p| match p {
+                Piece::Call { func, args, .. } => Some(CallData {
+                    func: func.to_string(),
+                    pos: args.iter().filter(|a| a.name.is_none()).map(|a| a.value.clone()).collect(),
+                    kw: args.iter().filter_map(|a| a.name.map(|n| (n.to_string(), a.value.clone()))).collect(),
+                }),
+                Piece::Raw(_) => None,
+            })
+            .collect()
     }
 
     /// The names of the results the code makes (`result1`, `result2`...), in the order they are made.

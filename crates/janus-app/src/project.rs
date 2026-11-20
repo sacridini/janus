@@ -799,7 +799,7 @@ impl State {
     }
 
     /// The last session opened again (its project's file, if it was one, named in the title).
-    fn reopen_session(&mut self, ctx: &egui::Context) {
+    pub(crate) fn reopen_session(&mut self, ctx: &egui::Context) {
         let Ok(p) = Project::read(&session_path()) else { return };
         if p.series.is_empty() && p.vectors.is_empty() {
             return;

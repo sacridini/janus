@@ -110,6 +110,49 @@ impl Canvas<'_> {
         }
     }
 
+    /// The polygon through pts (x, y pairs), filled (even-odd), its edges antialiased by 4 x 4 samples a pixel.
+    pub fn fill_polygon(&mut self, pts: &[f32], col: Rgba) {
+        let n = pts.len() / 2;
+        if n < 3 {
+            return;
+        }
+        let xs = pts.iter().step_by(2).copied();
+        let ys = pts.iter().skip(1).step_by(2).copied();
+        let (xa, xb) = (
+            xs.clone().fold(f32::INFINITY, f32::min).floor() as i32,
+            xs.fold(f32::NEG_INFINITY, f32::max).ceil() as i32,
+        );
+        let (ya, yb) = (
+            ys.clone().fold(f32::INFINITY, f32::min).floor() as i32,
+            ys.fold(f32::NEG_INFINITY, f32::max).ceil() as i32,
+        );
+        const S: i32 = 4;
+        for y in ya.max(0)..yb.min(self.h) {
+            for x in xa.max(0)..xb.min(self.w) {
+                let mut inside = 0;
+                for sy in 0..S {
+                    for sx in 0..S {
+                        let (px, py) =
+                            (x as f32 + (sx as f32 + 0.5) / S as f32, y as f32 + (sy as f32 + 0.5) / S as f32);
+                        let mut odd = false;
+                        let mut j = n - 1;
+                        for i in 0..n {
+                            let (xi, yi, xj, yj) = (pts[i * 2], pts[i * 2 + 1], pts[j * 2], pts[j * 2 + 1]);
+                            if (yi > py) != (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi {
+                                odd = !odd;
+                            }
+                            j = i;
+                        }
+                        inside += i32::from(odd);
+                    }
+                }
+                if inside > 0 {
+                    self.blend(x, y, col, inside as f32 / (S * S) as f32);
+                }
+            }
+        }
+    }
+
     /// A disc (t = 0) or a ring of radius r, antialiased.
     pub fn circle(&mut self, cx: f32, cy: f32, r: f32, col: Rgba, t: f32) {
         let ext = r + t / 2.0 + 1.0;

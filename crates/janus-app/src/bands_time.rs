@@ -289,7 +289,7 @@ impl State {
         let src = sources.iter().position(|s| s.0 == b.source).unwrap_or(0);
         let mut copy = false;
         // wrapped at a large font or in a narrow panel, each widget moved down whole
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             egui::ComboBox::from_id_salt("bands source")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 13.0)
@@ -460,7 +460,7 @@ impl State {
             }
             // the current date
             let cur = self.display.t.min(xs.len() - 1);
-            if let Some(&(l, rr)) = cols.get(cur) {
+            if let Some(&(l, rr)) = cols.get(cur).filter(|_| !crate::figure::active()) {
                 painter.rect_stroke(
                     Rect::from_x_y_ranges(l..=rr, t.frame().y_range()),
                     0.0,

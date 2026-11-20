@@ -104,6 +104,11 @@ publishes the three packages on a `v*` tag.
 `janus --shots TOUR IN OUT` walks through a guide of the website in a window of 1680 × 1050 and
 saves its screenshots in OUT: `validation` (IN from `tools/make_tutorial_data.py`), `landtrendr`,
 `ccdc` and `coded` (`tools/make_guide_data.py`), `bfast` and `phenology` (an EVI series).
+`tune` (the folder of the synthetic forest frontier of the validation tests: `ndvi_annual/` and
+`landtrendr_two_interpreters.gpkg` with its strata raster) calibrates LandTrendr on an interpreted project: it
+copies the project into the temporary files, runs the 200 sets, runs the whole image with the defaults and with the
+best set, assesses both maps on the accuracy points, and prints what the guide quotes (`janus --threads 4 --shots tune
+DATA site/assets/img/tune`). Its PNGs become the JPEGs and WebPs of the page with ffmpeg and `tools/make_webp.py`.
 
 ## Data folders
 

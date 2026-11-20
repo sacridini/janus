@@ -1,5 +1,59 @@
 [
   {
+    "tag": "v1.20.0",
+    "version": "1.20.0",
+    "date": "2026-11-18",
+    "blocks": [
+      {
+        "ul": [
+          "crash reports (a panic's report and, on Windows, a minidump; the notice at the next start only after a crash, Restore the session, an issue filled in, nothing sent by itself)",
+          "Help > Welcome with sample data, a ? in every tool window to its guide and the parameters' defaults in their hover (nothing opens by itself at the start)",
+          "Save figure (PNG or SVG in mm and dpi) of the chart, the Analysis tabs and the transect, and a graticule, a north arrow and a title on the map's PNG",
+          "the chart's right Y axis, bars per layer and Shift by the lag of corr()",
+          "File > Climate data (CHIRPS v3 rainfall read for the map's box only)",
+          "Tune on samples (the date tools' parameters searched on calibration points kept apart from the accuracy's: Latin hypercube, Pareto front, PRCC, k-fold optimism, the MCP's tune_tool, the search's Python)",
+          "pins alone on the chart once the pointer leaves the map",
+          "the new version's notice stands out",
+          "Polar phenology says why it cannot run on a series that is not regular (it showed only 'error')"
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "v1.19.2",
+    "version": "1.19.2",
+    "date": "2026-11-17",
+    "blocks": [
+      {
+        "p": "a polygon's outline under the cursor no longer throws spikes across the map zoomed out (egui's closed line joined every corner with a miter, and a small ring thinned to a few points on screen turns back on itself: the WDPA's features of thousands of rings seemed to glow), nor the ROI's or the edited polygon's; the workflows' actions on their Node 24 versions"
+      }
+    ]
+  },
+  {
+    "tag": "v1.19.1",
+    "version": "1.19.1",
+    "date": "2026-11-17",
+    "blocks": [
+      {
+        "p": "the raster calculator's corr(x, y, lag=, method=), the correlation over time of two series (Pearson or Spearman, the driver y leading), and the month unit m in durations (lag(x, 1m), mean(x, 3m)); the phenology tool no longer says Zeit's phenology is a port of phenofit (it is written from the papers), and the phenology guide taken anew (27 seasons)"
+      }
+    ]
+  },
+  {
+    "tag": "v1.19.0",
+    "version": "1.19.0",
+    "date": "2026-11-16",
+    "blocks": [
+      {
+        "ul": [
+          "the Analysis-ready data window (FORCE Level 2, phase 57): NBAR, the spectral adjustment to Sentinel-2A, Tasseled Cap and ImproPhe in one chain, the harmonized multiband series between the steps, To look at, a preview of the chain on the ROI with the swipe against the input series, Use in Time series analysis, provenance and Run again",
+          "the chain's Copy Python through pixel_script (the steps after NBAR or the adjustment read the harmonized series), checked in Zeit",
+          "the steps' runner (chain.rs) shared with the Time series analysis window"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v1.18.0",
     "version": "1.18.0",
     "date": "2026-11-16",

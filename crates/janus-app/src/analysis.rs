@@ -372,9 +372,27 @@ impl State {
                     )
                 ));
             }
+            // the tab's plot as a figure (PNG, SVG)
+            if FIGURE_TABS.contains(&shown) {
+                ui.add_space(4.0);
+                if ui
+                    .small_button("Save figure...")
+                    .on_hover_text(
+                        "The tab's plot as a PNG or an SVG for a paper: size in mm, dpi, font, light colours",
+                    )
+                    .clicked()
+                {
+                    self.open_figure(crate::figure_ui::Source::Analysis(shown));
+                }
+            }
         });
         ui.separator();
-        match shown {
+        self.analysis_tab(ui, shown);
+    }
+
+    /// Tab `k`'s content: in the panel, or as a figure (its controls left out, `figure::chrome`).
+    pub(crate) fn analysis_tab(&mut self, ui: &mut Ui, k: usize) {
+        match k {
             0 => self.seasonal_ui(ui),
             1 => self.class_timeline_ui(ui),
             2 => self.scatter_ui(ui),
@@ -399,6 +417,9 @@ impl State {
         ANALYSIS_TABS.iter().map(|t| t.0).find(|&k| self.analysis_tab_unavailable(k).is_none()).unwrap_or(tab)
     }
 }
+
+/// The tabs that have Save figure (their plots; the Trend test is a table, the Atlas and Dates are maps).
+pub(crate) const FIGURE_TABS: [usize; 7] = [0, 1, 2, 4, 5, 6, 7];
 
 /// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
 pub(crate) const ANALYSIS_TABS: [(usize, &str); 11] = [
@@ -449,7 +470,7 @@ impl State {
         let src = sources.iter().position(|s| s.0 == a.seasonal_source).unwrap_or(0);
         // wrapped at a large font or in a narrow panel (a row past the panel widened what is under it), each widget
         // moved down whole
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             egui::ComboBox::from_id_salt("seasonal source")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 13.0)
@@ -506,10 +527,17 @@ impl State {
         let shift = move |d: f64| if d - off < 1.0 { d - off + 366.0 } else { d - off };
         let (cur_year, cur_day) = season_year_and_day(times[self.display.t.min(times.len() - 1)], start);
         let scale_w = ui.text_style_height(&egui::TextStyle::Body) * 6.0;
+        // a narrow figure names every other month (twelve names do not fit 150 points)
+        let thin = crate::figure::active() && (ui.available_width() - scale_w) / 12.0 < 24.0;
         let months = move |plot: Plot<'static>| {
             plot.x_grid_spacer(move |_| {
                 // in order along the axis, from the seasonal year's first month
-                (0..12).map(|k| GridMark { value: shift(MONTH_START[(k + s0) % 12]), step_size: 30.0 }).collect()
+                (0..12)
+                    .map(|k| GridMark {
+                        value: shift(MONTH_START[(k + s0) % 12]),
+                        step_size: if thin { 60.0 } else { 30.0 },
+                    })
+                    .collect()
             })
             // every month named (egui_plot hides labels under 60 points apart: a narrow panel had none)
             .custom_x_axes(vec![
@@ -517,10 +545,11 @@ impl State {
                     .label(if s0 == 0 { "day of the year" } else { "day of the seasonal year" })
                     .formatter(move |m, _| {
                         (0..12)
-                            .find(|&k| shift(MONTH_START[k]) == m.value)
+                            .find(|&k| shift(MONTH_START[k]) == m.value && !(thin && (k + 12 - s0) % 12 % 2 == 1))
                             .map_or(String::new(), |k| MONTHS[k].to_string())
                     })
-                    .label_spacing(20.0..=21.0),
+                    // (the months are 12 points apart in a figure of a column's width)
+                    .label_spacing(if crate::figure::active() { 8.0..=9.0 } else { 20.0..=21.0 }),
             ])
             .include_x(1.0)
             .include_x(367.0)
@@ -592,7 +621,8 @@ impl State {
                             if pts.is_empty() {
                                 continue;
                             }
-                            let current = *y == cur_year;
+                            // (a figure has no current date)
+                            let current = *y == cur_year && !crate::figure::active();
                             let k = if y1 > y0 { (y - y0) as f32 / (y1 - y0) as f32 } else { 0.5 };
                             let col = theme::on_plot(lut_at(&viridis, k));
                             // only the current year in the legend (an item without a name has no entry)
@@ -690,12 +720,14 @@ impl State {
                 let cb = ((cur_day as usize - 1) * g.bins / 366).min(g.bins - 1);
                 let (cx0, cx1) =
                     (1.0 + 366.0 * cb as f64 / g.bins as f64, 1.0 + 366.0 * (cb + 1) as f64 / g.bins as f64);
-                painter.rect_stroke(
-                    Rect::from_two_pos(px(cx0, f64::from(cur_year) + 0.5), px(cx1, f64::from(cur_year) - 0.5)),
-                    0.0,
-                    Stroke::new(2.0, theme::on_plot(ORANGE)),
-                    egui::StrokeKind::Middle,
-                );
+                if !crate::figure::active() {
+                    painter.rect_stroke(
+                        Rect::from_two_pos(px(cx0, f64::from(cur_year) + 0.5), px(cx1, f64::from(cur_year) - 0.5)),
+                        0.0,
+                        Stroke::new(2.0, theme::on_plot(ORANGE)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
                 if let Some(k) = hover {
                     let (row, b) = (k / g.bins, k % g.bins);
                     let (d0, d1) = (1 + 366 * b / g.bins, 366 * (b + 1) / g.bins);
@@ -825,7 +857,7 @@ impl State {
         let k_n = c.values.len();
         let names: HashMap<i32, String> = self.classes.list.iter().map(|e| (e.value, e.name.clone())).collect();
         let name_of = |v: i32| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
-        ui.horizontal(|ui| {
+        crate::figure::controls(ui, |ui| {
             ui.radio_value(&mut self.analysis.class_view, 0, "Shares").on_hover_text(if single {
                 "The share of each class"
             } else {
@@ -933,7 +965,10 @@ impl State {
                 if info.time_is_date {
                     plot = crate::chart::time_axis(plot, None);
                 } else {
-                    plot = plot.x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
+                    plot = crate::figure::FigurePlot::x_title(
+                        plot,
+                        if info.spectral { "wavelength (nm)" } else { "date (index)" },
+                    );
                 }
                 if stacked {
                     plot = plot.include_y(0.0).include_y(100.0);
@@ -973,9 +1008,11 @@ impl State {
                             );
                         }
                     }
-                    plot.vline(
-                        VLine::new("date", xs[t_now]).color(theme::on_plot(ORANGE)).width(1.5).allow_hover(false),
-                    );
+                    if !crate::figure::active() {
+                        plot.vline(
+                            VLine::new("date", xs[t_now]).color(theme::on_plot(ORANGE)).width(1.5).allow_hover(false),
+                        );
+                    }
                     plot.pointer_coordinate()
                 });
                 // the shares at the date under the pointer; a click goes to it
@@ -1309,7 +1346,7 @@ impl State {
             .find(|s| s.0 == self.analysis.trajectory)
             .or_else(|| sources.get(1))
             .map_or("off".to_string(), |s| s.0.clone());
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             for (k, id) in ["X", "Y"].iter().enumerate() {
                 let cube = self.analysis.scatter_cube[k];
                 let li = usable
@@ -1395,13 +1432,15 @@ impl State {
                      season's loop, a disturbance leaving the cloud and the years it takes to come back.",
                 );
         });
-        if usable.len() < self.layers.len() {
+        let figure = crate::figure::active();
+        if usable.len() < self.layers.len() && !figure {
             ui.weak("Layers in another CRS are not listed (their pixels are not on this grid).");
         }
         let [(xl, tx), (yl, ty)] = picked;
         let traj = (traj_key != "off").then(|| self.trajectory(&traj_key, xl, yl));
         if let Some(Err(why)) = &traj
             && !why.is_empty()
+            && !figure
         {
             let mut on = false;
             let button = self.series.chart_layers == 0;
@@ -1492,7 +1531,9 @@ impl State {
         // the density: 120 x 120 cells, an image in the plot (made again when the pixels change)
         const B: usize = 120;
         let (cw, ch) = ((hi[0] - lo[0]) / B as f64, (hi[1] - lo[1]) / B as f64);
-        if self.analysis.density.as_ref().is_none_or(|d| d.0 != key) {
+        // (a figure has a context of its own: its texture is its own too)
+        let mut own_texture = None;
+        if figure || self.analysis.density.as_ref().is_none_or(|d| d.0 != key) {
             let mut hist = vec![0u32; B * B];
             for (&a, &b) in sc.x.iter().zip(&sc.y) {
                 let i = (((a - lo[0]) / cw) as usize).min(B - 1);
@@ -1509,9 +1550,19 @@ impl State {
                     .collect();
             let image = egui::ColorImage { size: [B, B], pixels, source_size: vec2(B as f32, B as f32) };
             let tex = ui.ctx().load_texture("scatter density", image, egui::TextureOptions::NEAREST);
-            self.analysis.density = Some((key, tex, max_count));
+            if figure {
+                own_texture = Some((tex, max_count));
+            } else {
+                self.analysis.density = Some((key, tex, max_count));
+            }
         }
-        let Some((_, tex, max_count)) = self.analysis.density.as_ref().map(|d| (d.0, d.1.id(), d.2)) else { return };
+        let Some((tex, max_count)) = own_texture
+            .as_ref()
+            .map(|(t, m)| (t.id(), *m))
+            .or_else(|| self.analysis.density.as_ref().map(|d| (d.1.id(), d.2)))
+        else {
+            return;
+        };
         let scale_w = ui.text_style_height(&egui::TextStyle::Body) * 6.0;
         let (a, b) = (sc.a, sc.b);
         // eight lines high at least (a large font's controls may leave the panel little room: it
@@ -1527,7 +1578,7 @@ impl State {
                 if legend {
                     p = p.legend(Legend::default().position(egui_plot::Corner::LeftTop).background_alpha(0.6));
                 }
-                p.x_axis_label(x_name)
+                crate::figure::FigurePlot::x_title(p, x_name)
                     .y_axis_label(y_name)
                     .include_x(plo[0])
                     .include_x(phi[0])

@@ -1358,6 +1358,11 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
 | 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
+| 58 | 1.20.0 | **Relatório de falha**: gancho de panic e minidump das falhas nativas, aviso na abertura seguinte, restaurar a sessão, issue preenchida (nada enviado sozinho) | concluída |
+| 59 | 1.20.0 | **A porta de entrada**: boas-vindas, dados de exemplo dos guias, "?" de cada janela para a página do método, referências no hover dos parâmetros | concluída |
+| 60 | 1.20.0 | **Figuras**: PNG e SVG do gráfico, do Analysis e do transecto (mm, dpi, tema claro); grade de coordenadas, seta do norte e título no PNG do mapa | concluída |
+| 61 | 1.20.0 | **A série ao lado do clima**: eixo Y da direita, deslocar pela defasagem do `corr`; CHIRPS (ERA5 do Planetary Computer acaba em 2020-12: fora) para a área do mapa | concluída |
+| 62 | 1.20.0 | **Calibrar os parâmetros nas amostras**: busca por hipercubo latino nos pontos rotulados, omissão × comissão e datas, frente de Pareto, parâmetros que importam, pontos de calibração separados dos da acurácia | concluída (o guia do site pendente) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -2398,6 +2403,26 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   analysis, proveniência e Run again; o Copy Python da cadeia pelo pixel_script (os passos depois do
   NBAR ou do ajuste leem a série harmonizada), conferido no Zeit (158 bandas, 8,4e-7); o executor
   das etapas (chain.rs) compartilhado com a janela do TSA; autoteste 310-319.
+- 1.19.1: a calculadora ganha corr(x, y, lag=, method=) (Pearson ou Spearman, y à frente) e a
+  unidade m (meses) nas durações (lag(x, 1m), mean(x, 3m)); a ferramenta de fenologia não diz mais
+  que é um port do phenofit (escrita a partir dos artigos), e o guia de fenologia refeito (27 estações).
+  As ferramentas EOF e correlação defasada (Zeit 3.8.0) estão no branch eof-tools, a parte do app em
+  andamento.
+- 1.19.2: o contorno de um polígono desenhado pela CPU (a feição sob o cursor, o ROI, o polígono em
+  edição) como linha aberta que começa no meio da primeira aresta (ring_line): a linha fechada do egui
+  junta todo canto em ponta, e de longe um anel pequeno reduzido a poucos pontos volta sobre si e
+  joga as pontas pelo mapa (as feições do WDPA, de milhares de anéis, pareciam brilhar sob o cursor).
+  As actions dos workflows nas versões de Node 24.
+- 1.20.0 (fases 58-62): relatório de falha (gancho de panic, minidump no Windows, aviso na abertura
+  seguinte só depois de uma falha, nada enviado sozinho); Help → Welcome com dados de exemplo
+  (release sample-data-v1), o "?" de cada ferramenta e o padrão no hover dos parâmetros (nada abre
+  sozinho no início, a pedido do usuário); Save figure (PNG/SVG em mm e dpi) do gráfico, do
+  Analysis e do transecto, e grade, seta do norte e título no PNG do mapa; o eixo Y da direita, as
+  barras e o deslocamento pela defasagem do corr; File → Climate data (CHIRPS v3; ERA5 fora);
+  Tune on samples (busca por hipercubo latino nos pontos de calibração, Pareto, PRCC, k-fold,
+  tune_tool no MCP, o Python da busca). Também: os pins sem o cursor quando o mouse sai do mapa,
+  o aviso de nova versão em destaque, e o polar phenology diz por que não roda numa série que não
+  é regular (antes só "error").
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
@@ -2537,6 +2562,424 @@ deslocamento, uma nuvem ou uma mudança conhecidos); um guia no site; o
      redes; a máscara vira a banda de qualidade da série.
    - **Teste/comparação:** contra o Fmask, o s2cloudless e a SCL nas cenas
      que têm QA (acurácia e tempo).
+
+### Depois da 1.19: calibrar, figuras, entrada, clima, falhas (fases 58–62, 2026-11-18)
+
+Uma análise do que falta (pedida em 2026-11-18) concluiu que em métodos o
+Janus já faz mais que as ferramentas próximas (TimeSync, ENVI, sits) e que
+o que falta é o fim do caminho: escolher bem os parâmetros, levar o
+resultado a uma figura, trazer um usuário novo para dentro, ver a série ao
+lado do clima e saber quando o programa caiu. Conferido no código antes de
+escrever: o gráfico e as abas do Analysis só dão CSV; o PNG do mapa tem
+barra de escala, legenda e o rótulo da data, sem grade de coordenadas nem
+seta do norte (`PngOptions`, `export_map.rs:28`); não há tela de primeira
+execução, dados de exemplo nem link do app para o site (os parâmetros têm
+o `help` do manifesto no hover, `zeit.rs:987`); o gráfico tem um eixo Y só;
+os catálogos do STAC não têm clima (`janus-cube/src/stac.rs:34`); a sessão
+é salva a cada 60 s (`project.rs:756`), mas não há gancho de panic nem
+relatório de falha. Ficaram de fora desta leva: a atribuição da causa da
+mudança (descartada pelo usuário em 2026-11-18), o monitoramento incremental, a integração com o
+Earth Engine, um sistema de plugins e a tradução da interface.
+
+As regras de sempre (as do levantamento do ENVI acima) valem: pelos
+artigos, comparar com o original em resultado e em tempo quando houver um,
+dados de teste gerados no teste, guia no site quando a fase for visível,
+`--selftest-ui` e a auditoria de layout (`--shots layout`) cobrindo as
+janelas novas, no máximo 8 threads. A ordem vai das pequenas e
+independentes para a maior: 58, 59, 60, 61, 62.
+
+#### Fase 58 — Relatório de falha
+
+- **Por quê:** quem não sabe reportar some sem deixar rastro. O histórico
+  tem falhas que só aconteciam no `janus.exe` (o heap do mimalloc com o
+  GDAL, o pool de fontes do GDAL por thread): sem o backtrace, a GPU e a
+  versão, cada uma levou horas para ser reproduzida.
+- **O quê:**
+  1. Pânicos do Rust: `std::panic::set_hook` no `main.rs` (janela e
+     `jn mcp`) grava `crashes/crash-<data-hora>.txt` na pasta de dados do
+     Janus: versões do Janus, do zeit-core (a revisão) e do GDAL, o
+     sistema, o adaptador e o backend do wgpu, as threads das
+     configurações, o nome da thread, o backtrace
+     (`Backtrace::force_capture`) e as últimas ~200 linhas do log (um anel
+     no logger que já existe). O gancho não toca no estado do app (pode
+     estar emprestado): a sessão fica com o último salvamento automático.
+  2. Falhas nativas (GDAL, drivers, acesso inválido), que o gancho não
+     pega e são as que mais aconteceram: os crates `crash-handler` e
+     `minidumper` (Embark, MIT/Apache-2.0; conferir a licença antes) com o
+     minidump gravado por um processo vigia, ao lado do mesmo `.txt` com o
+     que se souber.
+  3. Na abertura seguinte, um aviso: *Janus fechou inesperadamente em ...*,
+     com *Restaurar a sessão* (a do salvamento automático), *Abrir a
+     pasta*, *Copiar o relatório* e *Abrir uma issue* (o navegador com o
+     título e o corpo preenchidos na URL, cortados no limite do GitHub; o
+     usuário vê tudo antes de mandar). Nada é enviado sozinho, sem
+     telemetria; caminhos de arquivo podem ter nomes de pessoas, por isso o
+     texto aparece antes de qualquer envio.
+- **Teste:** uma opção oculta `--crash-test panic|native` que provoca a
+  falha; o teste confere o arquivo, os campos e o aviso na abertura
+  seguinte (o autoteste da UI abre de novo depois da falha provocada). Nos
+  três sistemas no CI.
+
+- **Feito (2026-11-18, 1.20.0):** `crash.rs` (o gancho de panic, o anel
+  de 200 linhas do log, o marcador `running-<pid>.json`, a URL da issue),
+  `crash_ui.rs` (o aviso com *Restaurar a sessão*, *Abrir a pasta*, *Copiar o
+  relatório*, *Abrir uma issue*, *Dispensar*; a opção oculta `--crash-test
+  panic|native`) e os estágios 330-333 do `--selftest-ui`. Difere do plano: as
+  falhas nativas viram minidump só no Windows, no próprio processo
+  (`SetUnhandledExceptionFilter` e `MiniDumpWriteDump`, sem os crates
+  `crash-handler` e `minidumper` nem processo vigia); no Linux e no macOS
+  fica o marcador de saída suja (um processo que sumiu sem fechar), que avisa
+  na abertura seguinte sem minidump. O aviso aparece quando há um marcador de
+  uma execução que acabou, não por qualquer relatório (um pânico de thread
+  capturado não é um fechamento). `JANUS_DATA_DIR` troca a pasta de dados (para
+  os testes).
+
+#### Fase 59 — A porta de entrada
+
+- **Por quê:** com 34 métodos, o FORCE, as redes e a validação, o maior
+  risco agora é o usuário novo não saber por onde começar. Os guias do
+  site são bons, mas o app não aponta para eles.
+- **O quê:**
+  1. **Boas-vindas** na primeira execução (e por Help → Welcome): *Abrir
+     dados de exemplo*, *Abrir uma pasta*, *Buscar no STAC*, os projetos
+     recentes e os guias (o *Qual método?* de `methods.html` em destaque).
+     Some quando há uma sessão a restaurar ou quando o usuário desmarca
+     *Mostrar ao abrir*.
+  2. **Dados de exemplo**: os recortes dos guias (o NDVI anual de Rondônia
+     do LandTrendr primeiro; depois o da fenologia e o da validação),
+     baixados sob pedido de um asset de release do repositório (`sample-data`,
+     com o hash conferido) para a pasta de dados, com progresso, e abertos
+     já com o estilo do guia (um projeto `.janus` junto). Medir o tamanho
+     de cada um antes; Landsat é domínio público, os demais com a licença
+     anotada.
+  3. **"?" em cada janela de ferramenta** (Zeit, calculadora, validação,
+     STAC, Classification, TSA, ARD): abre a página do método no site
+     (`landtrendr.html`, `ccdc.html`...) ou a seção do `docs-usage.html`. O
+     endereço vem do manifesto do Zeit (um campo `doc_url`, gerado como o
+     `category`, para os dois ficarem iguais) ou de uma tabela do Janus para
+     as ferramentas nativas.
+  4. **O hover dos parâmetros** com o padrão e, quando houver, a
+     referência (conferir se o `help` do manifesto já traz os artigos;
+     senão, um campo `refs` no Zeit).
+- **Teste:** autoteste com uma pasta de dados vazia (a tela aparece, o
+  exemplo abre a partir de um asset local falso); a auditoria de layout da
+  tela nova a 10–28 px; um teste que confere que todo `doc_url` existe em
+  `site/`.
+
+  **Feito (2026-11-18, 1.20.0)**: `welcome.rs`. A janela *Welcome to Janus*
+  (só Help → Welcome: a abertura automática foi tirada a pedido do usuário,
+  que quer o Janus abrindo vazio): *Open
+  sample data...*, *Open folder...*, *Search STAC...*, os projetos recentes e
+  os guias (*Which method?* em destaque). Os dados de exemplo vêm de um
+  manifesto (`SAMPLES_URL`, um asset da release `sample-data-v1`;
+  `JANUS_SAMPLES_URL` troca por uma URL ou caminho) e são baixados como uma
+  tarefa (fila de downloads, progresso, Cancel) para `<pasta de dados>/samples/<id>/`,
+  com o SHA-256 conferido (o arquivo que não confere é apagado) e abertos
+  como File → Open; sem rede a janela diz e usa a última lista. O "?" abre a
+  página do guia no site em cada janela de ferramenta (as 40 do Zeit, a
+  calculadora, a validação e o Alerts, TSA, ARD, Classification, STAC,
+  campos, regularizar, speckle, harmonizar, reprojetar, rasterizar,
+  poligonizar, zonal, perfis, montar e salvar série): o endereço vem de
+  `site/data/methods.json` (embutido) e de uma tabela do Janus, sem mudar o
+  Zeit (o `doc_url` do manifesto ficou de fora: o Janus já tem os dois).
+  O hover dos parâmetros ganhou "Default: ..." (só 14 das 235 `help` citam um
+  artigo: as referências por parâmetro dependem de um campo `refs` no Zeit).
+  Testes: o de que toda página existe em `site/` (e as âncoras), o do
+  manifesto, do SHA-256 e do endereço, o autoteste 345-349 e a auditoria de
+  layout (*welcome* e *samples*). `tools/make_sample_manifest.py` e
+  `tools/samples.example.json`. **Falta**: os recortes dos guias e o asset da
+  release `sample-data-v1` com o `samples.json` (hoje a lista não existe e a
+  janela diz que não achou), o estilo do guia e um `.janus` junto de cada
+  exemplo, e o NDVI da fenologia e o da validação.
+
+#### Fase 60 — Figuras: o gráfico, o Analysis e o mapa
+
+- **Por quê:** quem publica refaz no R ou no matplotlib cada gráfico do
+  Janus, porque só sai CSV. No mapa, os revisores pedem a grade de
+  coordenadas e a seta do norte.
+- **O quê:**
+  1. **Save figure...** no gráfico da série e em cada aba do Analysis
+     (Dates, Seasonal, Classes e o Sankey, Scatter, Trend test, Areas,
+     Zonal, Bands, Cycles) e no transecto: **PNG** e **SVG** (texto como
+     texto, editável no Inkscape ou no Illustrator); o tamanho em mm (uma
+     coluna de 85 mm, duas de 180 mm, ou livre) e a resolução (300 ou
+     600 dpi), a fonte em pt, fundo branco ou transparente, e as cores de
+     um tema claro de figura qualquer que seja o tema da interface (uma
+     figura escura num artigo não serve). Também *Copy image* para a área
+     de transferência.
+  2. **Como:** um `figure.rs` que roda o mesmo código de desenho do painel
+     num `egui::Context` sem janela, do tamanho da figura e no estilo dela,
+     e recebe as `Shape` da saída: o SVG converte as formas (segmentos,
+     caminhos, retângulos, texto; malhas como imagem embutida); o PNG
+     tessela e desenha fora da tela como o PNG do mapa já faz. Assim um
+     escritor só serve todos os painéis feitos com o `egui_plot` e os
+     desenhados à mão. O `svg_bars` do relatório de validação
+     (`validation_tabs.rs:96`) pode passar a usá-lo.
+  3. **No PNG do mapa** (`PngOptions`): a grade de coordenadas (longitude e
+     latitude, ou o CRS da camada) com os rótulos nas bordas, a seta do
+     norte (girada pela convergência da quadrícula numa projeção; omitida
+     quando o norte não é para cima) e um título livre. As mesmas opções
+     nos quadros da animação. Sem compositor de layout: isso fica no QGIS.
+- **Teste:** o SVG lido de volta por um leitor de XML no teste (as formas
+  e os textos esperados de um gráfico conhecido); o PNG no tamanho pedido
+  em pixels (mm × dpi); a grade em lugares conhecidos de um raster
+  sintético em UTM e em EPSG:4326; autoteste e auditoria da janela de
+  figura. Comparar o tempo com o matplotlib num gráfico igual
+  (informativo).
+- **Feito (2026-11-18, 1.20.0)**: `figure.rs` roda o código de desenho do
+  painel (uma closure sobre `egui::Ui`) num `egui::Context` sem janela, do
+  tamanho da figura (1 pt = 1/72 pol, a fonte em pt é a da figura) e no tema
+  claro de figura (`theme::FigureScope`, Inter, nunca o tema escuro da
+  interface), e recebe as `Shape`. O SVG (`Rendered::to_svg`) escreve caminhos,
+  retângulos, círculos e **texto como `<text>`** (uma linha da galley por
+  elemento, na fonte, tamanho e cor da seção; editável no Inkscape), `clipPath`
+  por recorte e as malhas (o gradiente sob a série, a imagem da densidade do
+  Scatter, o espectrograma do Cycles, o transecto) como PNG embutido. O PNG é
+  desenhado **pela CPU** (`Rendered::to_rgba`: os triângulos tesselados sobre o
+  atlas de fontes, com o anti-aliasing das bordas do egui), com o dpi no
+  arquivo (chunk pHYs); desvio do plano, que dizia "fora da tela na GPU como o
+  PNG do mapa": o rasterizador de CPU roda no job de fundo, dispensa o
+  dispositivo e deixa o teste do tamanho (mm × dpi) rodar no CI sem GPU.
+  `figure_ui.rs`: a janela única *Save figure...* (uma coluna 85 mm, duas
+  180 mm ou livre, altura, PNG 150/300/600 dpi ou SVG, fonte em pt, fundo
+  branco ou transparente, *Save to* com Browse... e o aviso de substituição
+  como as exportações, *Copy image*) e o arquivo escrito no job de fundo
+  (File → Exports). Os painéis voltaram a ser desenhados pelo mesmo código: o
+  gráfico da série (`series_plot`, separado da barra de controles; a linha e a
+  etiqueta da data e o inspetor ficam de fora da figura) e as abas do Analysis
+  (`analysis_tab`) com os controles em `figure::chrome` (rodam numa `Ui`
+  invisível fora da figura: as escolhas continuam lidas, nada é pintado nem
+  ocupa lugar). **Save figure...** em: gráfico da série, Seasonal (anos
+  sobrepostos e mapa de calor), Cycles, Bands, Classes (as partes: porcentagens,
+  Sankey, transições), Scatter, Areas, Zonal e transecto. **Fora**: Trend test
+  (é uma tabela), Dates e Atlas (são mapas); o `svg_bars` do relatório de
+  validação continua como estava; a comparação de tempo com o matplotlib não
+  foi feita. No PNG do mapa (`PngOptions` e os quadros da animação):
+  `graticule` (0 nenhuma, 1 longitude/latitude pela transformação exata do PROJ
+  em qualquer CRS, linhas curvas onde o CRS curva, 2 as unidades do CRS da
+  camada; passos redondos: 1/2/5·10ⁿ m, ou segundos, minutos e graus; valores
+  nas bordas, meridianos embaixo e paralelos à esquerda), `north_arrow` (canto
+  superior direito, inclinada pela convergência da quadrícula no centro do
+  mapa; sem CRS a caixa fica desabilitada e nada é desenhado) e `title`
+  (`ShortText`, 120 bytes, para `PngOptions` seguir `Copy`), em `graticule.rs`
+  com `canvas.rs` (`fill_polygon`). Testes: o SVG de um gráfico conhecido lido
+  por um verificador de XML escrito no teste (caminhos e textos esperados), a
+  linha de base do texto contra o PNG, o PNG em mm × dpi e com o pHYs, a grade
+  em UTM 21S (EPSG:32721) e em EPSG:4326 em lugares conhecidos e a convergência;
+  o autoteste (335-338) abre a janela no gráfico, numa aba do Analysis e no
+  transecto, escreve PNG e SVG e confere os tamanhos, e exporta o mapa com
+  grade, seta e título.
+
+#### Fase 61 — A série ao lado do clima
+
+- **Por quê:** o `corr(x, y, lag=)` da 1.19.1 pergunta onde o NDVI
+  responde à chuva e com que atraso, mas o gráfico não mostra as duas
+  séries juntas (um eixo Y só, `chart.rs`) e nenhum catálogo traz a
+  chuva: o usuário precisa trazer um NetCDF.
+- **O quê:**
+  1. **Eixo Y da direita**: o menu de uma série no gráfico (ou de uma
+     camada) põe ela no eixo da direita, com a faixa e o *Y = map range*
+     próprios; o estilo por série (a chuva em barras, o NDVI em linha); as
+     listras continuam da série da esquerda; a legenda diz o eixo de cada
+     uma. Sugerido (não automático) quando as faixas diferem mais de 10×.
+     Com um `corr(..., lag=k)` na calculadora, *Deslocar pela defasagem*
+     mostra y adiantada k, a correlação vista no gráfico.
+  2. **Dados de clima** (File → Climate data..., e no MCP): **CHIRPS**
+     (chuva, 0,05°, de 1981; mensal, pêntada e diária) lido no lugar pelo
+     `/vsicurl/` dos arquivos do Climate Hazards Center só na caixa do
+     mapa; depois **ERA5** pela coleção `era5-pds` do Planetary Computer
+     (dois itens por mês, um com as variáveis de análise e outro com as de
+     previsão), agregado a diário ou mensal. Conferir antes, para cada
+     fonte: o endereço e o formato (COG ou não), a licença e a atribuição
+     (CHIRPS de domínio público; ERA5 com a licença do Copernicus) e se o
+     TerraClimate (mensal, 4 km) vale a pena como terceira. A série abre
+     como camada na sua grade grossa; a calculadora já casa grades
+     diferentes por data.
+- **Feito (2026-11-18, 1.20.0): item 1** (o eixo da direita; os dados de
+  clima, item 2, seguem planejados). `chart_axis.rs`: o menu *Series axes* do
+  gráfico (com *All visible layers* e duas camadas ou mais) dá a cada camada
+  *Right axis*, *Bars* (barras desde 0, largura 0,8 do passo mediano) e, para
+  uma camada que é o resultado de `corr(x, y, lag=k)` da calculadora (o
+  `provenance.json` da rodada guarda o programa e os apelidos das camadas),
+  *Shift y by the lag (k)* (as datas de y mais k dias, semanas, meses de
+  calendário, anos ou observações; desligado de início). O egui_plot 0.37 só
+  tem uma escala Y: a série da direita é desenhada por um mapa afim
+  `y' = a·y + b` para a escala da esquerda, e os dois eixos são ajustados
+  juntos (o mesmo número de intervalos, 3 a 10, em passos redondos 1/2/5×10^k,
+  o que desperdiça menos das duas faixas; as marcas da esquerda são as da
+  direita e o espaçador de grade vem das duas), o rótulo da direita é o mapa
+  inverso (`AxisHints` com `HPlacement::Right`). O `AsShown` leva o mapa: o
+  gráfico, as bandas, a densidade, a área sob a série e os modelos ajustados
+  passam por ele, o inspetor e as dicas mostram os valores reais (o ponto do
+  inspetor vai para a posição desenhada). A legenda diz *(right)* e
+  *(shifted +k)*. O *Y = map range* da direita (*Right axis = map range*) usa
+  a faixa de cores da camada; as listras continuam as da série do cursor da
+  camada ativa. A dica quieta: com faixas que diferem mais de 10×, o texto do
+  *Right axis* diz isso (nada abre sozinho). Sem camada na esquerda não há
+  eixo da direita (a única escala é a da esquerda). Não vai ao `.janus`: as
+  opções do gráfico (estilo, valores, tendência) também não vão. Testes: o
+  mapa e suas marcas, a faixa degenerada (min = max), os atrasos em dias,
+  meses e observações, o `corr(` no texto da calculadora; autoteste
+  350-354 (A e `A * 300` com o corr de lag 2: as marcas, os números do eixo
+  da direita no SVG da figura, a legenda, as barras, o deslocamento).
+- **Feito (2026-11-18, 1.20.0): item 2** (os dados de clima; CHIRPS sim,
+  ERA5 não). `climate.rs`: *File → Climate data...* (também na paleta) e a
+  ferramenta `climate_data` do MCP. Endereços achados (listando os diretórios
+  do CHC): `https://data.chc.ucsb.edu/products/CHIRPS/v3.0/` com `monthly/global/cogs/chirps-v3.0.AAAA.MM.cog`
+  (de 1981.01 a 2026.10), `pentads/global/cogs/chirps-v3.0.AAAA.MM.P.cog` (P de
+  1 a 6, seis por mês) e `daily/final/rnl/cogs/AAAA/chirps-v3.0.rnl.AAAA.MM.DD.cog`
+  (o diário é o pentádico espalhado pelo ERA5, "rnl"; há também `sat` do IMERG
+  desde 1998, não oferecido); as dekads só têm `tifs/` (não COG: ficaram de
+  fora). A caixa (visível, ROI ou W,S,E,N) vira uma janela de pixels da grade
+  de 0,05° (7200 x 2400, 60°S-60°N; uma caixa fora diz isso), lida de cada COG
+  pelo `/vsicurl/` (só a caixa; sem procurar arquivos laterais: o servidor
+  responde 429 a muitas sondas), um GeoTIFF por data (`chirps_AAAA-MM.tif`,
+  `chirps_AAAA-MM-DD.tif`; a data no nome é o que o Build series lê) em
+  `results/climate/<fonte>_<caixa>_<período>` (ou a pasta digitada), numa tarefa
+  da fila de downloads (dois arquivos por vez, três tentativas cada; o que já
+  está na pasta é mantido, então baixar de novo refaz só as datas que falharam).
+  Abre como camada "CHIRPS rainfall (mm/month)" com a série estudada continuando
+  ativa, e o gráfico a desenha em barras (`Look.bars`, uma linha); passá-la ao
+  eixo da direita é o menu *Series axes*. A janela mostra o crédito (domínio
+  público, CC BY 4.0; Funk et al., CHIRPS3, Scientific Data, doi:10.1038/s41597-026-07096-4;
+  repositório doi:10.15780/G2JQ0P) e os arquivos o levam nos metadados, com
+  `ATTRIBUTION.txt` e `climate.json` na pasta. **ERA5 ficou de fora:** a coleção
+  `era5-pds` do Planetary Computer é Zarr v2 (blosc/zstd, chunks de 372 horas x
+  150 x 150, horário, 720 x 721 x 1440 por variável e mês, SAS pelo
+  `sign_planetary("era5-pds", "cpdataeuwest", "era5")` e `/vsiaz/era5/...`) e o
+  GDAL do Janus a abre e lê no lugar (teste `era5_zarr_opens_in_janus_gdal`,
+  `--ignored`), mas a coleção **termina em 2020-12** (1979-01 a 2020-12: os
+  blobs de 2021 em diante dão 404 e o STAC não tem itens depois), o que não
+  cobre as séries de Landsat/Sentinel de hoje; agregar a mensal/diária
+  também pede o salto da longitude 0-360 e a convenção das acumulações
+  (rótulo da hora final). Fica para quando houver outra fonte ou o PC for
+  atualizado (o TerraClimate, mensal de 4 km, não foi avaliado). Testes: as
+  URLs e os nomes por fonte, os meses, a caixa na grade de 0,05° (bordas, os
+  limites de 60°N/S e 180°, caixa fora), o orçamento e as checagens do período,
+  um download de uma pasta local de meses falsos (valores, origem, metadados,
+  mês faltando, manter os que já existem); autoteste 365-369 (uma pasta falsa de
+  três meses minúsculos, a janela, o download, a camada com 3 datas e os
+  valores, barras no gráfico). A comparação com o rasterio contra o servidor
+  real (`real_chirps_month_for_a_small_box`, `--ignored`, e `compare_chirps.py`)
+  **não foi rodada**: o servidor do CHC deixou de aceitar conexões na porta 443
+  deste computador depois da varredura dos diretórios (as sondas de arquivos
+  laterais do GDAL tiram 429), e continuava assim horas depois.
+- **Teste:** os valores do CHIRPS num ponto iguais aos do arquivo lido pelo
+  rasterio; a agregação do ERA5 igual ao `resample` do xarray, em
+  resultado e em tempo; o eixo da direita num autoteste (duas séries de
+  faixas 0–1 e 0–300).
+
+#### Fase 62 — Calibrar os parâmetros nas amostras
+
+- **Por quê:** o LandTrendr tem uns dez parâmetros, o CCDC, o BFAST e o
+  CODED vários, e o mapa depende muito deles: algoritmos e ajustes
+  diferentes dão mapas de perturbação bem diferentes na mesma área (Cohen
+  et al. 2017, *Forests* 8: 98; o ensemble de Cohen et al. 2018, *RSE*
+  205). Hoje o ajuste é feito no olho em poucos pinos, o que embute um
+  viés. O Janus já tem as peças: pontos interpretados com a data da
+  mudança (`Label::events`, `janus-validation/src/labels.rs`), o ajuste ao
+  vivo nos pinos, a concordância das datas a ± k anos (`date_agreement`,
+  `estimate.rs:386`) e a comparação de mapas.
+- **O quê:** *Tune on samples...* na janela das ferramentas que dão datas
+  de mudança (LandTrendr, CCDC, S-CCD, BFAST e o Lite, BFAST Monitor,
+  CODED, EWMACD, BEAST):
+  1. **Referência**: os pontos de um projeto de validação ou de
+     interpretação (com mudança e o ano, ou sem mudança), ou uma camada
+     vetorial com um campo de data (vazio = sem mudança); a janela de anos
+     em que conta.
+  2. **A separação**: os pontos que calibram não podem estimar a acurácia
+     (a acurácia sairia otimista). Com outro conjunto, nada a fazer. Com o
+     mesmo projeto, um sorteio dentro de cada estrato (30% por padrão,
+     reprodutível pela semente) marca os pontos de calibração; a acurácia
+     usa o resto com os mesmos pesos de estrato, o que segue sendo uma
+     amostra aleatória estratificada (estimadores sem viés) com erros
+     maiores; o painel de acurácia e o relatório dizem quantos pontos
+     foram para a calibração. Calibrar nos pontos da acurácia é recusado,
+     com o porquê.
+  3. **A busca**: o usuário escolhe os parâmetros que variam (por padrão os
+     três ou quatro mais influentes de cada ferramenta, marcados no
+     manifesto do Zeit por um campo `tune`, com faixa e escala, linear ou
+     log); N conjuntos (200 por padrão) por hipercubo latino, mais o padrão
+     e o atual. As séries dos pontos são lidas uma vez em resolução total;
+     cada conjunto roda o ajuste de pixel do Zeit em todos os pontos, nas
+     threads (custo: pontos × conjuntos × o custo por pixel do manifesto;
+     a estimativa antes, como a das rodadas; 300 pontos × 200 conjuntos do
+     BFAST a ~3 ms dá ~25 s em 8 threads).
+  4. **Os escores** de cada conjunto: omissão e comissão da mudança, o F1,
+     a parte das datas a ± k anos e o erro médio da data; pelos pontos (é
+     calibração, não estimativa de área), com a ponderação pelos estratos
+     como opção.
+  5. **O resultado**: a tabela dos conjuntos ordenada, a dispersão omissão
+     × comissão com a frente de Pareto, o padrão e o atual marcados; um
+     clique num conjunto o ajusta ao vivo no gráfico e nos pinos; *Usar
+     estes parâmetros* preenche a janela da ferramenta. **Quais parâmetros
+     importam**: a correlação parcial de postos de cada parâmetro com o
+     escore sobre os conjuntos, em barras. **O otimismo**: o escore do
+     melhor conjunto também por validação cruzada (k partes dos pontos de
+     calibração: escolhido em k−1, medido na que sobrou), para mostrar
+     quanto a escolha se ajustou aos pontos; aviso com poucos pontos de
+     mudança (abaixo de ~30).
+  6. **Proveniência**: a calibração (os pontos, a semente, os escores do
+     conjunto escolhido) entra no `provenance.json` da rodada que a usar e
+     no histórico Python (o laço em zeit-cdts que refaz a busca); a
+     ferramenta `tune_tool` no MCP.
+- **Teste/comparação:** séries sintéticas com quebras conhecidas e ruído,
+  em que a região boa dos parâmetros é conhecida (a busca tem de achá-la);
+  a separação dos pontos (nenhum ponto de calibração entra na acurácia, os
+  pesos dos estratos iguais); contra o mesmo laço em Python com o
+  zeit-cdts, em resultado (os mesmos escores) e em tempo; autoteste da
+  janela e um guia no site (calibrar o LandTrendr de Rondônia nos pontos
+  do guia de validação).
+- **Feito (2026-11-18, 1.20.0)**: 62a + 62b + 62c (o motor, a janela, o MCP,
+  o histórico Python e o benchmark contra o zeit-cdts; falta o guia do site).
+  `janus-zeit/src/tune.rs` + `tune.json` (o manifesto do que se calibra:
+  por ferramenta a saída que é a data, a faixa e a escala de cada parâmetro, os
+  3-4 ligados por padrão) roda o núcleo raster do Zeit uma vez por conjunto em
+  todos os pontos (uma linha de pixels), com o hipercubo latino, os escores
+  (omissão, comissão, F1, F1 com data, datas a ± k anos, erro médio), a frente
+  de Pareto, a PRCC e a validação cruzada do otimismo;
+  `janus-validation/src/calibration.rs` guarda a separação no projeto
+  (`Project.calibration`: fração, semente e ids, sorteio por estrato, a acurácia
+  usa o resto com os mesmos pesos, `Prepared.calibration` conta os pontos).
+  `tune_ui.rs`: *Tune on samples...* na janela da ferramenta; referência = os
+  pontos de calibração do projeto (rótulo → mudança / sem mudança / fora, a
+  partir da tradução do mapa de eventos; o ano da primeira mudança) ou uma camada
+  vetorial com um campo de data (vazio = sem mudança); sem separação o projeto
+  recusa (com o porquê) e há *Make a calibration split* (30%, semente); os
+  pontos de acurácia são recusados; janela de anos, tolerância, N conjuntos,
+  parâmetros com faixa editável (`TuneConfig::ranges`), ponderação por estratos;
+  as séries lidas uma vez em resolução total (as bandas também), um conjunto
+  cronometrado para a estimativa, a busca como tarefa (Tools > Tasks, cancelável);
+  a tabela ordenada, a dispersão com a frente de Pareto, *Which parameters
+  matter*, *Optimism* (e o aviso com menos de 30 mudanças); clicar num conjunto
+  o põe nos parâmetros da ferramenta (o ajuste ao vivo refaz), *Use these
+  parameters* o mantém e o `provenance.json` da rodada ganha `calibration`; o
+  painel de acurácia diz quantos pontos calibram. Autoteste: estágios 355-364
+  (`ui_test_tune.rs`).
+  **62c.** A ferramenta MCP `tune_tool` (`mcp_tune.rs`): ferramenta, série,
+  `reference` (um projeto de validação, só o corte de calibração, recusado sem
+  ele com a mensagem de `calibration_points`, ou um arquivo vetorial com
+  `field`), anos, tolerância, `k`, `n_sets`, `vary`, `ranges`, `params`, semente,
+  threads (no máximo as do servidor); responde os conjuntos ordenados, a frente
+  de Pareto, a PRCC, o otimismo, `few_changes` e o tempo, e grava `tune.json` e
+  `tune.py`. O Python da busca (`janus-zeit/src/python/tune_script.rs`): o laço
+  em zeit-cdts que lê a série de cada ponto como o script de um pino
+  (`load_raster(..., pixel=)`), escreve os conjuntos por extenso (os valores
+  sorteados, sem gerador), roda a chamada do Zeit uma vez por conjunto em todos
+  os pontos (`zeit.landtrendr` + `extract_events`, `zeit.bfast`, `bfast_lite`,
+  `bfast_monitor`, `ewmacd`), pontua com as definições do `tune.rs` e imprime a
+  tabela e a diferença do F1 com data para a do Janus; *Copy Python* na janela, e
+  a rodada que usa os parâmetros guardados leva `tune.py` na pasta (o histórico
+  mostra a busca antes do script da rodada). Sem laço em Python: CCDC, S-CCD,
+  CODED (ferramentas de bandas) e BEAST. Verificado rodando o script gerado no
+  zeit-cdts: a diferença do F1 com data para o motor é 0 nas cinco ferramentas.
+  Benchmark (`tools/bench_tune`, 300 pontos × 202 conjuntos, 4 threads dos dois
+  lados): LandTrendr 0,16 s no Janus contra 1,23 s (threads) e 4,55 s (4
+  processos) em Python; BFAST 11,8 s contra 12,7 s e 14,7 s; os seis escores de
+  todos os conjuntos iguais bit a bit. O benchmark achou que o motor no binário
+  de teste do `janus-zeit` (alocador do sistema) leva 33 s no BFAST, 2,8× o do
+  binário do app (mimalloc, como a extensão do zeit-cdts). O guia do site
+  (Rondônia) continua pendente. Roadmap: concluída (1.20.0).
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

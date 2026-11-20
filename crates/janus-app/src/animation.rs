@@ -40,6 +40,11 @@ pub struct AnimOptions {
     pub legend: bool,
     pub scale_bar: bool,
     pub marks: bool,
+    /// the coordinate grid (0 none, 1 longitude and latitude, 2 the layer's CRS), the north arrow and a title, as the
+    /// map PNG's
+    pub graticule: u8,
+    pub north_arrow: bool,
+    pub title: crate::export_map::ShortText,
     /// GIF: error diffusion (smoother gradients, larger files)
     pub dither: bool,
 }
@@ -58,6 +63,9 @@ impl Default for AnimOptions {
             legend: true,
             scale_bar: true,
             marks: false,
+            graticule: 0,
+            north_arrow: false,
+            title: Default::default(),
             dither: false,
         }
     }
@@ -338,6 +346,30 @@ impl State {
         )
         .on_hover_text("Ground distance at the centre of the view (the layer needs a CRS)");
         ui.checkbox(&mut o.marks, "Pins, ROI and vector layers");
+        let geo = info.geo_transform.is_some() && !info.crs_wkt.is_empty();
+        let grids = ["No coordinate grid", "Grid: longitude and latitude", "Grid: the layer's CRS"];
+        ui.add_enabled_ui(geo, |ui| {
+            egui::ComboBox::from_id_salt("anim grid")
+                .width(w)
+                .selected_text(grids[usize::from(o.graticule).min(2)])
+                .show_ui(ui, |ui| {
+                    for (k, g) in grids.iter().enumerate() {
+                        ui.selectable_value(&mut o.graticule, k as u8, *g);
+                    }
+                });
+        })
+        .response
+        .on_disabled_hover_text("The layer needs a CRS");
+        ui.add_enabled(geo, egui::Checkbox::new(&mut o.north_arrow, "North arrow"))
+            .on_disabled_hover_text("The layer needs a CRS");
+        let mut title = o.title.as_str().to_string();
+        ui.horizontal(|ui| {
+            ui.label("Title");
+            ui.add(egui::TextEdit::singleline(&mut title).desired_width(w).hint_text("(none)"));
+        });
+        if title != o.title.as_str() {
+            o.title = crate::export_map::ShortText::new(&title);
+        }
         if o.format == 0 {
             ui.checkbox(&mut o.dither, "Dither (GIF)")
                 .on_hover_text("Spreads the error of the 256-colour palette: smoother gradients\n(e.g. the basemap's imagery), larger files.");
@@ -667,6 +699,9 @@ impl State {
             legend: o.legend,
             marks: o.marks,
             scale_bar: o.scale_bar,
+            graticule: o.graticule,
+            north_arrow: o.north_arrow,
+            title: o.title,
         };
         self.draw_figure_overlay(&mut rgba, w, h, o.scale, fo, ppp);
         let r = self.anim.run.as_mut().unwrap();

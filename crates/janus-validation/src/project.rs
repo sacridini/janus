@@ -12,6 +12,7 @@ use gdal::{Dataset, DatasetOptions, DriverManager, GdalOpenFlags};
 use serde_json::{Value, json};
 
 use crate::NONE;
+use crate::calibration::CalibrationSplit;
 use crate::design::{Point, Rng};
 use crate::estimate::AreaEstimator;
 use crate::labels::{Fractions, Label, Response, YearLabel, events_from, events_text, resolve};
@@ -63,6 +64,9 @@ pub struct Project {
     pub estimator: AreaEstimator,
     /// the transitions assessed between two of the maps (dates of a map of classes)
     pub transition: Option<TransitionSpec>,
+    /// the points that calibrate a tool's parameters (Tune on samples), left out of the accuracy assessment;
+    /// none: every point assesses the accuracy (and none may calibrate)
+    pub calibration: Option<CalibrationSplit>,
 }
 
 impl Default for Project {
@@ -86,6 +90,7 @@ impl Default for Project {
             maps: Vec::new(),
             estimator: AreaEstimator::Direct,
             transition: None,
+            calibration: None,
         }
     }
 }
@@ -274,6 +279,9 @@ fn analysis_json(p: &Project) -> Value {
     let mut j = json!({"estimator": p.estimator.name()});
     if let Some(t) = &p.transition {
         j["transition"] = t.to_json();
+    }
+    if let Some(c) = &p.calibration {
+        j["calibration"] = c.to_json();
     }
     j
 }
@@ -731,6 +739,8 @@ pub fn load_project(path: &str) -> Result<Project, String> {
     let analysis = parse("analysis")?;
     p.estimator = AreaEstimator::from_name(analysis.get("estimator").and_then(Value::as_str).unwrap_or(""));
     p.transition = analysis.get("transition").and_then(TransitionSpec::from_json);
+    // projects from before the split have none
+    p.calibration = analysis.get("calibration").and_then(CalibrationSplit::from_json);
     let raster = PathBuf::from(get("strata_raster"));
     let raster =
         if raster.is_absolute() { raster } else { Path::new(&p.path).parent().unwrap_or(Path::new("")).join(raster) };

@@ -29,6 +29,10 @@ pub enum Target {
     Tab(Tab, bool),
     /// a menu open: its title, its items and the tooltip shown
     Menu(Rect),
+    /// a window (by its id's name): the area it takes
+    Area(&'static str),
+    /// two panels' places and what is between them
+    Union(Tab, Tab),
 }
 
 /// A file of a screenshot: the whole window, a rectangle of it (pixels), or a panel that was not there.
@@ -64,6 +68,8 @@ pub struct Shots {
     pub(crate) results: usize,
     /// the layout asked for: the panels on the right, and those with the statistics
     pub(crate) layout: Option<(Vec<Tab>, Vec<Tab>)>,
+    /// the share of the map's column above the time series and the statistics (0: the default, 0.64)
+    pub(crate) under: f32,
     places: Option<Places>,
     /// panels brought to the front before the dock is drawn
     pub(crate) focus: Vec<Tab>,
@@ -86,6 +92,7 @@ pub struct Shots {
     /// a panel scrolled to this offset (f32::MAX: its end)
     pub(crate) scroll: Option<(Tab, f32)>,
     pub(crate) val: crate::shots_validation::ValShots,
+    pub(crate) tune: crate::shots_tune::TuneShots,
     /// the stage whose summary was printed (shots_ml.rs)
     pub(crate) printed: usize,
     /// the font sizes' tour (shots_layout.rs)
@@ -290,6 +297,7 @@ impl State {
         sh.done = match sh.tour.as_str() {
             "validation" => self.shots_validation(sh, ctx),
             "alerts" => self.shots_alerts(sh, ctx),
+            "tune" => self.shots_tune(sh, ctx),
             "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
             "clip-explore" | "clip-detect" => self.shots_clips(sh, ctx),
@@ -1187,6 +1195,8 @@ impl State {
                         return None;
                     }
                     sh.layout = Some((vec![pheno], vec![Tab::Tasks]));
+                    // taller Statistics, to show the season rows of the Phenology section under the metrics
+                    sh.under = 0.52;
                     self.shots_colormap("NDVI");
                     self.set_date(self.shots_date_of("2024-06"));
                     self.add_pin(crop.0, crop.1);
@@ -1253,7 +1263,7 @@ impl State {
             }
             return None;
         }
-        fail(sh, "unknown tour (validation, landtrendr, ccdc, coded, bfast, phenology, snic, ml, presto)")
+        fail(sh, "unknown tour (validation, tune, landtrendr, ccdc, coded, bfast, phenology, snic, ml, presto)")
     }
 }
 
@@ -1270,7 +1280,7 @@ impl JanusApp {
             let s = d.main_surface_mut();
             let [mid, left] = s.split_left(NodeIndex::root(), LEFT, vec![Tab::Layers, Tab::Files]);
             let [_, _] = s.split_below(left, 0.45, vec![Tab::Display]);
-            let [_, bottom] = s.split_below(mid, 0.64, vec![Tab::TimeSeries]);
+            let [_, bottom] = s.split_below(mid, if sh.under > 0.0 { sh.under } else { 0.64 }, vec![Tab::TimeSeries]);
             let [_, _] = s.split_right(bottom, 0.52, vec![Tab::Statistics]);
             self.dock = d;
             sh.places = Some(Places { mid, right_tabs, under_tabs });
@@ -1364,6 +1374,11 @@ impl JanusApp {
                     Some(&bottom) if fit => Rect::from_min_max(r.min, egui::pos2(r.max.x, r.max.y.min(bottom + 14.0))),
                     _ => r,
                 }),
+                Target::Area(name) => ctx.memory(|m| m.area_rect(egui::Id::new(name))),
+                Target::Union(a, b) => match (sh.rects.get(&a), sh.rects.get(&b)) {
+                    (Some(a), Some(b)) => Some(a.union(*b)),
+                    _ => None,
+                },
                 Target::Menu(title) => sh.popup.map(|p| {
                     let mut r = title.union(p.expand(6.0));
                     for t in &tooltips {

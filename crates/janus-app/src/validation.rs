@@ -1551,6 +1551,7 @@ impl State {
             for (i, name) in ["Design", "Accuracy", "Maps", "Interpreters", "Report", "Alerts"].iter().enumerate() {
                 ui.selectable_value(&mut self.val.tab, i, *name);
             }
+            crate::welcome::guide_button(ui, if self.val.tab == 5 { "alerts" } else { "validation" });
         });
         ui.separator();
         match self.val.tab {

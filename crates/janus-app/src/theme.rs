@@ -963,6 +963,41 @@ fn set_face(ctx: &egui::Context, font_px: i32, modern: bool) {
     if FACE.swap(face, Ordering::Relaxed) == face {
         return;
     }
+    ctx.set_fonts(font_defs(face));
+}
+
+/// The fonts of a figure (figure.rs): Inter, whatever the interface's face, in a context of its own.
+pub fn figure_fonts() -> FontDefinitions {
+    font_defs(INTER)
+}
+
+/// The data colours and the look of a figure: the modern interface's light theme on opaque panels, whatever the
+/// interface's own, until the guard is dropped (the colours are read from the theme in use, on this thread's drawing).
+pub struct FigureScope(usize, u32);
+
+impl FigureScope {
+    pub fn enter() -> Self {
+        let was = FigureScope(CURRENT.swap(MODERN_LIGHT, Ordering::Relaxed), OPACITY.load(Ordering::Relaxed));
+        OPACITY.store(1.0f32.to_bits(), Ordering::Relaxed);
+        was
+    }
+}
+
+impl Drop for FigureScope {
+    fn drop(&mut self) {
+        CURRENT.store(self.0, Ordering::Relaxed);
+        OPACITY.store(self.1, Ordering::Relaxed);
+    }
+}
+
+/// The egui visuals of a figure: light.
+pub fn figure_visuals() -> Visuals {
+    visuals(MODERN_LIGHT, 1.0)
+}
+
+/// The font definitions of face `face` (0 ProggyClean, 1 ProggyForever, 2 Inter).
+fn font_defs(face: i32) -> FontDefinitions {
+    let modern = face == INTER;
     let mut defs = FontDefinitions::default();
     let (first, strong) = if modern {
         defs.font_data.insert(
@@ -998,7 +1033,7 @@ fn set_face(ctx: &egui::Context, font_px: i32, modern: bool) {
     semibold.retain(|f| f != first);
     semibold.insert(0, strong.to_string());
     defs.families.insert(FontFamily::Name(SEMIBOLD.into()), semibold);
-    ctx.set_fonts(defs);
+    defs
 }
 
 /// The face the interface is drawn with: true for a scalable one (Inter, or ProggyForever at sizes other than 13 px).

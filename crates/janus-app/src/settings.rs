@@ -121,8 +121,12 @@ impl Default for Settings {
 }
 
 /// Where the settings and the layout are kept: %LOCALAPPDATA%\Janus, ~/Library/Application Support/Janus,
-/// $XDG_DATA_HOME/janus.
+/// $XDG_DATA_HOME/janus; JANUS_DATA_DIR names another.
 pub fn app_data_dir() -> PathBuf {
+    // JANUS_DATA_DIR: another folder (tests of what the data folder keeps, as the crash reports)
+    if let Some(d) = std::env::var_os("JANUS_DATA_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d);
+    }
     #[cfg(windows)]
     let base = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Janus"));
     #[cfg(target_os = "macos")]

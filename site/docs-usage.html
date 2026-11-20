@@ -65,10 +65,12 @@
       <li><a href="#using-the-window">Using the window</a></li>
       <li><a href="#zeit-tools">Zeit tools</a>
         <ol>
+          <li><a href="#tuning-on-samples">Tuning on samples</a></li>
           <li><a href="#python-history">Python history</a></li>
         </ol>
       </li>
       <li><a href="#time-series-analysis-force">Time series analysis (FORCE)</a></li>
+      <li><a href="#analysis-ready-data-force">Analysis-ready data (FORCE)</a></li>
       <li><a href="#classification-random-forest-twdtw-embeddings-som-k-means-networks">Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)</a></li>
       <li><a href="#field-delineation-parcels">Field delineation (parcels)</a></li>
       <li><a href="#spectra-hyperspectral">Spectra (hyperspectral)</a></li>
@@ -77,8 +79,13 @@
       <li><a href="#validation-accuracy-and-area-olofsson-et-al-2014">Validation: accuracy and area (Olofsson et al. 2014)</a></li>
       <li><a href="#official-alerts-against-a-map-of-change">Official alerts against a map of change</a></li>
       <li><a href="#animation-gif-mp4-webm">Animation (GIF, MP4, WebM)</a></li>
+      <li><a href="#figures">Figures</a></li>
       <li><a href="#performance">Performance</a></li>
-      <li><a href="#updates">Updates</a></li>
+      <li><a href="#updates">Updates</a>
+        <ol>
+          <li><a href="#crash-reports">Crash reports</a></li>
+        </ol>
+      </li>
       <li><a href="#settings">Settings</a></li>
     </ol>
   </nav>
@@ -175,7 +182,12 @@ nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
 disk, so reopening a series takes a fraction of a second.</li>
 <li><strong>Export</strong>: the map as a <strong>PNG</strong> figure (as shown, rendered at 1×, 2× or 4×
 the screen resolution, with the date, a colour bar or class legend, pins and
-the ROI if wanted, on the map's, a white or a transparent background); the
+the ROI if wanted, on the map's, a white or a transparent background, and for
+a paper a <strong>coordinate grid</strong> (longitude and latitude by the exact transform
+of any CRS, or the layer's own units) with its values at the edges, a <strong>north
+arrow</strong> (leaning by the grid convergence in a projected CRS) and a <strong>title</strong>,
+also in the animation's frames); <strong>Save figure...</strong> on the series chart and on
+Analysis' plots (see <a href="#figures">Figures</a>); the
 active layer's <strong>values</strong> at the date as a Float32 <strong>GeoTIFF</strong> (visible area
 or whole image, full resolution, same grid and CRS, no data = NaN) and the
 <strong>rendered view</strong> as an RGBA GeoTIFF, both ready for QGIS; <strong>Zeit results</strong> as
@@ -431,6 +443,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td><code>calculate</code></td><td>the text computed: a COG per date (or VRTs computed when read)</td></tr>
 <tr><td><code>list_tools</code>, <code>describe_tool</code></td><td>Zeit's tools, their parameters and outputs</td></tr>
 <tr><td><code>run_tool</code></td><td>a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the SOM's and k-means' clusters named by the samples' classes; the tools on maps (agreement of change maps) on <code>maps</code></td></tr>
+<tr><td><code>tune_tool</code></td><td>a change tool's parameters searched on reference points (a validation project's calibration split, or a vector file with a date field), as <a href="#tuning-on-samples">Tuning on samples</a>: the sets sorted with their scores, the Pareto front, the partial rank correlation of each parameter, the k-fold optimism of the best set; <code>tune.json</code> and <code>tune.py</code> (the same search in Python) in the folder</td></tr>
 <tr><td><code>regularize</code></td><td>a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled</td></tr>
 <tr><td><code>speckle</code></td><td>a radar series through Quegan's multitemporal filter or Lee's</td></tr>
 <tr><td><code>harmonize</code></td><td>Sentinel-2 taken to Landsat 8's OLI by HLS's bandpass adjustment (Landsat 7 and 4-5 by Roy et al. 2016 if asked); with <code>join</code>, a second series on the same grid joined in time</td></tr>
@@ -444,6 +457,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td><code>stac_catalogs</code></td><td>the STAC catalogues Janus knows (Earth Search, Planetary Computer, ...) and their collections</td></tr>
 <tr><td><code>stac_search</code></td><td>a collection's items over an area and dates (and cloud cover): the dates found, the clouds of each, the bands to choose</td></tr>
 <tr><td><code>stac_series</code></td><td>the search as a series: VRTs read in place, downloaded (a cloud-optimized GeoTIFF a date) or composited (best available pixel, greenest, medoid or median, the whole range or a year a period); clouds masked by the quality band</td></tr>
+<tr><td><code>climate_data</code></td><td>CHIRPS v3 rainfall (monthly, pentad or daily) for a box in longitude and latitude and a period, read from the Climate Hazards Center only over the box, one GeoTIFF a date in a folder that is a series (a file already there is kept: call again to retry the dates that failed); the answer carries the licence, the citation and the DOI</td></tr>
 <tr><td><code>describe_vector</code></td><td>a vector file's layers: features, geometry, CRS, extent (also in longitude and latitude), fields, the first features</td></tr>
 <tr><td><code>vector_series</code></td><td>each feature's series (a point's pixel, a polygon's mean) of a series; a CSV of feature, id, date, value and pixels</td></tr>
 <tr><td><code>open_in_janus</code></td><td>files shown in Janus, places as pins: as layers of the window already open (it comes to the front; it watches an inbox beside Janus's data), else in a new window</td></tr>
@@ -464,10 +478,12 @@ answer. Long calls report their progress and stop when the client cancels them.
 <div class="tbl-wrap"><table class="tbl">
 <thead><tr><th>Action</th><th>How</th></tr></thead>
 <tbody>
+<tr><td>Welcome and sample data</td><td><strong>Help → Welcome</strong> (never shown by itself: Janus opens empty): <em>Open sample data...</em>, <em>Open folder...</em>, <em>Search STAC...</em>, the recent projects and the guides (<em>Which method?</em> is the site's list of methods, what each needs and gives). <em>Open sample data...</em> lists the small series of the guides (title, size, the guide) from a list kept with the releases of the repository (<code>JANUS_SAMPLES_URL</code> names another list, a URL or a path); <em>Download and open</em> fetches the files into the <code>samples</code> folder of Janus's data folder (<code>%LOCALAPPDATA%\Janus</code> on Windows) as a task of Tools → Tasks (progress, Cancel, in the line of downloads), checks each file's SHA-256 (a file that does not match is deleted) and opens it as File → Open does; a sample already downloaded says so and opens at once. Without a network the window says so and the samples already downloaded still open</td></tr>
 <tr><td>Remote rasters (cloud)</td><td><strong>File → Open URL...</strong> (<code>Ctrl+U</code>, a new layer): one URL per line, several make a series. <code>https://</code>, <code>s3://</code>, <code>gs://</code>, <code>az://</code>: cloud-optimized GeoTIFFs (AWS Earth Search, Planetary Computer with a signed URL, USGS, ESA...) are read in place through GDAL's network file systems: only the header, the overview level the map needs and the blocks looked at (the cursor's pixel, the detail tiles) are downloaded. Public S3 and GCS buckets need no account; private ones use the usual credentials (<code>AWS_ACCESS_KEY_ID</code>, <code>~/.aws</code>, <code>GOOGLE_APPLICATION_CREDENTIALS</code>, <code>AZURE_STORAGE_CONNECTION_STRING</code>...). Dates come from the file names, or from the folder each file sits in (Sentinel-2 COGs: <code>.../S2B_23KPQ_20230811_0_L2A/B04.tif</code>). The overview is cached on disk like any other</td></tr>
 <tr><td>Build a series</td><td><strong>File → Build series...</strong>: loose files (picked, or a folder's) grouped by the <strong>date in their names</strong> (as when opening); a date's files of one band <strong>stacked as its bands</strong> (their names from what tells the files apart: <code>S2_20210105_T1_B04</code> and <code>..._B08</code> give B04 and B08), its <strong>tiles</strong> (files of other extents) <strong>mosaicked</strong>; files of several bands each keep their bands. Every date on one grid (the files' extent at their finest pixel; one CRS: files of another are left out, reproject them first). The plan is shown before anything is written: the dates, each band's files and tiles, the files left out and why. Then a folder of <strong>VRTs</strong> (<code>gdalbuildvrt</code>'s own code: at once, nothing copied) or of <strong>COGs</strong>, <code>&lt;name&gt;_&lt;YYYYMMDD&gt;</code>, opened as a series (a task; its provenance kept)</td></tr>
 <tr><td>Save a series</td><td><strong>File → Save series as...</strong>: the active series, the quantity shown (a band, an index or an expression, its quality mask applied) or, for NetCDF and Zarr, every band (a variable each), over the whole layer, the visible area or the ROI, as a <strong>multiband COG</strong> (a band per date, its date in the band's name: it opens back as a series), a <strong>NetCDF</strong> (CF: time in days since 1970, x / y or lon / lat, the CRS as a grid mapping) or a <strong>Zarr</strong> with a time axis; opened back when saved (a task). Reprojected or clipped by polygons: Tools → Data preparation → Reproject, resample, clip first</td></tr>
 <tr><td>STAC catalogs</td><td><strong>File → Search STAC catalog...</strong>: Earth Search (Sentinel-2 Collection 1 L2A), Planetary Computer (Sentinel-2 L2A, Landsat Collection 2 L2, HLS S30 and L30, Sentinel-1 RTC), Brazil Data Cube (16-day cubes of Sentinel-2, Landsat, CBERS-4 WFI) or another STAC API by its URL (<em>List all</em> gives its collections). The visible area, the ROI or a box in degrees, two dates and the maximum cloud cover; <em>Search</em> lists the dates found with their scenes and clouds (<em>Clearest</em> ticks those under 10%), then the bands (with their wavelengths; SCL and QA_PIXEL as the quality band) and the cell size. <strong>Open as a layer</strong> writes one VRT per date (the mosaic of the day's scenes, the clearest on top, on one grid: the CRS of most scenes, the finest band's cells; scenes of another UTM zone warped onto it) under <code>results/stac</code> and opens them, read in place; <strong>Download as GeoTIFFs</strong> writes the same series as cloud-optimized GeoTIFFs (Tools → Tasks). Planetary Computer's files are read with tokens Janus asks for and renews, also when the folder is opened again later. <strong>Sentinel-1 RTC</strong> (radar, VV and VH as linear gamma0 corrected for the terrain, 10 m; no clouds to filter, no quality band): the search lists the satellite's <strong>passes</strong> (ascending or descending, relative orbit) and keeps the one with the most scenes (<em>Pass</em>; mixing passes makes false steps), and the series opens in <strong>dB</strong> (the VVdB index, <code>10 * log10(VV)</code>; VHdB and VHVVdB, the ratio, and the radar indices of the library in the Display panel); Tools → Data preparation → Speckle filter smooths it. <strong>Composite</strong>: one image of the dates ticked (or <em>one a year</em>) instead of the series, written as cloud-optimized GeoTIFFs and opened as a layer (a task): the <strong>best available pixel</strong> (each pixel's clear observation of the highest score, every band from that date: its day of the year near a <em>target day</em> (<code>exp(-0.5 (days / ±)²)</code>, the middle of the dates unless typed as MM-DD), its distance to the nearest cloud or shadow of its date (0 at the first distance or nearer, 1 at the second or farther: 30 to 1500 m by default), its sensor (Landsat 7 after its scan line corrector failed in 2003: 0.5) and its scene's cloud cover, weighted 0.3, 0.5, 0.1 and 0.1; Griffiths et al. 2013, White et al. 2014; zeit's <code>build_annual_composites(method="bap")</code>), the <strong>greenest</strong> (the highest NDVI, Earth Engine's <code>qualityMosaic</code>), the <strong>medoid</strong> or the <strong>median</strong>. The best available pixel reads the quality band of every date first, in blocks of 1024 pixels with the margin of the cloud distance around them, chooses the winners, then reads the bands of the dates that win in each block only, each over the box of its winners there (and a pixel's next best date where a winner has a band without a value): most of a series is never downloaded (the job's log says how many pixels were read of those every date's bands would need); the greenest reads the red, NIR and quality bands of every date; the medoid and the median every band. <em>The date, score and clear observations of each pixel</em> adds a GeoTIFF per composite in its <code>info</code> folder (year, day of the year, score, clear dates). <code>--stac-composite bap|greenest|medoid|median[;yearly]</code> with <code>--stac</code>. HLS's Fmask is a quality rule of its own (<em>HLS Fmask bits</em>: cloud, adjacent, shadow and snow masked). <em>Footprints as a vector layer</em>: the scenes' outlines with their id, date and cloud cover. See the <a href="stac.html">STAC guide</a></td></tr>
+<tr><td>Climate data</td><td><strong>File → Climate data...</strong>: the rainfall of <strong>CHIRPS v3</strong> (Climate Hazards Center, UC Santa Barbara; 0.05° or about 5 km, 60°S-60°N, from January 1981) for the map's visible area, the ROI or a box in degrees, between two months (the active series' dates, else the last ten years). <em>Monthly</em> (mm per month), <em>pentads</em> (six a month: days 1-5, 6-10, 11-15, 16-20, 21-25, 26 to the month's end) or <em>daily</em> (CHC's "rnl" files: the pentads' totals spread over the days by ERA5's timing, so not an independent daily product). The window says how many files and pixels before <em>Download</em>. Only the box is read from each remote cloud-optimized GeoTIFF (GDAL's <code>/vsicurl/</code>, not the whole 7200 x 2400 grid), as a task of Tools → Tasks (progress, Cancel, in the line of downloads; two files at a time, three tries each); one GeoTIFF a date, <code>chirps_2020-03.tif</code> (<code>chirps_2020-03-26.tif</code> for a pentad or a day), in a folder under <code>results/climate</code> named for the source, box and period (or the folder typed): a file already there is kept, so <em>Download</em> again reads only the dates that failed or are new. The folder opens as a series layer named <em>CHIRPS rainfall (mm/month)</em> on its coarse grid, on top, the series being studied staying active; the chart draws it as bars (put it on the right axis in the chart's <em>Series axes</em> menu; the calculator matches the grids by date). The files carry the source, the licence, the citation and the repository's DOI in their metadata, and <code>ATTRIBUTION.txt</code> and <code>climate.json</code> sit beside them. <strong>Credit: CHIRPS is in the public domain (the Climate Hazards Center's copyright waiver; CC BY 4.0). Please cite Funk, C. et al., CHIRPS3, <em>Scientific Data</em> (2026), <a href="https://doi.org/10.1038/s41597-026-07096-4">doi:10.1038/s41597-026-07096-4</a>; data repository <a href="https://doi.org/10.15780/G2JQ0P">doi:10.15780/G2JQ0P</a>.</strong> <code>JANUS_CHIRPS_URL</code> names another root (a mirror, or a folder with the same <code>monthly/global/cogs/...</code> layout). ERA5 is not offered: see the notes of phase 61 in IDEIAS.md</td></tr>
 <tr><td>NetCDF, Zarr, HDF</td><td>open the file (or the <code>.zarr</code> folder): with several variables a list asks which one (name, shape, long name and units); the time axis is decoded from CF units (<code>days since 1970-01-01</code>, hours, months...) and calendars (<code>noleap</code>, <code>360_day</code>, <code>all_leap</code>...: a model's 30 February becomes the 28th/29th); hourly data are labelled with the hour. <strong>Display</strong> panel → <em>Variable</em>: another variable of the file, <em>level</em>: another value of the other dimensions (pressure level, depth, member); both reopen the layer in place. A lon/lat grid without a grid mapping is taken as WGS 84</td></tr>
 <tr><td>Pan / zoom</td><td>drag / mouse wheel (zooming out goes as far as the CRS's area of use and every layer, the basemap under all of it; zooming in until the finest layer in view, active or not, shows its pixels as large as the active one's may be, each drawn from its full-resolution tiles, not only its overview), <code>F</code> fits the active layer; trackpad: two fingers pan, pinch zooms</td></tr>
 <tr><td>Pixel series</td><td>hover (exact once the mouse rests)</td></tr>
@@ -478,8 +494,8 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Lens</td><td><code>L</code> (View → Lens, or <em>Lens</em> on the swipe's bar): the swipe's comparison inside a circle that follows the cursor instead of right of a divider; <code>Ctrl</code> + wheel steps the date the lens shows (up: later; it takes its own date, as <em>Own date</em> on the bar) instead of zooming, the wheel alone zooms the map, <code>Alt</code> + wheel changes its size. <code>L</code> again turns it off (a swipe that was on before it, <code>C</code>, comes back as the divider). <code>--lens</code></td></tr>
 <tr><td>Status bar</td><td>at the foot of the window: under the cursor, the pixel (column, row), its coordinates in the layer's CRS and in longitude and latitude (WGS 84), and what the map shows there; at the right, the zoom, the map's scale on the screen (1:N at 96 points per inch) and the ground a screen pixel covers, the active layer's CRS, and the tasks under way (Zeit and deep-learning runs, downloads, exports) with the progress of the oldest: a click opens Tasks</td></tr>
 <tr><td>Downloads</td><td>every download runs in the background, the interface usable meanwhile: STAC series and composites, embeddings, the networks' weights (their megabytes said as they come). Each is a task in <strong>Tools → Tasks</strong> with its bar, its log and <em>Cancel</em>, and its bar on the map (top right); at most <em>Downloads at once</em> transfer at the same time (Settings, 2 by default), the others <strong>wait in line</strong> in the order they were asked for (<em>waiting</em> in Tasks, which says how many are before it; <em>Move first</em> makes one the next to start; the status bar counts those waiting). Two tasks needing the same weights or the AlphaEarth index download them once</td></tr>
-<tr><td>Notices</td><td>a task that ends after a few seconds or more (or fails) leaves a notice at the bottom right: <em>Show in Tasks</em>, <em>Open folder</em>, <em>Log</em>; it goes after a few seconds (a failure stays longer) or with its <strong>×</strong>. With Janus in the background, the system is asked for your attention (the taskbar's icon flashes; on a Mac, the Dock's bounces)</td></tr>
-<tr><td>Compare pixels</td><td>click to drop a pin</td></tr>
+<tr><td>Notices</td><td>a task that ends after a few seconds or more (or fails) leaves a notice at the bottom right: <em>Show in Tasks</em>, <em>Open folder</em>, <em>Log</em>; it goes after a few seconds (a failure stays longer) or with its <strong>×</strong>. A newer version's notice stands out (<em>New version</em>, the accent's border, <strong>Update now</strong>) and stays a minute. With Janus in the background, the system is asked for your attention (the taskbar's icon flashes; on a Mac, the Dock's bounces)</td></tr>
+<tr><td>Compare pixels</td><td>click to drop a pin; with pins made, the pointer off the map leaves the chart to the pins (and the ROI) alone, without the last pixel it was on (with no pin that pixel stays)</td></tr>
 <tr><td>Close layers</td><td>the <strong>Layers</strong> panel: click a row to select it (a series also becomes active), <code>Ctrl</code> + click adds or takes a row, <code>Shift</code> + click selects the rows between; <code>Delete</code> or <code>Ctrl+D</code> (Mac: <code>Command+D</code>) closes the selected layers, series and vector layers alike (a row's menu: <em>Close the N selected</em>). The keys belong to the list until you click elsewhere</td></tr>
 <tr><td>Remove a pin</td><td>right click it (Mac: Control + click, or a two-finger click on the trackpad), <code>Delete</code> (last one) or the <strong>x</strong> in the statistics table</td></tr>
 <tr><td>ROI</td><td><code>Shift</code> + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the <em>ROI</em> list above the chart); with <em>All visible layers</em> on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed)</td></tr>
@@ -524,13 +540,15 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Add by dropping</td><td>drop files or a folder on the window: a new layer (several files make one series of their dates; with <code>Shift</code> held, each file a layer of its own)</td></tr>
 <tr><td>Seasonal views, classes over time, scatter</td><td><strong>View → Analysis</strong> (see above)</td></tr>
 <tr><td>Chart of several layers</td><td>Time series panel → <em>All visible layers</em> (one marker shape per layer)</td></tr>
+<tr><td>A second Y axis</td><td>with <em>All visible layers</em> and two or more layers open, the chart's <strong>Series axes</strong> menu lists each layer: <strong>Right axis</strong> draws its series (cursor, pins, ROI) against a second Y axis on the right, with its own range, fitted to the left so that both share the same marks (a rainfall of 0-300 mm beside an NDVI of 0-1); <em>Right axis = map range</em> locks it to the layer's colour range; <strong>Bars</strong> draws the layer's series as bars from 0 in its colour, a month wide at most 0.8 of the median step (rainfall totals). The legend says <em>(right)</em> after the series on the right axis; the inspector and the tooltips show the real values, not the plotted ones. When two layers' ranges differ by more than 10 times, <em>Right axis</em>'s hover text says so (nothing is changed by itself). The stripes keep following the cursor's series of the active layer. <strong>Save figure...</strong> draws the right axis too. A layer on the right needs another on the left</td></tr>
+<tr><td>Shift by the lag</td><td>when a layer is the result of a calculator <code>corr(x, y, lag=k)</code> (its run's provenance has the program), the <em>Series axes</em> menu offers <em>Shift y by the lag (k)</em>: y's series is drawn k later (days, weeks, calendar months or years of the lag, or k observations), labelled <em>(shifted +k)</em>, so that its peaks fall under the peaks of x they were correlated with. Off by default; a view only (the data and the inspector's dates are not changed)</td></tr>
 <tr><td>Second monitor</td><td>drag a panel's tab out of the main window</td></tr>
 <tr><td>Maps side by side</td><td>View → New map view (<code>Ctrl+T</code>): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's <strong>x</strong> or <code>Ctrl+W</code> (the focused panel, else the last one opened)</td></tr>
 <tr><td>Swipe</td><td>View → Swipe (<code>C</code>): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or <em>Basemap only</em>; <strong>Swipe off</strong> or <code>C</code> again closes it</td></tr>
 <tr><td>Space-time transect</td><td><code>Ctrl</code> + drag a line on the map (Mac: <code>Command</code> + drag), or <code>T</code> / View → Draw transect, then drag; a <strong>polyline</strong> (a river, a road, a valley): <code>T</code>, then click its vertices, a double click or <code>Enter</code> ends it (<code>Backspace</code> undoes a vertex); <strong>Alt + click</strong> a line of a vector layer: the transect along it; <code>Esc</code> cancels. <strong>Transect</strong> panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel</td></tr>
 <tr><td>Profiles of every line</td><td><strong>Profiles of every line...</strong> in a line layer's menu (Layers panel): every line (each part of a multi-line) sampled about a pixel apart along its length, as the transect samples it, through every date of the active series or those from one to another; the values the chart shows. A task (Tools → Tasks: progress, cancel; the processing threads) writing <code>profiles.csv</code>, a row per sample and date (<code>fid</code>, the fields chosen, <code>part</code>, <code>sample</code>, <code>distance_m</code> (metres; <code>distance_map_units</code> in a CRS without an EPSG code), <code>x</code>, <code>y</code>, <code>col</code>, <code>row</code>, <code>date</code>, <code>value</code>; samples off the series left out), and optionally <code>profiles_wide.csv</code> (a row per sample, a column per date) and the samples as <strong>points</strong>, <code>profiles_points.gpkg</code> or <code>profiles_points.shp</code> (the wide table's rows in the series' CRS: <code>fid_line</code>, the fields, <code>part</code>, <code>sample</code>, the distance, <code>col</code>, <code>row</code> and a column per date; a shapefile's names cut to 10 characters, at most 255 columns); its provenance kept</td></tr>
-<tr><td>Chart options</td><td>style (lines ... bars; a categorical layer: steps, markers, class blocks), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density)</td></tr>
-<tr><td>Map as a figure</td><td>File → Export map as PNG... (<code>Ctrl+E</code>): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; <em>Save to</em>: the file (a path, a name alone for the last export folder, or <strong>Browse...</strong>), then <strong>Export</strong> (or <code>Enter</code>)</td></tr>
+<tr><td>Chart options</td><td>style (lines ... bars; a categorical layer: steps, markers, class blocks), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density), per layer: right axis, bars, shift by a lag (<em>Series axes</em>)</td></tr>
+<tr><td>Map as a figure</td><td>File → Export map as PNG... (<code>Ctrl+E</code>): resolution (1×, 2×, 4×), background, date label, legend, scale bar, coordinate grid (longitude and latitude, or the layer's CRS), north arrow, title, pins, ROI and vector layers; <em>Save to</em>: the file (a path, a name alone for the last export folder, or <strong>Browse...</strong>), then <strong>Export</strong> (or <code>Enter</code>)</td></tr>
 <tr><td>Data for QGIS</td><td>File → Export values as GeoTIFF... (<code>Ctrl+Shift+E</code>; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (<code>Ctrl+Shift+V</code>; RGBA as shown, georeferenced)</td></tr>
 <tr><td>Projects</td><td><strong>File → New project / Open project... / Save project</strong> (<code>Ctrl+S</code>) <strong>/ Save project as... / Recent projects</strong>: a <code>.janus</code> file (JSON) keeps the series (their files, band, index or expression, quality mask, date, style, opacity, blend, visibility), the vector layers (colour, visibility), the runs' maps (their GeoTIFFs, colours, range), the drawing order, the groups, the active layer, the pins, the ROI (box or polygon), the transect, the view, the swipe, the map panels, the basemap, the web layers (the maps, and the fetched layers' requests), the saved views and the season. Paths are kept relative to the project's file (and absolute, used when the relative one is not found), so a folder with the project and its data can be moved or shared; a file not found leaves its layer out with a notice, the rest opens. The window's title gives the project's name, <code>*</code> when it has changes not saved; New and Open ask what to do with them (Save, Discard, Cancel); closing Janus does not ask, the session (changes included) is kept. Opening a <code>.janus</code> file (File → Open, a drop on the window or <code>jn work.janus</code>) opens the project. The session is kept every minute and at exit (<code>last-session.janus</code> beside Janus' other data) and, with <em>Settings → Reopen the last session at start</em> turned on (off by default), reopened at the next start</td></tr>
 <tr><td>Undo</td><td><code>Ctrl+Z</code> undoes the last change to the layers, <code>Ctrl+Shift+Z</code> or <code>Ctrl+Y</code> redoes it; <strong>Edit → Undo / Redo</strong> says what (<em>Undo Opacity of NDVI</em>, <em>Undo Close Landsat</em>). Undone: closing layers (a series, a vector layer, a run's map: opened again in their place, with their style and date), opening them, styles, opacity and blend, colours, the drawing order, groups, visibility, names, pins, the ROI and the transect. A slider or a layer dragged is one step, whatever the frames in between; panning and zooming, the date shown, the panels and the active layer are not steps. The last 100 steps are kept; opening a project or New project starts again. A text field keeps its own <code>Ctrl+Z</code></td></tr>
@@ -540,7 +558,8 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Export progress</td><td>File → Exports (<code>Ctrl+J</code>; opens by itself with each export): progress, cancel, open the folder</td></tr>
 <tr><td>Shortcuts on a Mac</td><td><code>Command</code> instead of <code>Ctrl</code> (e.g. <code>Command+E</code>, <code>Command+Shift+S</code>)</td></tr>
 <tr><td>Series as text</td><td><strong>Copy CSV</strong> in the Time series and Transect panels</td></tr>
-<tr><td>Zeit tools</td><td><strong>Tools</strong> menu, grouped by the question asked in the order of a workflow (<em>Data preparation</em>: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; <em>Spectral analysis</em>: NDFI, spectral unmixing; <em>Temporal dynamics</em>: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; <em>Change detection</em>: CAT (change, aftereffect, trend) and the others; <em>Spatial pattern analysis</em>: emerging hot spots, SNIC, texture; <em>Classification &amp; pattern recognition</em>: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in <strong>Tools → Tasks</strong></td></tr>
+<tr><td>Charts as figures</td><td><strong>Save figure...</strong> in the Time series and Transect panels and in Analysis' plots: PNG or SVG, size in mm, dpi, font in pt, light colours; see <a href="#figures">Figures</a></td></tr>
+<tr><td>Zeit tools</td><td>The <strong>?</strong> at the top right of each tool's window (the Zeit tools, the raster calculator, Time series analysis, Analysis-ready data, Classification, Field delineation, STAC, the validation panel and its Alerts tab, and the data preparation and vector windows) opens that tool's guide on the site in the browser (the method's page, or its place in the list of methods). Hover a parameter for its help and its default. <strong>Tools</strong> menu, grouped by the question asked in the order of a workflow (<em>Data preparation</em>: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; <em>Spectral analysis</em>: NDFI, spectral unmixing; <em>Temporal dynamics</em>: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; <em>Change detection</em>: CAT (change, aftereffect, trend) and the others; <em>Spatial pattern analysis</em>: emerging hot spots, SNIC, texture; <em>Classification &amp; pattern recognition</em>: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in <strong>Tools → Tasks</strong></td></tr>
 <tr><td>Zeit logs</td><td><strong>Tools → Log</strong> (or <strong>Log</strong> next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder</td></tr>
 <tr><td>Tool results</td><td>layers of their own in the <strong>Layers</strong> panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in <strong>Pixel values</strong> (in the chart's place while a map is shown over its series)</td></tr>
 <tr><td>Embeddings</td><td><strong>View → Embeddings</strong>: principal components as RGB (of every year, or <em>local</em> to the ROI), similarity to the cursor, a pin or the ROI, change between years; see <a href="#embeddings">Embeddings</a></td></tr>
@@ -856,6 +875,81 @@ Zonal statistics, Regularize, Build series and the calculator's simple
 expressions have a <code>rerun.py</code> too, see <a href="#python-history">Python history</a>)
 and <strong>Open folder</strong>.</li>
 </ul>
+<h3 id="tuning-on-samples">Tuning on samples<a class="anchor" href="#tuning-on-samples" aria-label="Link to this section"></a></h3>
+<p>The window of a tool that gives change dates (LandTrendr, CCDC, S-CCD, BFAST,
+BFAST Lite, BFAST Monitor, CODED, EWMACD, BEAST) has <strong>Tune on samples...</strong> beside
+<em>Reset to defaults</em>: it searches the tool's parameters on reference points, with
+the tool's own pixel kernel (the date the map would show at each point), instead
+of by eye on a few pins. Algorithms and settings give very different maps of
+disturbance on the same area (Cohen et al. 2017, <em>Forests</em> 8: 98).</p>
+<ul>
+<li><strong>Reference.</strong> Either the <strong>calibration points of the open validation or
+interpretation project</strong> (a point with a change label has the year of its
+earliest change, one with a "no change" label none; <em>What each label means</em>
+translates the project's labels to change, no change or left out, starting from
+the translation of its map of events), or a <strong>vector layer with a date field</strong>
+(a year or a date such as <code>2018-05-12</code>; empty = no change; a text that is not a
+date is left out and reported). <em>Years</em> is the window in which a change counts, in
+the reference and in the map; <em>Dates within +-</em> the tolerance.</li>
+<li><strong>The split.</strong> The points that tune a tool must not estimate the accuracy too, or
+the accuracy would come out optimistic. <em>Make a calibration split</em> draws, inside
+each stratum, a share of the project's points (30% by default, reproducible by its
+seed) that calibrate; the accuracy uses the rest with the same stratum weights
+(still a stratified random sample, with larger errors), and the Accuracy tab says
+"N points calibrate a tool (left out)". The split is saved in the project. The
+accuracy points themselves are refused, with the reason. A layer of other points
+needs no split.</li>
+<li><strong>Search.</strong> The parameters that vary, three or four by default (the ones the
+literature finds most influential; hover for the id and the scale), each with its
+range (log scale where it matters) or its options, both editable; <em>Sets</em> (200 by
+default) of a Latin hypercube over them, plus the defaults and the current values;
+the seed; and, with a project, <em>Weight by strata</em> (each point counts for its
+stratum's area over the points drawn in it). The points' series are read once at
+full resolution (the bands too, for the tools that read them), one set is timed,
+and the estimate ("~25 s on 4 threads") is shown beside <strong>Run</strong>. The search is a
+task (<strong>Tools &gt; Tasks</strong>: progress and Cancel) on the processing threads of
+Settings.</li>
+<li><strong>Results.</strong> The table of sets, best first by the dated F1 (a change found at the
+wrong date counts as both an omission and a false change), with omission,
+commission, F1, the share of dates within the tolerance and the mean date error;
+the defaults and the current values are marked. The omission x commission scatter
+has the Pareto front joined. Clicking a row or a point tries that set: its
+parameters go into the tool's window, so the chart and the pins fit with them at
+once. <strong>Use these parameters</strong> keeps them; <strong>Back to the current</strong> (or closing the
+window) restores the earlier ones. <em>Which parameters matter</em> shows the partial rank
+correlation of each varied parameter with the dated F1, in bars; <em>Optimism</em> gives
+the held-out score of a 5-fold check (the best set chosen on four fifths of the
+points, scored on the fifth left out) beside the best set's own, which shows how
+much the choice fitted the points. With fewer than 30 points with a change the
+scores are unreliable, and the window says so.</li>
+<li><strong>Provenance.</strong> A run whose parameters were kept from a tuning has a
+<code>calibration</code> entry in its <code>provenance.json</code>: the reference (project file or
+layer and field), the number of points, the split's fraction and seed, the year
+window, the tolerance, the number of sets and the seed, the set chosen and its
+scores. The run's folder also has <code>tune.py</code>, and the run's entry in the
+<a href="#python-history">Python history</a> shows it before the run's own script.</li>
+<li><strong>The search in Python.</strong> <strong>Copy Python</strong> (beside <em>Use these parameters</em>) copies a
+script with zeit-cdts that redoes the search outside Janus: it reads each
+reference point's series as the script of a pin does (<code>zeit.load_raster(..., pixel=(col, row))</code>), writes out every set with the values the search sampled (so
+it needs no random generator to match), runs the tool's Zeit call once per set on
+all the points together (<code>zeit.landtrendr</code>, <code>zeit.bfast</code>, <code>zeit.bfast_lite</code>,
+<code>zeit.bfast_monitor</code>, <code>zeit.ewmacd</code>), takes the calendar year of the change the map
+would show from the result, scores it with the same definitions as the window
+(omission, commission, F1, the dated F1, dates within the tolerance, mean date
+error), prints the table in the window's order and says how far its dated F1 is
+from Janus's. It is commented and runs as it is (<code>SEARCH = False</code> skips the loop).
+The tools of bands (CCDC, S-CCD, CODED) and BEAST have no Python loop yet.</li>
+<li><strong>From an assistant.</strong> The MCP tool <code>tune_tool</code> (see <a href="#mcp-server">MCP server</a>)
+runs the same search without the window: <code>tool</code>, <code>series</code>, <code>reference</code> (a
+validation project, whose calibration split is used and which is refused without
+one, or a vector file with its <code>field</code>), <code>years</code>, <code>tolerance</code>, <code>k</code> (folds of the
+optimism), <code>n_sets</code>, <code>vary</code> (default: the tool's three or four default
+parameters), <code>ranges</code>, <code>params</code>, <code>seed</code>, <code>threads</code> (at most the server's). It
+answers the sets sorted (parameters and scores), <code>pareto_front</code> (the numbers of the
+sets on the front), <code>which_parameters_matter</code> (the partial rank correlation with
+the dated F1), <code>optimism</code>, <code>few_changes</code> and the time, and writes <code>tune.json</code> and
+<code>tune.py</code> in the folder.</li>
+</ul>
 <h3 id="python-history">Python history<a class="anchor" href="#python-history" aria-label="Link to this section"></a></h3>
 <p><strong>Tools → Python history...</strong> lists every processing run that finished, newest
 first, as Python: a Zeit tool's run, the calculator's results, Reproject,
@@ -994,6 +1088,96 @@ window: it reads the dates of the active series as its features, so the samples
 are classified on the chain's series instead of the observations.</p>
 <p><code>--window tsa</code> opens the window on the Steps tab (the defaults on the whole
 image); <code>--window tsa-run</code> also runs the chain.</p>
+    </section>
+
+    <section>
+<h2 id="analysis-ready-data-force">Analysis-ready data (FORCE)<a class="anchor" href="#analysis-ready-data-force" aria-label="Link to this section"></a></h2>
+<p><strong>Tools → Analysis-ready data (FORCE)...</strong> is FORCE's Level 2 as a chain: the
+reflectance of each date brought to nadir view, the sensors put on one spectral
+response, and from that harmonized series a product or a sharper series. It runs
+the four tools of the Tools menu that make it, with the parameters their own
+windows hold, in this order:</p>
+<ol>
+<li><strong>NBAR (c-factor)</strong>, on the series' bands by role and the four angle bands (or
+the angles of Sentinel-2's granule metadata): the series of every band;</li>
+<li><strong>Spectral adjustment to Sentinel-2A</strong>, on NBAR's bands (or the series' own when
+NBAR is off): ten bands, Sentinel-2A's;</li>
+<li><strong>Tasseled Cap</strong>, on the harmonized series' six reflective bands: a series per
+component;</li>
+<li><strong>ImproPhe</strong>, with the harmonized series as the fine one and another open series
+(picked in its form) as the coarse one.</li>
+</ol>
+<p>NBAR and the adjustment together are the <strong>harmonized series</strong>. The default is those
+two; a step is a checkbox, and a step the series cannot take (NBAR without angle
+bands or granule metadata, the adjustment or Tasseled Cap without the six
+reflective bands mapped, ImproPhe without a coarse series or in another CRS) is left
+out and said so: the rest of the chain still runs on what is left.</p>
+<p><strong>The series between the steps.</strong> NBAR and the adjustment write <strong>one series per
+band</strong>, and the step after them reads <strong>one series with several bands a date</strong>.
+Between the steps the per-band series are assembled into a multiband series (one VRT
+a date, a band from each file), which is also the chain's output called <em>Harmonized
+series</em> that you open and use in the other tools. What it carries from the series
+the chain started from: each band's role as its description (<code>blue</code>, <code>nir</code>... so
+the roles map by themselves; the adjustment's broad NIR is <code>nir broad</code>), the quality
+band and its rule as the raw series has them (the raw values, cut to the run's
+window), each date's file name and its STAC metadata (platform, items, collection,
+granule metadata, the signature of Planetary Computer's containers), so that each
+date's sensor and angles are found as in the raw series. The angle bands, which NBAR
+consumed, are not carried.</p>
+<p>The window has three tabs:</p>
+<ul>
+<li><strong>Input</strong>: the series (the active layer), its dates, the bands by role (the six
+reflective and the four angles; they are mapped in each tool's own window), the
+quality band, each date's sensor and how many dates have Sentinel-2 granule
+metadata.</li>
+<li><strong>Steps</strong>: the four steps with their parameters (the same fields as the tool's
+window), the reason when the series cannot take one, and <strong>To look at</strong>.</li>
+<li><strong>Output</strong>: the scope (the whole image, the visible area or the ROI), the output
+folder, <strong>Run</strong>, <strong>Copy Python</strong>, the preview, the task's progress and, once it is
+done, <strong>Use in Time series analysis</strong>.</li>
+</ul>
+<p><strong>To look at</strong> reads the dates' files and the parameters of the steps that are on,
+before anything runs: dates with no sensor where a step reads it (the file name or
+the STAC platform say none), Sentinel-2 dates in the spectral adjustment (it takes
+Landsat and MODIS to Sentinel-2A and stops at one), NBAR from granule metadata that
+some dates lack, HLS dates under NBAR (HLS v2 is already normalised), a band shown
+whose values do not fit the units a step is told (digital numbers?), the steps the
+series cannot take, a missing quality band and a chain with nothing on. Each is a
+coloured dot (information, something to look at, something that stops a step); the
+Steps tab shows how many need a look.</p>
+<p><strong>Run</strong> is <strong>one task</strong> (Tools → Tasks), in a folder of its own,
+<code>&lt;series&gt;_ard_&lt;time&gt;</code>, with a subfolder per step that ran (<code>01_nbar</code>,
+<code>02_spectral_adjust</code>, <code>03_tasseled_cap</code>...): each has its <code>job.json</code>, <code>job.log</code>,
+<code>provenance.json</code> and <code>rerun.py</code> and its outputs, and the harmonized series is the
+<code>series</code> folder of the step that made it (the last of NBAR and the adjustment). The
+folder itself has the chain's <code>provenance.json</code> (the steps with their parameters and
+folders, the steps left out and why, the series, the scope, the window, how it ended
+and its outputs; its result layers open it with <strong>Provenance...</strong>, and <strong>Run again
+with these parameters...</strong> turns the same steps and scope on in this window),
+<code>rerun.py</code> and <code>job.log</code>. The series of each band are files only; the harmonized
+series and the series of Tasseled Cap and ImproPhe open as layers, named by their
+step; the active layer does not change.</p>
+<p><strong>Preview on the ROI</strong> runs the chain on the ROI alone, into a folder of its own that
+is removed with the preview, and shows the series at the left of the map's swipe and
+the harmonized series at its right, on the date shown (the preview's window is the
+dashed outline). A preview writes no provenance, as the tools' previews do. <strong>Turn
+the preview off</strong> removes its layers, the swipe and its folder, and so does running
+the chain, another tool's preview or closing the series.</p>
+<p><strong>Copy Python</strong> copies one script that does in Zeit what the chain does on this
+series and scope, even before it runs: Zeit's <code>load_raster</code> reads the series, then NBAR's
+call, the adjustment's, Tasseled Cap's and ImproPhe's, each as the tools' own
+scripts write them, and every result written with <code>save_raster</code> under its step's name. Where the chain
+assembles the per-band series, the script has a DataArray <code>harmonized</code> (NBAR's
+result, or the adjustment's with its ten bands renamed by role): the steps after
+read their bands from it and the quality band and the dates from the raw series, as
+the chain's files carry them. ImproPhe reads the coarse series from its files. A step
+the series cannot take is a comment. It is the same script the run keeps as the
+folder's <code>rerun.py</code>.</p>
+<p><strong>Use in Time series analysis</strong> makes the harmonized series the active layer
+(opening it first if it is not) and opens the <a href="#time-series-analysis-force">Time series analysis</a>
+window on it.</p>
+<p><code>--window ard</code> opens the window on the Steps tab (the defaults on the whole image);
+<code>--window ard-run</code> also runs the chain.</p>
     </section>
 
     <section>
@@ -1963,7 +2147,36 @@ stops it); each frame waits for its date, its detail tiles and the basemap's.
 The date shown comes back at the end. Encoding continues in the Exports window
 (<code>Ctrl+J</code>); a cancelled or failed export leaves no file behind. If ffmpeg fails,
 the error shows its last lines (the full log is <code>ffmpeg.log</code> in Janus' data
-folder).</p>
+folder). The frames can carry the coordinate grid, the north arrow and a title
+too (the same choices as the PNG figure's).</p>
+    </section>
+
+    <section>
+<h2 id="figures">Figures<a class="anchor" href="#figures" aria-label="Link to this section"></a></h2>
+<p>For a paper, the charts leave Janus as figures, not only as CSV. <strong>Save
+figure...</strong> (the series chart's toolbar, and the button after the tabs of
+Analysis: Seasonal, Cycles, Bands, Classes (the view shown: the shares, the
+Sankey flows or the transitions), Scatter, Areas and Zonal; and the Transect
+panel's) opens one small window:</p>
+<ul>
+<li><strong>Size</strong>: one column (85 mm), two columns (180 mm) or free, and the height in
+mm; the <strong>font</strong> in points (the figure's own, 8 pt by default); <strong>white</strong> or
+<strong>transparent</strong> background.</li>
+<li><strong>Format</strong>: <strong>PNG</strong> at 150, 300 or 600 dpi (the dpi is written in the file),
+or <strong>SVG</strong>, in which the text stays text (editable in Inkscape or
+Illustrator), the lines and areas are paths, and an image (the Scatter's
+density, the spectrogram of Cycles, the transect) is embedded.</li>
+<li>The colours are those of a light figure whatever the interface's theme (a
+dark chart does not suit a paper), and what is only of the moment (the date's
+line and tag, the inspector's card, the panel's controls) is left out.</li>
+<li><strong>Save to</strong> works as the exports' (a path, a name alone for the last export
+folder, <strong>Browse...</strong>, a warning before it replaces a file); the file is
+written in the background (File → Exports). <strong>Copy image</strong> puts the PNG on the
+clipboard.</li>
+</ul>
+<p>The map has no figure of its own: File → Export map as PNG... adds the
+coordinate grid, the north arrow and the title (see Export above); the layout
+(several panels, an inset) stays for QGIS.</p>
     </section>
 
     <section>
@@ -2050,6 +2263,25 @@ for updates when Janus starts</em>); when there is a newer version, a notice say
 and the right of the menu bar shows <em>Janus X.Y.Z is out (you are using ...)</em> and
 <strong>Update</strong>, which in the installed program downloads it at once (then <strong>Install
 now</strong>).</p>
+<h3 id="crash-reports">Crash reports<a class="anchor" href="#crash-reports" aria-label="Link to this section"></a></h3>
+<p>When Janus stops on a bug, it leaves a report for the next start. A panic writes
+<code>crashes/crash-&lt;date&gt;-&lt;time&gt;.txt</code> in Janus's data folder (<code>%LOCALAPPDATA%\Janus</code> on
+Windows, <code>~/Library/Application Support/Janus</code> on macOS, <code>$XDG_DATA_HOME/janus</code> on
+Linux; <code>JANUS_DATA_DIR</code> names another): the versions of Janus, Zeit and GDAL, the
+system, the GPU and its backend, the processing threads, the thread, the message, the
+backtrace and the last 200 lines of the log. On Windows a native failure (GDAL, a
+driver, an invalid access) also writes a minidump, <code>crash-&lt;date&gt;-&lt;time&gt;.dmp</code>, and a
+short text with the exception code and the module it happened in. On Linux and macOS
+a native failure leaves no report of its own, but Janus notices that the last run did
+not close normally (it keeps a <code>running-&lt;pid&gt;.json</code> while a window is open and removes
+it on a normal close).</p>
+<p>The next time Janus opens, <strong>Janus closed unexpectedly</strong> shows the report. <strong>Restore
+the session</strong> opens the layers of the last automatic save (when there is one), <strong>Open
+folder</strong> shows the reports, <strong>Copy report</strong> puts the text on the clipboard, <strong>Open an
+issue</strong> opens the new-issue page of GitHub in the browser with the report filled in
+(cut to what a link carries; the whole file is in the folder) and <strong>Dismiss</strong> closes the
+notice. Nothing is sent by Janus itself: read the report first, because file paths in it
+may hold the names of people. Reports older than 30 days are deleted at the start.</p>
     </section>
 
     <section>

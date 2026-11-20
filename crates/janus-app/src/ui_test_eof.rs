@@ -778,7 +778,7 @@ impl State {
                 let _ = std::fs::remove_dir_all(&st.eof.dir);
                 st.eof = Default::default();
                 next(st, "Temporal EOF and lagged correlation: the windows closed, the layers, runs and files removed");
-                st.stage = 299; // the last stages of the interface test
+                st.stage = 330; // the crash notice (330-333), the figures, the chart axis, Tune, Climate (ui_test_crash.rs...), then 299
                 None
             }
             _ => None,

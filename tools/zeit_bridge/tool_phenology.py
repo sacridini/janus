@@ -1,6 +1,6 @@
 """Land surface phenology (zeit.phenology) for Janus: season start/peak/end per pixel.
 
-Zeit's phenology (a port of phenofit) smooths the series (Whittaker or HANTS),
+Zeit's phenology (written from the papers, with the methods of phenofit) smooths the series (Whittaker or HANTS),
 splits it into growing seasons, fits a double-logistic-type curve to each
 season and derives the dates from the fitted curve. It runs per season
 (annual=False), whose dates are "days since 1 January of the first year,
@@ -43,7 +43,7 @@ MANIFEST = {
     "name": "Phenology",
     "category": "Temporal dynamics",
     "description": (
-        "Land surface phenology as implemented in Zeit (a port of phenofit): smooths the series, "
+        "Land surface phenology as implemented in Zeit (written from the papers, with the methods of phenofit): smooths the series, "
         "splits it into growing seasons, fits a curve to each season and derives its start (SOS), "
         "peak (POS) and end (EOS). Needs a sub-annual vegetation index series (e.g. NDVI/EVI, "
         "8-16 day or monthly). Maps summarize the seasons per pixel (median, latest or a given "

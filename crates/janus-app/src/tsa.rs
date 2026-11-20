@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::app::State;
 use crate::chain::{Chain, ChainInput, ChainStep, JobStart, StepRun, cancelled, run_step, spawn_job};
 use crate::provenance::{Provenance, SCRIPT, SeriesRecord};
-use crate::zeit::{JobState, applicability, read_pixel_input};
+use crate::zeit::{JobState, read_pixel_input};
 #[cfg(test)]
 use crate::{
     chain::series_outputs,
@@ -110,26 +110,13 @@ impl Default for TsaUi {
 
 /// Why the dates are not a regular series (a constant step of whole days, what the polar phenology reads), if so.
 fn irregular(info: &CubeInfo) -> Option<String> {
-    if !info.time_is_date {
-        return Some("needs dates (none were found in the file names or band descriptions)".into());
-    }
-    let n = info.t();
-    if n < 3 {
-        return None;
-    }
-    let gap = info.unix_day(1) - info.unix_day(0);
-    if gap <= 0 || (2..n).any(|t| info.unix_day(t) - info.unix_day(t - 1) != gap) {
-        return Some(
-            "the dates are not evenly spaced: turn Interpolate on, which puts the series on a regular grid".into(),
-        );
-    }
-    None
+    crate::zeit::irregular(info, "turn Interpolate on, which puts the series on a regular grid")
 }
 
 /// Why a step cannot run on a series, if it cannot: the tool's own rule, and for the polar phenology a regular
 /// series, unless `regular` (an Interpolate comes before it).
 pub(crate) fn problem(tool: &Tool, info: &CubeInfo, regular: bool) -> Option<String> {
-    if let Some(why) = applicability(tool, info) {
+    if let Some(why) = crate::zeit::applicability_with(tool, info, true) {
         return Some(why);
     }
     if tool.id == "polar_metrics" && !regular {
@@ -953,6 +940,7 @@ impl State {
     }
 
     pub(crate) fn tsa_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "tsa");
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(crate::theme::error(), "Open a series first.");
             return;
@@ -1881,6 +1869,39 @@ mod tests {
         assert!(has(&a, 2, "Polar phenology: the dates are not evenly spaced"), "{a:?}");
         let a = look(&info, &only(&["interpolate", "polar_metrics"]), &[]);
         assert!(!a.iter().any(|x| x.level == 2), "{a:?}");
+    }
+
+    #[test]
+    fn the_polar_phenology_window_says_why_before_running() {
+        let polar = manifest().tool("polar_metrics").unwrap();
+        // a regular step of whole days over several years: available
+        let regular = dates((2018, 1, 1), (2022, 12, 31), 16);
+        assert_eq!(crate::zeit::applicability(polar, &regular), None);
+        // missing dates (Landsat-like): the reason, with the way out
+        let mut gappy = regular.clone();
+        gappy.layers.remove(5);
+        let why = crate::zeit::applicability(polar, &gappy).unwrap();
+        assert!(why.contains("not evenly spaced") && why.contains("Interpolate (regular grid)"), "{why}");
+        // a monthly series is not a constant step either: said so, not an error in the chart
+        let mut monthly = regular.clone();
+        monthly.layers = (0..60)
+            .map(|i| {
+                let mut l = regular.layers[0].clone();
+                let day = janus_cube::dates::days_from_civil(2018 + i / 12, (i % 12 + 1) as u32, 1);
+                l.time = day as f64 * 86400.0;
+                l
+            })
+            .collect();
+        let why = crate::zeit::applicability(polar, &monthly).unwrap();
+        assert!(why.contains("28 to 31 days") && why.contains("Interpolate (regular grid)"), "{why}");
+        // under two calendar years
+        let short = dates((2018, 3, 1), (2018, 11, 30), 16);
+        let why = crate::zeit::applicability(polar, &short).unwrap();
+        assert!(why.contains("at least 2 calendar years"), "{why}");
+        // another tool is not asked for it, nor a chain that interpolates first
+        let trend = manifest().tool("temporal_metrics").unwrap();
+        assert_eq!(crate::zeit::applicability(trend, &gappy), None);
+        assert_eq!(problem(polar, &gappy, true), None);
     }
 
     #[test]

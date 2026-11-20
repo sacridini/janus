@@ -5,7 +5,7 @@
     "label": "Annual series",
     "summary": "Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.",
     "track": "change",
-    "minutes": 12,
+    "minutes": 13,
     "data": null,
     "learn": [
       "On the chart",
@@ -204,6 +204,23 @@
     "figures": 25,
     "featured": true,
     "thumb": "assets/img/validation/01-series-and-map.jpg"
+  },
+  {
+    "slug": "tune",
+    "title": "Tune on samples",
+    "label": "Any change tool",
+    "summary": "LandTrendr's parameters searched on the calibration points of an interpreted project, the sets scored and ranked, and the map checked on the points that never tuned it.",
+    "track": "validate",
+    "minutes": 20,
+    "data": null,
+    "learn": [
+      "The problem",
+      "Opening the window",
+      "The calibration split",
+      "The search"
+    ],
+    "figures": 12,
+    "thumb": "assets/img/tune/01-project.jpg"
   },
   {
     "slug": "snic",

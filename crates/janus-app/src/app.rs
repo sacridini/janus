@@ -11,6 +11,7 @@ use egui::{Id, Ui, ViewportBuilder, ViewportId, WidgetText};
 use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabViewer};
 use janus_gpu::Gpu;
 
+use crate::crash;
 use crate::display::Display;
 use crate::map::MapView;
 use crate::session::{Opening, Session};
@@ -306,6 +307,8 @@ pub struct Options {
     pub full_res: Option<janus_session::FullResMode>,
     pub budget_mb: i64,
     pub measure_startup: bool,
+    /// --crash-test panic|native: fails on purpose once the window is up (crash_ui.rs)
+    pub crash_test: Option<String>,
     /// a PNG of the window once the series is ready, then exit
     pub screenshot: Option<PathBuf>,
     /// the map opened in a window of its own (to check detached panels); with --screenshot, both windows saved
@@ -583,6 +586,8 @@ pub struct State {
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
     /// File > Search STAC catalog
     pub stac: crate::stac::StacUi,
+    /// File > Climate data...
+    pub climate: crate::climate::ClimateUi,
     /// Tools > Raster calculator
     pub calc: crate::calculator::CalcUi,
     /// Tools > Data preparation > Regularize series
@@ -629,6 +634,10 @@ pub struct State {
     /// Help > About Janus; Help > Check for updates (and the check at the start)
     pub about_open: bool,
     pub update: crate::update::UpdateUi,
+    /// the notice of a run that did not end normally (crash_ui.rs)
+    pub crash_notice: crate::crash_ui::CrashNotice,
+    /// Help > Welcome (welcome.rs)
+    pub welcome: crate::welcome::WelcomeUi,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
     /// the map targets' egui textures (by slot)
@@ -662,6 +671,8 @@ pub struct State {
     pub web: crate::web_layers::WebState,
     /// official alerts against a map of change (Validation > Alerts): alerts_ui.rs
     pub alerts: crate::alerts_ui::AlertsUi,
+    /// Tune on samples (a change tool's window): tune_ui.rs
+    pub tune: crate::tune_ui::TuneUi,
     /// three bands of each date as RGB (series with several bands per date)
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
@@ -923,8 +934,18 @@ impl JanusApp {
         crate::downloads::set_context(&cc.egui_ctx);
         crate::downloads::set_at_once(settings.downloads_at_once);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
+        // what a crash report says of this run: the threads, the GPU; and, in a window of its own, the notice of the
+        // last run that did not end (and this run's marker)
+        crash::set_threads(match opts.threads.unwrap_or(settings.threads) {
+            0 => janus_session::default_processing_threads(),
+            n => n,
+        });
+        crash::log(&format!("Janus {} started", env!("CARGO_PKG_VERSION")));
+        let crash_notice = if no_save { Default::default() } else { crate::crash_ui::CrashNotice::at_start() };
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
+        let adapter = render_state.adapter.get_info();
+        crash::set_gpu(format!("{} {}", adapter.name, adapter.driver_info).trim(), &format!("{:?}", adapter.backend));
         // vector files (and validation projects) among the inputs become layers once the app is made
         // a project file among them is opened at the first frame (project.rs)
         let startup_project = opts.inputs.iter().find(|p| crate::project::is_project_file(p)).map(PathBuf::from);
@@ -1001,6 +1022,7 @@ impl JanusApp {
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
                 stac: Default::default(),
+                climate: Default::default(),
                 calc: Default::default(),
                 reg: Default::default(),
                 poly: Default::default(),
@@ -1052,6 +1074,8 @@ impl JanusApp {
                 help_popup: false,
                 about_open: false,
                 update: Default::default(),
+                crash_notice,
+                welcome: Default::default(),
                 settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
@@ -1065,6 +1089,7 @@ impl JanusApp {
                 basemap: Default::default(),
                 web: Default::default(),
                 alerts: Default::default(),
+                tune: Default::default(),
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
@@ -1271,6 +1296,7 @@ impl JanusApp {
 impl State {
     /// Opens a series in the background; `add` keeps the open ones and adds it as a new layer. One open at a time.
     pub fn open_inputs(&mut self, inputs: Vec<String>, add: bool, ctx: &egui::Context) {
+        crash::log(&format!("open {}", inputs.join(", ")));
         // a project file opens the project (and only it)
         if let Some(p) = inputs.iter().find(|p| crate::project::is_project_file(p)) {
             self.open_project(std::path::Path::new(p), ctx);
@@ -2082,6 +2108,16 @@ impl State {
                     self.stac.show = true;
                 }
                 if ui
+                    .button("Climate data...")
+                    .on_hover_text(
+                        "Rainfall of CHIRPS v3 (monthly, pentads, daily; from 1981) for the area on the map,
+                         read from the Climate Hazards Center and opened as a series beside the one studied",
+                    )
+                    .clicked()
+                {
+                    self.open_climate();
+                }
+                if ui
                     .button("Add web layer...")
                     .on_hover_text(
                         "A map (WMS, WMTS) or features (WFS, OGC API) from a server: TerraBrasilis'
@@ -2270,6 +2306,9 @@ impl State {
             });
             self.shots_menu("Validation", r.response.rect, r.inner);
             ui.menu_button("Help", |ui| {
+                if ui.button("Welcome").on_hover_text("Sample data, the guides and the recent projects").clicked() {
+                    self.open_welcome();
+                }
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
                 }
@@ -2289,15 +2328,8 @@ impl State {
                     ui.add_space(8.0);
                     // a newer version found at the start: Update (downloads and installs it), the version
                     if let Some(r) = &newer {
-                        let installed = crate::update::installed_dir().is_some();
-                        let tip = if installed {
-                            "Downloads the new version and installs it: Janus closes and opens again"
-                        } else {
-                            "Not installed by its installer (a build or a copy): the updates' window downloads the \
-                             new package"
-                        };
-                        let b = egui::Button::new(egui::RichText::new("Update").strong().color(theme::accent()));
-                        if ui.add(b).on_hover_text(tip).clicked() {
+                        let b = crate::update::update_button("Update");
+                        if ui.add(b).on_hover_text(crate::update::update_tip()).clicked() {
                             self.update.start_update(ui.ctx());
                         }
                         ui.label(
@@ -2306,6 +2338,7 @@ impl State {
                                 r.version,
                                 crate::update::VERSION
                             ))
+                            .strong()
                             .color(theme::accent()),
                         );
                         ui.separator();
@@ -2339,6 +2372,7 @@ impl State {
         }
         self.update_window(ctx);
         self.about_window(ctx);
+        self.crash_window(ctx);
         if self.help_popup {
             let m = egui::Modal::new(egui::Id::new("help")).show(ctx, |ui| {
                 ui.heading("Shortcuts and usage");
@@ -2563,6 +2597,8 @@ impl eframe::App for JanusApp {
         s.pump_chips(&ctx);
         s.pump_provenance();
         s.pump_project(&ctx);
+        s.pump_crash_test();
+        s.pump_welcome(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
@@ -2878,14 +2914,19 @@ impl eframe::App for JanusApp {
             dock_back(&mut self.dock, t, home);
         }
         self.reset_from_window |= reset;
+        // every map drawn: the pointer off them all with pins made, the chart shows the pins alone
+        self.state.end_frame_hover();
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
+        self.state.welcome_window(&ctx);
         self.state.tool_windows(&ctx);
+        self.state.tune_window(&ctx);
         self.state.ml_window(&ctx);
         self.state.tsa_window(&ctx);
         self.state.ard_window(&ctx);
         self.state.stac_window(&ctx);
+        self.state.climate_window(&ctx);
         self.state.web_window(&ctx);
         self.state.calculator_window(&ctx);
         self.state.regularize_window(&ctx);

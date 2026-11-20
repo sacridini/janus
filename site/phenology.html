@@ -102,20 +102,20 @@
       <h2><span class="n">03</span>On the chart</h2>
       <p><span class="ui">Tools → Temporal dynamics → Phenology</span>. With the chart fit on, the seasons' curves are drawn over the series, with vertical lines at each start, peak and end, and the Statistics table lists the seasons.</p>
       <figure class="fig">
-        <a href="assets/img/phenology/01-fit.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/01-fit.webp"><img src="assets/img/phenology/01-fit.jpg" alt="The Phenology window with its parameters; the EVI map of June 2024 with a pin; on the chart 25 years of the pin's EVI with a curve fitted to each season and lines at their starts, peaks and ends; the Statistics table with 22 seasons." width="1680" height="1050" loading="lazy"></picture></a>
-        <figcaption><b>Twenty-five years of one field</b>: 22 seasons found, each with its curve.</figcaption>
+        <a href="assets/img/phenology/01-fit.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/01-fit.webp"><img src="assets/img/phenology/01-fit.jpg" alt="The Phenology window with its parameters; the EVI map of June 2024 with a pin; on the chart 25 years of the pin's EVI with a curve fitted to each season and lines at their starts, peaks and ends; the Statistics table with 27 seasons." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Twenty-five years of one field</b>: 27 seasons found, each with its curve.</figcaption>
       </figure>
       <div class="fig-pair">
         <figure class="fig">
           <a href="assets/img/phenology/01-fit-chart.png"><img src="assets/img/phenology/01-fit-chart.png" alt="The chart: the EVI of the field, a curve for each season and vertical lines at the starts, peaks and ends." loading="lazy"></a>
-          <figcaption>22 seasons in 25 years: in some years no season passed the criteria.</figcaption>
+          <figcaption>27 seasons in 25 years: one every year and two short winter ones (December 2010 and December 2019).</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/phenology/01-fit-stats.png"><img src="assets/img/phenology/01-fit-stats.png" alt="The Statistics table: 22 seasons, the latest 12 shown, with the peaks of 5 May 2012, 5 June 2014 and 1 July 2015 and their start and end dates." loading="lazy"></a>
+          <a href="assets/img/phenology/01-fit-stats.png"><img src="assets/img/phenology/01-fit-stats.png" alt="The Statistics table: the pin's metrics, then the Phenology section with 27 seasons, the latest 12 listed by their peaks, the first six with the peaks of 2 July 2015, 5 May 2016, 30 April 2017, 5 July 2018, 9 May 2019 and 2 December 2019 and their start and end dates." loading="lazy"></a>
           <figcaption>The seasons, by their peaks.</figcaption>
         </figure>
       </div>
-      <p>The peaks move: 5 May in 2012, 5 June in 2014, 1 July in 2015. That is the crop rotation: a winter cereal peaks in spring, sunflower or maize in summer. Hover the map to fit any other pixel.</p>
+      <p>The peaks move: 24 April in 2012, 26 May in 2014, 2 July in 2015. That is the crop rotation: a winter cereal peaks in spring, sunflower or maize in summer. Hover the map to fit any other pixel.</p>
 <!-- build:python-tabs -->
 <div class="pytabs" data-tabs>
   <div class="term-tabs pytabs-bar" role="tablist" aria-label="phenology: in Janus or in Python" hidden>
@@ -197,16 +197,16 @@ print(result)
       <h2><span class="n">06</span>The maps</h2>
       <p>With <span class="ui">Season mapped</span> on the median, each map is the typical year of each pixel:</p>
       <figure class="fig">
-        <a href="assets/img/phenology/03-sos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/03-sos.webp"><img src="assets/img/phenology/03-sos.jpg" alt="The start of season over the area, from day 37 in dark blue to day 149 in yellow; the Layers panel lists the eight outputs." width="1680" height="1050" loading="lazy"></picture></a>
-        <figcaption><b>Start of season</b>, day 37 (early February, dark) to day 149 (late May, yellow).</figcaption>
+        <a href="assets/img/phenology/03-sos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/03-sos.webp"><img src="assets/img/phenology/03-sos.jpg" alt="The start of season over the area, from day 27 in dark purple to day 140 in yellow; the Layers panel lists the eight outputs." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Start of season</b>, day 27 (late January, dark) to day 140 (mid May, yellow).</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/phenology/04-pos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/04-pos.webp"><img src="assets/img/phenology/04-pos.jpg" alt="The peak of season over the area, from day 105 to day 203." width="1680" height="1050" loading="lazy"></picture></a>
-        <figcaption><b>Peak of season</b>, day 105 (mid April) to day 203 (late July): spring crops and grassland against summer crops.</figcaption>
+        <a href="assets/img/phenology/04-pos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/04-pos.webp"><img src="assets/img/phenology/04-pos.jpg" alt="The peak of season over the area, from day 111 to day 203." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Peak of season</b>, day 111 (late April) to day 203 (late July): spring crops and grassland against summer crops.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/phenology/05-los.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/05-los.webp"><img src="assets/img/phenology/05-los.jpg" alt="The length of the season, from 83 to 200 days; long seasons in yellow along the valleys and woods." width="1680" height="1050" loading="lazy"></picture></a>
-        <figcaption><b>Length of season</b>, 83 to 200 days: short in the fields, long in the woods and meadows of the valleys.</figcaption>
+        <a href="assets/img/phenology/05-los.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/05-los.webp"><img src="assets/img/phenology/05-los.jpg" alt="The length of the season, from 91 to 198 days; long seasons in yellow along the valleys and woods." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Length of season</b>, 91 to 198 days: short in the fields, long in the woods and meadows of the valleys.</figcaption>
       </figure>
       <div class="tbl-wrap">
         <table class="tbl">

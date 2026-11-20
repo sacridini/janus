@@ -222,8 +222,8 @@ impl State {
             }
             for ring in &sr.roi_poly {
                 let pts: Vec<Pos2> = ring.as_chunks::<2>().0.iter().map(|v| at(v[0], v[1])).collect();
-                painter.add(Shape::closed_line(pts.clone(), dark));
-                painter.add(Shape::closed_line(pts, Stroke::new(thick, roi)));
+                painter.add(crate::vectors::ring_line(pts.clone(), dark));
+                painter.add(crate::vectors::ring_line(pts, Stroke::new(thick, roi)));
             }
         };
         if let Some((a, b)) = sr.roi_drag {

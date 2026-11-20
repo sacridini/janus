@@ -603,6 +603,7 @@ impl State {
     }
 
     fn calculator_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "calculator");
         let ctx = ui.ctx().clone();
         let (layers, at) = self.calc_layers();
         let opts = self.calc_options(&layers, &at);

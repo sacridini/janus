@@ -12,6 +12,7 @@ use janus_cube::dates::{civil_from_days, days_from_civil};
 use janus_cube::stats::{SeriesStats, cusum, month_of, monthly_climatology};
 
 use crate::app::State;
+use crate::chart_axis::{Affine, DualAxes, Look, median_gap};
 
 const DAY: f64 = 86400.0;
 const MONTH: f64 = 30.44 * DAY;
@@ -132,15 +133,34 @@ pub struct ChartOptions {
     pub stripes: bool,
     /// a categorical layer's series: 0 steps + markers, 1 steps, 2 markers, 3 a block per date (CLASS_STYLES)
     pub class_style: usize,
+    /// the right Y axis locked to the map's colour range of its layer
+    pub y_from_map_right: bool,
+    /// each layer's series (by its name): on the right axis, as bars, shifted by a lag (Series axes)
+    pub looks: std::collections::HashMap<String, Look>,
 }
 
 impl Default for ChartOptions {
     fn default() -> Self {
-        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: true, class_style: 0 }
+        ChartOptions {
+            style: 1,
+            values: 0,
+            trend: 1,
+            y_from_map: false,
+            roi_spread: 1,
+            stripes: true,
+            class_style: 0,
+            y_from_map_right: false,
+            looks: Default::default(),
+        }
     }
 }
 
 impl ChartOptions {
+    /// How a layer's series are drawn.
+    pub fn look(&self, layer: &str) -> Look {
+        self.looks.get(layer).cloned().unwrap_or_default()
+    }
+
     /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1,classes=N (those out of range
     /// left);
     /// layers=0|1 (the active layer's series or every visible layer's) returned, the State's to set.
@@ -185,19 +205,33 @@ const VALUES: [&str; 5] =
 
 /// How a series is shown: as stored, minus its mean, standardized, minus its calendar month's mean (the seasonal
 /// cycle taken out), or the running sum of those anomalies (CUSUM: a change of slope is a change of level).
+#[derive(Clone, Copy)]
 pub(crate) struct AsShown {
     values: usize,
     mean: f64,
     std: f64,
     /// the mean of each calendar month (a dated series' seasonal anomaly and CUSUM)
     clim: Option<[f64; 12]>,
+    /// the right axis' map into the left scale, for what is drawn (identity: the values as they are)
+    map: Affine,
 }
 
 impl AsShown {
     /// `xs`: the series' times (Unix seconds when `dated`).
     pub fn new(values: usize, st: &SeriesStats, xs: &[f64], vals: &[f32], dated: bool) -> Self {
         let clim = (dated && values >= 3).then(|| monthly_climatology(xs, vals));
-        AsShown { values, mean: st.mean, std: st.std, clim }
+        AsShown { values, mean: st.mean, std: st.std, clim, map: Affine::IDENTITY }
+    }
+
+    /// The same, drawn through `map` (a series of the right axis): `at`, `series` and `trend` give plot values.
+    pub fn drawn(mut self, map: Affine) -> Self {
+        self.map = map;
+        self
+    }
+
+    /// A value of the chart's scale into the plot's (a base, a level).
+    fn level(&self, y: f64) -> f64 {
+        self.map.fwd(y)
     }
 
     /// The anomaly of a value at time x: from its month's mean (the series' mean for a month without
@@ -212,6 +246,10 @@ impl AsShown {
     /// A value at time x as shown; NaN with CUSUM (a running sum is of a series, not of a value: a model's curve
     /// or a percentile is not drawn).
     pub fn at(&self, v: f64, x: f64) -> f64 {
+        self.map.fwd(self.raw(v, x))
+    }
+
+    fn raw(&self, v: f64, x: f64) -> f64 {
         match self.values {
             1 => v - self.mean,
             2 if self.std > 0.0 => (v - self.mean) / self.std,
@@ -226,7 +264,7 @@ impl AsShown {
     pub fn series(&self, xs: &[f64], vals: &[f32]) -> Vec<f64> {
         if self.values == 4 {
             let a: Vec<f64> = xs.iter().zip(vals).map(|(&x, &v)| self.anomaly(f64::from(v), x)).collect();
-            return cusum(&a);
+            return cusum(&a).into_iter().map(|y| self.map.fwd(y)).collect();
         }
         xs.iter().zip(vals).map(|(&x, &v)| self.at(f64::from(v), x)).collect()
     }
@@ -234,7 +272,7 @@ impl AsShown {
     /// A trend line's value: the anomalies' trend is the series' one less its mean; none of a CUSUM.
     fn trend(&self, v: f64) -> f64 {
         match self.values {
-            3 => v - self.mean,
+            3 => self.map.fwd(v - self.mean),
             4 => f64::NAN,
             _ => self.at(v, 0.0),
         }
@@ -342,6 +380,26 @@ struct Plotted<'a> {
     /// a categorical layer's classes: their values and colours, and a block's half height
     classes: Vec<(f64, Color32)>,
     class_h: f64,
+    /// the active layer's series: through the right axis' map (identity on the left), at the dates shifted by a
+    /// lag (the dates themselves otherwise), as bars from 0 whatever the chart's style, and what its legend names
+    /// add
+    map: Affine,
+    draw_xs: Vec<f64>,
+    bars_look: bool,
+    suffix: String,
+    /// the right axis' map when the chart has one (the layers whose look says right)
+    right: Option<Affine>,
+    /// the colour of the series of the right axis when there is only one of them (else each keeps its own)
+    single_right: Option<Color32>,
+}
+
+/// The colour of the one series on the right axis (and of the axis' numbers): a blue-violet, apart from the cursor's
+/// white, the pins' colours and the ROI's yellow.
+const RIGHT_COLOR: Color32 = Color32::from_rgb(110, 140, 255);
+
+/// The index of the date nearest to `x`.
+fn nearest_of(xs: &[f64], x: f64) -> usize {
+    (0..xs.len()).min_by(|&a, &b| (xs[a] - x).abs().total_cmp(&(xs[b] - x).abs())).unwrap_or(0)
 }
 
 /// A class block's half height: a third of a class apart, at least a fortieth of the classes' span (codes far apart:
@@ -360,6 +418,16 @@ impl Plotted<'_> {
         AsShown::new(if self.categorical { 0 } else { self.o.values }, st, self.xs, vals, self.dated)
     }
 
+    /// The same as it is drawn: through the layer's axis.
+    fn drawn(&self, st: &SeriesStats, vals: &[f32]) -> AsShown {
+        self.shown(st, vals).drawn(self.map)
+    }
+
+    /// A legend name of the active layer's series.
+    fn tag(&self, name: &str) -> String {
+        format!("{name}{}", self.suffix)
+    }
+
     /// A series in the chart's style, with its trend (same name: hidden together).
     /// `look`: its colour and line width.
     fn series(
@@ -376,9 +444,12 @@ impl Plotted<'_> {
             return;
         }
         // legible on the chart's background (the light themes darken the data colours)
+        // the one series of the right axis in the axis' colour
+        let color = if self.map != Affine::IDENTITY { self.single_right.unwrap_or(color) } else { color };
         let color = crate::theme::on_plot(color);
         let ys = sh.series(self.xs, vals);
-        let valid: Vec<[f64; 2]> = (0..n).filter(|&t| ys[t].is_finite()).map(|t| [self.xs[t], ys[t]]).collect();
+        let xd = &self.draw_xs;
+        let valid: Vec<[f64; 2]> = (0..n).filter(|&t| ys[t].is_finite()).map(|t| [xd[t], ys[t]]).collect();
         let stairs = |plot: &mut egui_plot::PlotUi| {
             // a value holds until the next date
             let mut pts = Vec::new();
@@ -408,7 +479,7 @@ impl Plotted<'_> {
                 2 => markers(plot, 3.5),
                 3 => {
                     // a block per date in its class's colour, from it to the next date, the steps over them
-                    let gap = min_gap(self.xs).unwrap_or(1.0);
+                    let gap = min_gap(xd).unwrap_or(1.0);
                     stairs(plot);
                     for (k, p) in valid.iter().enumerate() {
                         let x1 = valid.get(k + 1).map_or(p[0] + gap, |q| q[0]);
@@ -430,11 +501,11 @@ impl Plotted<'_> {
             return;
         }
         let lines = |plot: &mut egui_plot::PlotUi| {
-            for piece in pieces(self.xs, &ys, self.runs) {
+            for piece in pieces(xd, &ys, self.runs) {
                 plot.line(Line::new(name, PlotPoints::from(piece)).color(color).width(width));
             }
         };
-        match self.o.style {
+        match if self.bars_look { 6 } else { self.o.style } {
             0 => lines(plot),
             1 => {
                 lines(plot);
@@ -446,17 +517,35 @@ impl Plotted<'_> {
             }
             2 => plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(3.5)),
             3 => {
-                let base = if sh.relative() { 0.0 } else { st.mean };
+                let base = sh.level(if sh.relative() { 0.0 } else { st.mean });
                 for p in &valid {
                     plot.line(Line::new(name, PlotPoints::from(vec![[p[0], base], *p])).color(color).width(width));
                 }
                 plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(2.5));
             }
             4 => stairs(plot),
+            6 => {
+                // bars from 0 in the series' colour (a rainfall total), side by side like the chart's bars
+                let base = sh.level(0.0);
+                let w = median_gap(xd).map_or(1.0, |g| g * 0.8) / self.bar_slots.max(1) as f64;
+                let k = self.bar_slot.replace(self.bar_slot.get() + 1);
+                let dx = w * (k as f64 + 0.5 - self.bar_slots.max(1) as f64 * 0.5);
+                let bars = valid
+                    .iter()
+                    .map(|p| {
+                        Bar::new(p[0] + dx, p[1] - base)
+                            .base_offset(base)
+                            .width(w)
+                            .fill(color.gamma_multiply(0.5))
+                            .stroke(egui::Stroke::new(0.5, color))
+                    })
+                    .collect();
+                plot.bar_chart(BarChart::new(name, bars).color(color));
+            }
             _ => {
                 // bars from the level, coloured by side (a dry year, a wet one), the series' colour on their tops
-                let base = if sh.relative() { 0.0 } else { st.mean };
-                let w = min_gap(self.xs).map_or(1.0, |g| g * 0.8) / self.bar_slots.max(1) as f64;
+                let base = sh.level(if sh.relative() { 0.0 } else { st.mean });
+                let w = min_gap(xd).map_or(1.0, |g| g * 0.8) / self.bar_slots.max(1) as f64;
                 let k = self.bar_slot.replace(self.bar_slot.get() + 1);
                 let dx = w * (k as f64 + 0.5 - self.bar_slots.max(1) as f64 * 0.5);
                 let valid: Vec<[f64; 2]> = valid.iter().map(|p| [p[0] + dx, p[1]]).collect();
@@ -479,7 +568,7 @@ impl Plotted<'_> {
             let (a, b) =
                 if self.o.trend == 1 { (st.ols_intercept, st.ols_slope) } else { (st.sen_intercept, st.sen_slope) };
             let y = |yr: f64| sh.trend(a + b * yr);
-            let pts = vec![[self.xs[0], y(self.years[0])], [self.xs[n - 1], y(self.years[n - 1])]];
+            let pts = vec![[xd[0], y(self.years[0])], [xd[n - 1], y(self.years[n - 1])]];
             // dashed: a model of the series, not data
             let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 190);
             plot.line(
@@ -503,8 +592,11 @@ fn legend_colour(plot: &mut egui_plot::PlotUi, name: &str, color: Color32, xs: &
 struct HoverRow {
     color: Color32,
     name: String,
+    /// as shown (the series' own scale, whichever axis it is on)
     value: f64,
+    /// where it is drawn: its date (shifted by a lag) and its value on the plot's scale
     x: f64,
+    y_plot: f64,
     note: Option<String>,
 }
 
@@ -524,6 +616,60 @@ fn roi_name(r: &crate::series::RoiSeries) -> &'static str {
 /// A value as the inspector writes it.
 fn value_text(v: f64) -> String {
     if v.is_finite() { janus_cube::multidim::format_g(v, 5) } else { "no data".into() }
+}
+
+/// The Series axes menu's layers (name, hint) and lags (corr result, y's layer, lag).
+type AxesRows = (Vec<(String, Option<String>)>, Vec<(String, String, crate::chart_axis::Lag)>);
+
+/// The lowest and highest value as shown of a layer's series (the cursor's, the pins', the ROI's mean and its
+/// spread), a layer drawn as bars reaching 0.
+fn extent_of(
+    o: &ChartOptions,
+    values: usize,
+    bars: bool,
+    xs: &[f64],
+    dated: bool,
+    (hover, pins, roi): (
+        Option<&crate::series::SeriesView>,
+        &[crate::series::SeriesView],
+        Option<&crate::series::RoiSeries>,
+    ),
+) -> Option<(f64, f64)> {
+    let mut e: Option<(f64, f64)> = None;
+    let add = |e: &mut Option<(f64, f64)>, y: f64| {
+        if y.is_finite() {
+            *e = Some(e.map_or((y, y), |(a, b)| (a.min(y), b.max(y))));
+        }
+    };
+    for v in hover.into_iter().chain(pins) {
+        if v.values.len() == xs.len() {
+            for y in AsShown::new(values, &v.stats, xs, &v.values, dated).series(xs, &v.values) {
+                add(&mut e, y);
+            }
+        }
+    }
+    if let Some(r) = roi.filter(|r| !r.mean.is_empty() && r.mean.len() == xs.len()) {
+        let sh = AsShown::new(values, &r.stats, xs, &r.mean, dated);
+        for y in sh.series(xs, &r.mean) {
+            add(&mut e, y);
+        }
+        if values != 4 && r.p10.len() == xs.len() && r.p90.len() == xs.len() && (1..=3).contains(&o.roi_spread) {
+            for (t, &x) in xs.iter().enumerate() {
+                add(&mut e, sh.at(f64::from(r.p10[t]), x));
+                add(&mut e, sh.at(f64::from(r.p90[t]), x));
+            }
+        }
+        if values != 4 && o.roi_spread == 4 && r.q.len() == xs.len() {
+            for (q, &x) in r.q.iter().zip(xs) {
+                add(&mut e, sh.at(f64::from(q[0]), x));
+                add(&mut e, sh.at(f64::from(q[40]), x));
+            }
+        }
+    }
+    if bars && e.is_some() {
+        add(&mut e, 0.0);
+    }
+    e
 }
 
 impl State {
@@ -595,14 +741,20 @@ impl State {
     /// one gradient over the chart's height (a mesh of two vertices a date).
     fn area_under(&self, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform, hidden: &[egui::Id]) -> egui::Shape {
         let Some((vals, st, color, name)) = self.main_series() else { return egui::Shape::Noop };
-        if pl.categorical || pl.o.style > 1 || vals.len() != pl.xs.len() || hidden.contains(&egui::Id::new(&name)) {
+        let name = pl.tag(&name);
+        if pl.categorical
+            || pl.o.style > 1
+            || pl.bars_look
+            || vals.len() != pl.xs.len()
+            || hidden.contains(&egui::Id::new(&name))
+        {
             return egui::Shape::Noop;
         }
         // the ROI's mean with its spread: the band is its area
         if self.series.hover.is_none() && !self.series.roi.mean.is_empty() && pl.o.roi_spread > 0 {
             return egui::Shape::Noop;
         }
-        let ys = pl.shown(st, vals).series(pl.xs, vals);
+        let ys = pl.drawn(st, vals).series(pl.xs, vals);
         let frame = *tr.frame();
         let c = crate::theme::on_plot(color);
         let top = if crate::theme::modern() { 0.30 } else { 0.22 };
@@ -611,7 +763,7 @@ impl State {
             Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * 255.0) as u8)
         };
         let mut mesh = egui::Mesh::default();
-        for piece in pieces(pl.xs, &ys, pl.runs) {
+        for piece in pieces(&pl.draw_xs, &ys, pl.runs) {
             let first = mesh.vertices.len() as u32;
             for (k, p) in piece.iter().enumerate() {
                 let s = tr.position_from_point(&egui_plot::PlotPoint::new(p[0], p[1]));
@@ -629,17 +781,21 @@ impl State {
 
     /// Each series at date `t` of the active layer (the pointer's x; another layer's at its own nearest date), as
     /// shown, those hidden in the legend left out.
-    fn hover_rows(&self, pl: &Plotted<'_>, x: f64, t: usize, hidden: &[egui::Id]) -> Vec<HoverRow> {
+    fn hover_rows(&self, pl: &Plotted<'_>, x: f64, hidden: &[egui::Id]) -> Vec<HoverRow> {
         let sr = &self.series;
         let mut rows = Vec::new();
         let class_name = |v: f64| self.classes.list.iter().find(|c| f64::from(c.value) == v).map(|c| c.name.clone());
+        // the date of the series' own (shifted) dates nearest to the pointer
+        let ta = nearest_of(&pl.draw_xs, x);
         let row = |rows: &mut Vec<HoverRow>, name: String, color: Color32, vals: &[f32], st: &SeriesStats| {
+            let name = pl.tag(&name);
             if vals.len() != pl.xs.len() || hidden.contains(&egui::Id::new(&name)) {
                 return;
             }
-            let value = pl.shown(st, vals).series(pl.xs, vals)[t];
+            let value = pl.shown(st, vals).series(pl.xs, vals)[ta];
             let note = pl.categorical.then(|| class_name(value)).flatten();
-            rows.push(HoverRow { color, name, value, x: pl.xs[t], note });
+            let color = if pl.map != Affine::IDENTITY { pl.single_right.unwrap_or(color) } else { color };
+            rows.push(HoverRow { color, name, value, x: pl.draw_xs[ta], y_plot: pl.map.fwd(value), note });
         };
         if let Some(h) = &sr.hover {
             row(&mut rows, cursor_name(h), h.color, &h.values, &h.stats);
@@ -654,7 +810,7 @@ impl State {
             // its spread, as the chart draws it
             if rows.len() > before && pl.o.roi_spread > 0 && pl.o.values != 4 && roi.p10.len() == pl.xs.len() {
                 let sh = pl.shown(&roi.stats, &roi.mean);
-                let (lo, hi) = (sh.at(f64::from(roi.p10[t]), pl.xs[t]), sh.at(f64::from(roi.p90[t]), pl.xs[t]));
+                let (lo, hi) = (sh.at(f64::from(roi.p10[ta]), pl.xs[ta]), sh.at(f64::from(roi.p90[ta]), pl.xs[ta]));
                 if lo.is_finite() && hi.is_finite() {
                     rows[before].note = Some(format!("p10 {}  p90 {}", value_text(lo), value_text(hi)));
                 }
@@ -668,12 +824,19 @@ impl State {
                     continue;
                 }
                 let lx: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
-                let lt = info.nearest_layer(x);
+                let look = pl.o.look(&l.name);
+                let on_right = look.right && pl.right.is_some();
+                let map = if on_right { pl.right.unwrap_or(Affine::IDENTITY) } else { Affine::IDENTITY };
+                let suffix = look.suffix(on_right);
+                let lxd = look.shift.as_ref().map_or_else(|| lx.clone(), |g| crate::chart_axis::shift_dates(&lx, g));
+                let lt = nearest_of(&lxd, x);
                 let values = if l.classes.on() { 0 } else { pl.o.values };
                 let mut other = |name: String, color: Color32, v: &[f32], st: &SeriesStats| {
+                    let name = format!("{name}{suffix}");
+                    let color = if on_right { pl.single_right.unwrap_or(color) } else { color };
                     if v.len() == lx.len() && !hidden.contains(&egui::Id::new(&name)) {
                         let value = AsShown::new(values, st, &lx, v, info.time_is_date).series(&lx, v)[lt];
-                        rows.push(HoverRow { color, name, value, x: lx[lt], note: None });
+                        rows.push(HoverRow { color, name, value, x: lxd[lt], y_plot: map.fwd(value), note: None });
                     }
                 };
                 if let Some(h) = &l.series.hover {
@@ -712,7 +875,7 @@ impl State {
         let frame = *tr.frame();
         let x = tr.value_from_position(pointer).x;
         let t = s.info.nearest_layer(x);
-        let rows = self.hover_rows(pl, x, t, hidden);
+        let rows = self.hover_rows(pl, x, hidden);
         let v = ui.visuals();
         let screen = |x: f64, y: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, y));
         let painter = ui.painter_at(frame.expand(6.0));
@@ -727,7 +890,7 @@ impl State {
         let ring =
             if crate::theme::plot_fill() == Color32::TRANSPARENT { v.panel_fill } else { crate::theme::plot_fill() };
         for r in rows.iter().filter(|r| r.value.is_finite()) {
-            let p = screen(r.x, r.value);
+            let p = screen(r.x, r.y_plot);
             if frame.contains(p) {
                 painter.circle(p, 4.5, crate::theme::on_plot(r.color), egui::Stroke::new(2.0, ring));
             }
@@ -835,7 +998,7 @@ impl State {
         if roi.q.len() != pl.xs.len() {
             return Vec::new();
         }
-        let sh = pl.shown(&roi.stats, &roi.mean);
+        let sh = pl.drawn(&roi.stats, &roi.mean);
         let sy = |x: f64, y: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, y)).y;
         // a column's cells (y top, y bottom, density), in screen points
         let cells: Vec<Vec<(f32, f32, f64)>> = roi
@@ -865,7 +1028,7 @@ impl State {
         // light grey (darker on a light theme): the ROI's yellow mean stays legible over it
         let fill = crate::theme::on_plot(Color32::from_gray(225));
         let mut shapes = Vec::new();
-        for ((left, right), col) in date_columns(tr, pl.xs).into_iter().zip(&cells) {
+        for ((left, right), col) in date_columns(tr, &pl.draw_xs).into_iter().zip(&cells) {
             for &(y0, y1, dens) in col {
                 let a = (dens / top).clamp(0.0, 1.0).powf(0.7) as f32 * 0.85;
                 let r = egui::Rect::from_x_y_ranges(left..=right, y0..=y1.max(y0 + 1.0));
@@ -873,6 +1036,139 @@ impl State {
             }
         }
         shapes
+    }
+
+    /// The Series axes menu's content: each layer (its name, and a hint when its range is over 10 times another
+    /// shown layer's), and the lags of the calculator's corr() results whose y is an open layer (the result's
+    /// name, y's, the lag).
+    pub(crate) fn axes_menu_rows(&self, o: &ChartOptions, info: &janus_cube::CubeInfo, categorical: bool) -> AxesRows {
+        let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
+        let exts = self.layer_extents(o, &xs, info.time_is_date, info.spectral, categorical);
+        let span = |e: &(f64, f64)| (e.1 - e.0).abs();
+        let mut rows = Vec::new();
+        let mut lags = Vec::new();
+        for (i, l) in self.layers.iter().enumerate() {
+            let Some(s) = self.layer_session(i).filter(|_| !l.canvas) else { continue };
+            let mine = exts.iter().find(|e| e.0 == l.name);
+            // over 10 times apart: the two series do not share an axis
+            let hint = mine.and_then(|m| {
+                exts.iter()
+                    .filter(|e| e.0 != l.name && span(&e.1) > 0.0 && span(&m.1) > 0.0)
+                    .find(|e| {
+                        let r = span(&e.1) / span(&m.1);
+                        !(0.1..=10.0).contains(&r)
+                    })
+                    .map(|e| {
+                        format!(
+                            "The ranges differ by more than 10 times ({}: {} to {}; {}: {} to {}): on a second axis \
+                             both stay legible",
+                            l.name,
+                            value_text(m.1.0),
+                            value_text(m.1.1),
+                            e.0,
+                            value_text(e.1.0),
+                            value_text(e.1.1),
+                        )
+                    })
+            });
+            rows.push((l.name.clone(), hint));
+            for c in crate::chart_axis::corr_lags_of(&s.info) {
+                if let Some(y) = c.y_layer.filter(|y| self.layers.iter().any(|l| &l.name == y)) {
+                    lags.push((l.name.clone(), y, c.lag));
+                }
+            }
+        }
+        (rows, lags)
+    }
+
+    /// Each layer's series' extent (lowest and highest value as shown) among those the chart draws: the active
+    /// layer's, and with "All visible layers" the others'; the layer's name first. A layer drawn as bars reaches 0.
+    pub(crate) fn layer_extents(
+        &self,
+        o: &ChartOptions,
+        xs: &[f64],
+        dated: bool,
+        spectral: bool,
+        categorical: bool,
+    ) -> Vec<(String, (f64, f64))> {
+        let mut out = Vec::new();
+        let sr = &self.series;
+        if let Some(l) = self.layers.get(self.active)
+            && let Some(e) = extent_of(
+                o,
+                if categorical { 0 } else { o.values },
+                o.look(&l.name).bars && !categorical,
+                xs,
+                dated,
+                (sr.hover.as_ref(), &sr.pins, (!categorical).then_some(&sr.roi)),
+            )
+        {
+            out.push((l.name.clone(), e));
+        }
+        if sr.chart_layers == 1 {
+            for (li, l) in self.layers.iter().enumerate() {
+                let Some(ls) = l.session.as_ref().filter(|_| li != self.active && l.visible) else { continue };
+                let info = &ls.info;
+                if info.t() == 0 || info.time_is_date != dated || info.spectral != spectral {
+                    continue;
+                }
+                let lx: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
+                let values = if l.classes.on() { 0 } else { o.values };
+                let roi = (!l.classes.on()).then_some(&l.series.roi);
+                if let Some(e) = extent_of(
+                    o,
+                    values,
+                    o.look(&l.name).bars,
+                    &lx,
+                    info.time_is_date,
+                    (l.series.hover.as_ref(), &l.series.pins, roi),
+                ) {
+                    out.push((l.name.clone(), e));
+                }
+            }
+        }
+        out
+    }
+
+    /// The series on the right axis: the cursor's, the pins' and the ROI's of the layers whose look says right.
+    fn right_series_count(&self, o: &ChartOptions) -> usize {
+        let n = |sr: &crate::series::OtherSeries| {
+            usize::from(sr.hover.is_some()) + sr.pins.len() + usize::from(!sr.roi.mean.is_empty())
+        };
+        let mut total = 0;
+        if self.layers.get(self.active).is_some_and(|l| o.look(&l.name).right) {
+            let sr = &self.series;
+            total += usize::from(sr.hover.is_some()) + sr.pins.len() + usize::from(!sr.roi.mean.is_empty());
+        }
+        for (li, l) in self.layers.iter().enumerate() {
+            if li != self.active && l.visible && o.look(&l.name).right && self.series.chart_layers == 1 {
+                total += n(&l.series);
+            }
+        }
+        total
+    }
+
+    /// The two axes of the chart when a layer is on the right and another on the left (or the left is the map's
+    /// range): each side's range from its layers' series, or from the map's colour range (Y = map range); `height`
+    /// (points) tells how many marks fit.
+    pub(crate) fn dual_axes(&self, o: &ChartOptions, exts: &[(String, (f64, f64))], height: f32) -> Option<DualAxes> {
+        let merge = |right: bool| {
+            exts.iter().filter(|e| o.look(&e.0).right == right).map(|e| e.1).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+        };
+        let map_range = |name: &str| {
+            let r = if self.layers.get(self.active).is_some_and(|l| l.name == name) {
+                self.display.ranges[janus_gpu::Mode::Value as usize]
+            } else {
+                self.layers.iter().find(|l| l.name == name)?.disp.ranges[janus_gpu::Mode::Value as usize]
+            };
+            Some((f64::from(r.lo), f64::from(r.hi)))
+        };
+        let right_first = exts.iter().find(|e| o.look(&e.0).right)?;
+        let right = if o.y_from_map_right && o.values == 0 { map_range(&right_first.0)? } else { merge(true)? };
+        let left_first = exts.iter().find(|e| !o.look(&e.0).right);
+        // the left needs a series of its own (else the right axis would stand alone: the one scale is the left's)
+        let left = if o.y_from_map && o.values == 0 { map_range(&left_first?.0)? } else { merge(false)? };
+        Some(crate::chart_axis::dual_axes(left, right, (height / 42.0) as usize))
     }
 
     pub fn series_ui(&mut self, ui: &mut Ui) {
@@ -888,19 +1184,17 @@ impl State {
             );
             return;
         }
-        let n = info.t();
-        let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
-        let years = s.years.clone();
         let categorical = self.classes.on();
 
         // the chart's options (taken out while the toolbar has the State)
         let mut chart = std::mem::take(&mut self.chart);
+        let axes_rows = (self.layers.len() > 1).then(|| self.axes_menu_rows(&chart, &info, categorical));
         let o = &mut chart;
         let mut chart_layers = self.series.chart_layers;
         let (n_layers, has_roi, has_pins) =
             (self.layers.len(), self.series.roi_rect.is_some(), !self.series.pins.is_empty());
         let (mut clear_pins, mut clear_roi, mut copy) = (false, false, false);
-        let mut open_classes = false;
+        let (mut open_classes, mut save_figure) = (false, false);
         ui.horizontal_wrapped(|ui| {
             // a button moves to the next row whole, its text never wrapped in a sliver of the row's end
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -1015,6 +1309,52 @@ impl State {
                          marker per layer; other layers use their own dates)",
                     );
             }
+            if let Some((rows, lags)) = &axes_rows {
+                let shown_all = chart_layers == 1;
+                ui.menu_button("Series axes", |ui| {
+                    if !shown_all {
+                        ui.weak("The layers' series are drawn with All visible layers.");
+                    }
+                    for (name, hint) in rows {
+                        ui.strong(if name.chars().count() > 36 {
+                            format!("{}...", name.chars().take(34).collect::<String>())
+                        } else {
+                            name.clone()
+                        });
+                        ui.horizontal(|ui| {
+                            let look = o.looks.entry(name.clone()).or_default();
+                            ui.add_enabled(!categorical, egui::Checkbox::new(&mut look.right, "Right axis"))
+                                .on_hover_text(hint.clone().unwrap_or_else(|| {
+                                    "Draws this layer's series against a second Y axis, on the right, with its own \
+                                     range"
+                                        .to_string()
+                                }))
+                                .on_disabled_hover_text(FOR_CLASSES);
+                            ui.checkbox(&mut look.bars, "Bars")
+                                .on_hover_text("Bars from 0 in the series' colour (a rainfall total), not lines");
+                        });
+                    }
+                    if o.looks.values().any(|l| l.right) {
+                        ui.separator();
+                        let map_range = egui::Checkbox::new(&mut o.y_from_map_right, "Right axis = map range");
+                        ui.add_enabled(o.values == 0, map_range)
+                            .on_hover_text("Locks the right Y axis to the map's colour range of its layer");
+                    }
+                    for (result, y, lag) in lags {
+                        ui.separator();
+                        let on = o.looks.get(y).is_some_and(|l| l.shift.is_some());
+                        let mut now = on;
+                        ui.checkbox(&mut now, format!("Shift {y} by the lag ({})", lag.label())).on_hover_text(format!(
+                            "{result} is corr(x, {y}, lag={}): y leads. Draws {y} forward by the lag, so that its \
+                             peaks fall on the dates of the series they were correlated with",
+                            lag.label()
+                        ));
+                        if now != on {
+                            o.looks.entry(y.clone()).or_default().shift = now.then(|| lag.clone());
+                        }
+                    }
+                });
+            }
             if has_roi {
                 const SPREAD: [&str; 5] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot", "ROI: fan", "ROI: density"];
                 crate::fit::wrap_before(ui, crate::fit::scaled(ui, 120.0));
@@ -1037,6 +1377,13 @@ impl State {
                     );
             }
             copy = ui.button("Copy CSV").on_hover_text("Copies the series (cursor, pins, ROI) to the clipboard").clicked();
+            if ui
+                .button("Save figure...")
+                .on_hover_text("The chart as a PNG or an SVG for a paper: size in mm, dpi, font, light colours")
+                .clicked()
+            {
+                save_figure = true;
+            }
             self.copy_python_ui(ui);
             if has_pins {
                 clear_pins = ui.button("Clear pins").clicked();
@@ -1068,12 +1415,70 @@ impl State {
         if chart_layers != self.series.chart_layers {
             self.set_chart_layers(chart_layers);
         }
+        if save_figure {
+            self.open_figure(crate::figure_ui::Source::Chart);
+        }
+        if let Some(nt) = self.series_plot(ui, false)
+            && nt != self.display.t
+        {
+            self.set_date(nt);
+        }
+    }
 
+    /// The chart itself (the plot, the stripes, the inspector) in `ui`: on screen, or (`figure`) as a figure, which
+    /// leaves out what is of the moment (the date's line and tag, the inspector). The date picked by a click or a drag
+    /// on it, if any.
+    pub(crate) fn series_plot(&self, ui: &mut Ui, figure: bool) -> Option<usize> {
+        let s = self.session.as_ref()?;
+        let info = s.info.clone();
+        let n = info.t();
+        let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
+        let years = s.years.clone();
+        let categorical = self.classes.on();
         let o = &self.chart;
         let dated = info.time_is_date;
+        // the right axis: the layers whose look says right, fitted to the left's
+        let active_name = self.layers.get(self.active).map(|l| l.name.clone()).unwrap_or_default();
+        let exts = self.layer_extents(o, &xs, dated, info.spectral, categorical);
+        let dual = if categorical { None } else { self.dual_axes(o, &exts, ui.available_height()) };
+        let look = o.look(&active_name);
+        let right_on = look.right && dual.is_some();
+        let single_right = (dual.is_some() && self.right_series_count(o) == 1).then_some(RIGHT_COLOR);
+        let active_map = if right_on { dual.map_or(Affine::IDENTITY, |d| d.map) } else { Affine::IDENTITY };
         // the axes' numbers and the grid in the weak text's colour, the grid's finer lines fainter; the values
         // under the pointer in the inspector (egui_plot's coordinates off)
         let weak = ui.visuals().weak_text_color();
+        let mut y_axes = vec![egui_plot::AxisHints::new_y().tick_label_color(weak)];
+        if let Some(d) = dual {
+            let names = |right: bool| {
+                let mut n: Vec<&str> =
+                    exts.iter().filter(|e| o.look(&e.0).right == right).map(|e| e.0.as_str()).collect();
+                n.dedup();
+                let text = n.join(", ");
+                let text = if text.chars().count() > 30 {
+                    format!("{}...", text.chars().take(28).collect::<String>())
+                } else {
+                    text
+                };
+                let how = if o.values > 0 {
+                    format!(" ({})", ["", "anomaly", "z-score", "seasonal anomaly", "CUSUM"][o.values])
+                } else {
+                    String::new()
+                };
+                format!("{text}{how}")
+            };
+            y_axes = vec![
+                egui_plot::AxisHints::new_y()
+                    .tick_label_color(weak)
+                    .label(names(false))
+                    .formatter(move |m, _| d.left.label(m.value)),
+                egui_plot::AxisHints::new_y()
+                    .placement(egui_plot::HPlacement::Right)
+                    .tick_label_color(single_right.map_or(weak, crate::theme::on_plot))
+                    .label(names(true))
+                    .formatter(move |m, _| d.right_label(m.value)),
+            ];
+        }
         let mut plot = Plot::new(("series", info.id))
             .allow_drag(false)
             .allow_scroll(false)
@@ -1083,7 +1488,17 @@ impl State {
             .show_y(false)
             .grid_color(weak.gamma_multiply(0.55))
             .grid_fade(0.9)
-            .custom_y_axes(vec![egui_plot::AxisHints::new_y().tick_label_color(weak)]);
+            .custom_y_axes(y_axes);
+        if let Some(d) = dual {
+            // both axes on the same marks, the range from the first to the last of them (no margin below or above)
+            let marks: Vec<GridMark> =
+                d.left.values().into_iter().map(|value| GridMark { value, step_size: d.left.step }).collect();
+            plot = plot
+                .y_grid_spacer(move |_| marks.clone())
+                .include_y(d.left.start)
+                .include_y(d.left.end())
+                .set_margin_fraction(egui::vec2(0.05, 0.0));
+        }
         // the legend while it leaves the curves room (a short panel or a large font: the lines' colours say it)
         let entries = usize::from(self.series.hover.is_some())
             + self.series.pins.len()
@@ -1106,7 +1521,7 @@ impl State {
                 .custom_x_axes(vec![egui_plot::AxisHints::new_x().tick_label_color(weak)])
                 .x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
         }
-        if o.values > 0 && !categorical {
+        if o.values > 0 && !categorical && dual.is_none() {
             plot = plot.y_axis_label(["", "anomaly", "z-score", "seasonal anomaly", "CUSUM"][o.values]);
         }
         // the stripes' strip under the chart
@@ -1115,7 +1530,7 @@ impl State {
         if stripes {
             plot = plot.height((ui.available_height() - STRIP - 4.0).max(40.0));
         }
-        if o.y_from_map && o.values == 0 && !categorical {
+        if o.y_from_map && o.values == 0 && !categorical && dual.is_none() {
             let r = self.display.ranges[janus_gpu::Mode::Value as usize];
             let m = f64::from(r.hi - r.lo) * 0.05;
             plot = plot
@@ -1129,7 +1544,7 @@ impl State {
         if n > 1 {
             let half = if categorical {
                 0.0
-            } else if o.style == 5 {
+            } else if o.style == 5 || o.looks.values().any(|l| l.bars) {
                 0.4
             } else if self.series.roi_rect.is_some() && o.roi_spread == 2 {
                 0.3
@@ -1145,7 +1560,7 @@ impl State {
         let sr = &self.series;
         // the ROI's density: from its lowest values to its highest
         if o.roi_spread == 4 && !categorical && o.values != 4 && sr.roi.q.len() == n {
-            let sh = AsShown::new(o.values, &sr.roi.stats, &xs, &sr.roi.mean, dated);
+            let sh = AsShown::new(o.values, &sr.roi.stats, &xs, &sr.roi.mean, dated).drawn(active_map);
             let ends =
                 sr.roi.q.iter().zip(&xs).flat_map(|(q, &x)| [sh.at(f64::from(q[0]), x), sh.at(f64::from(q[40]), x)]);
             for y in ends.filter(|y| y.is_finite()) {
@@ -1197,7 +1612,9 @@ impl State {
             bar_slot: std::cell::Cell::new(0),
             // a marker every 7 points at least (the chart's width less its Y axis)
             markers: (ui.available_width() - 60.0) / n.max(1) as f32 >= 7.0,
-            halo: if crate::theme::plot_fill() == Color32::TRANSPARENT {
+            halo: if figure {
+                Color32::WHITE
+            } else if crate::theme::plot_fill() == Color32::TRANSPARENT {
                 ui.visuals().panel_fill
             } else {
                 crate::theme::plot_fill()
@@ -1209,6 +1626,12 @@ impl State {
                 vec![]
             },
             class_h,
+            map: active_map,
+            draw_xs: look.shift.as_ref().map_or_else(|| xs.clone(), |g| crate::chart_axis::shift_dates(&xs, g)),
+            bars_look: look.bars && !categorical,
+            suffix: look.suffix(right_on),
+            right: dual.map(|d| d.map),
+            single_right,
         };
         let t = self.display.t;
         let sr = &self.series;
@@ -1225,19 +1648,21 @@ impl State {
         let response = plot.show(ui, |plot| {
             let roi = &sr.roi;
             if !roi.mean.is_empty() && !categorical {
-                let name = roi_name(roi);
-                let sh = pl.shown(&roi.stats, &roi.mean);
-                legend_colour(plot, name, crate::series::ROI_COLOR, &xs, &sh.series(&xs, &roi.mean));
+                let name_s = pl.tag(roi_name(roi));
+                let name = name_s.as_str();
+                let sh = pl.drawn(&roi.stats, &roi.mean);
+                let roi_color = if right_on { single_right } else { None }.unwrap_or(crate::series::ROI_COLOR);
+                legend_colour(plot, name, roi_color, &pl.draw_xs, &sh.series(&xs, &roi.mean));
                 // the percentiles as the mean is shown (none with CUSUM)
                 let f = |v: &[f32]| -> Vec<f64> { xs.iter().zip(v).map(|(&x, &p)| sh.at(f64::from(p), x)).collect() };
                 match o.roi_spread {
-                    1 => band(plot, name, &xs, &f(&roi.p10), &f(&roi.p90), &runs, yellow(46)),
+                    1 => band(plot, name, &pl.draw_xs, &f(&roi.p10), &f(&roi.p90), &runs, yellow(46)),
                     3 => {
                         // a fan: the outer band, the inner one over it (darker), the median dashed
-                        band(plot, name, &xs, &f(&roi.p10), &f(&roi.p90), &runs, yellow(34));
-                        band(plot, name, &xs, &f(&roi.p25), &f(&roi.p75), &runs, yellow(58));
+                        band(plot, name, &pl.draw_xs, &f(&roi.p10), &f(&roi.p90), &runs, yellow(34));
+                        band(plot, name, &pl.draw_xs, &f(&roi.p25), &f(&roi.p75), &runs, yellow(58));
                         let median = crate::theme::on_plot(crate::series::ROI_COLOR);
-                        for piece in pieces(&xs, &f(&roi.p50), &runs) {
+                        for piece in pieces(&pl.draw_xs, &f(&roi.p50), &runs) {
                             plot.line(
                                 Line::new(name, PlotPoints::from(piece))
                                     .color(median.gamma_multiply(0.8))
@@ -1258,7 +1683,7 @@ impl State {
                     let boxes: Vec<BoxElem> = (0..n)
                         .filter(|&t| p25[t].is_finite())
                         .map(|t| {
-                            BoxElem::new(xs[t], BoxSpread::new(p10[t], p25[t], p50[t], p75[t], p90[t]))
+                            BoxElem::new(pl.draw_xs[t], BoxSpread::new(p10[t], p25[t], p50[t], p75[t], p90[t]))
                                 .box_width(width)
                                 .whisker_width(width * 0.5)
                                 .fill(yellow(56))
@@ -1269,16 +1694,16 @@ impl State {
                 }
             }
             for p in &sr.pins {
-                let name = pin_name(p);
-                let sh = pl.shown(&p.stats, &p.values);
+                let name = pl.tag(&pin_name(p));
+                let sh = pl.drawn(&p.stats, &p.values);
                 pl.series(plot, &name, &p.values, (&p.stats, &sh), (p.color, 1.5), true);
                 let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
                 crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
                 self.draw_eof_overlay(plot, &sh, (p.x, p.y), &p.values, &format!("at pin {}", p.id), p.color);
             }
             if let Some(h) = &sr.hover {
-                let name = cursor_name(h);
-                let sh = pl.shown(&h.stats, &h.values);
+                let name = pl.tag(&cursor_name(h));
+                let sh = pl.drawn(&h.stats, &h.values);
                 pl.series(plot, &name, &h.values, (&h.stats, &sh), (h.color, 2.0), true);
                 let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
                 crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
@@ -1296,7 +1721,20 @@ impl State {
                     let lx: Vec<f64> = li_info.layers.iter().map(|l| l.time).collect();
                     let lruns = janus_cube::spectral::plot_runs(li_info);
                     let values = if l.classes.on() { 0 } else { o.values };
-                    let shown = |st: &SeriesStats, v: &[f32]| AsShown::new(values, st, &lx, v, li_info.time_is_date);
+                    // its look: the right axis, bars, the dates shifted by a lag
+                    let llook = o.look(&l.name);
+                    let on_right = llook.right && dual.is_some();
+                    let lmap = if on_right { dual.map_or(Affine::IDENTITY, |d| d.map) } else { Affine::IDENTITY };
+                    let suffix = llook.suffix(on_right);
+                    let lxd =
+                        llook.shift.as_ref().map_or_else(|| lx.clone(), |g| crate::chart_axis::shift_dates(&lx, g));
+                    let slots = usize::from(l.series.hover.is_some())
+                        + l.series.pins.len()
+                        + usize::from(!l.series.roi.mean.is_empty() && !l.classes.on());
+                    let slot = std::cell::Cell::new(0usize);
+                    let shown = |st: &SeriesStats, v: &[f32]| {
+                        AsShown::new(values, st, &lx, v, li_info.time_is_date).drawn(lmap)
+                    };
                     let other = |plot: &mut egui_plot::PlotUi,
                                  name: &str,
                                  v: &[f32],
@@ -1307,26 +1745,46 @@ impl State {
                             return;
                         }
                         let ys = sh.series(&lx, v);
-                        let color = crate::theme::on_plot(color);
+                        let color = crate::theme::on_plot(if on_right { single_right.unwrap_or(color) } else { color });
+                        if llook.bars {
+                            // bars from 0 in the series' colour, side by side with the layer's other series
+                            let base = lmap.fwd(0.0);
+                            let w = median_gap(&lxd).map_or(1.0, |g| g * 0.8) / slots.max(1) as f64;
+                            let k = slot.replace(slot.get() + 1);
+                            let dx = w * (k as f64 + 0.5 - slots.max(1) as f64 * 0.5);
+                            let bars = (0..lx.len())
+                                .filter(|&t| ys[t].is_finite())
+                                .map(|t| {
+                                    Bar::new(lxd[t] + dx, ys[t] - base)
+                                        .base_offset(base)
+                                        .width(w)
+                                        .fill(color.gamma_multiply(0.5))
+                                        .stroke(egui::Stroke::new(0.5, color))
+                                })
+                                .collect();
+                            plot.bar_chart(BarChart::new(name, bars).color(color));
+                            return;
+                        }
                         let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 217);
-                        for piece in pieces(&lx, &ys, &lruns) {
+                        for piece in pieces(&lxd, &ys, &lruns) {
                             plot.line(Line::new(name, PlotPoints::from(piece)).color(c).width(width));
                         }
                         let pts: Vec<[f64; 2]> =
-                            (0..lx.len()).filter(|&t| ys[t].is_finite()).map(|t| [lx[t], ys[t]]).collect();
+                            (0..lx.len()).filter(|&t| ys[t].is_finite()).map(|t| [lxd[t], ys[t]]).collect();
                         plot.points(
                             Points::new(name, PlotPoints::from(pts)).color(color).radius(3.0).shape(layer_marker(li)),
                         );
                     };
                     for p in &l.series.pins {
-                        let name = format!("Pin {} [{}]{}", p.id, l.name, if p.exact { "" } else { " approx." });
+                        let name =
+                            format!("Pin {} [{}]{}{suffix}", p.id, l.name, if p.exact { "" } else { " approx." });
                         let sh = shown(&p.stats, &p.values);
                         other(plot, &name, &p.values, &sh, p.color, 1.2);
                         let fits = self.zeit.fits_of(li_info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
                         crate::zeit::draw_fits(plot, off(&name), &fits, &sh, li_info);
                     }
                     if let Some(h) = &l.series.hover {
-                        let name = format!("Cursor [{}]{}", l.name, if h.exact { "" } else { " approx." });
+                        let name = format!("Cursor [{}]{}{suffix}", l.name, if h.exact { "" } else { " approx." });
                         let sh = shown(&h.stats, &h.values);
                         other(plot, &name, &h.values, &sh, h.color, 1.6);
                         let fits = self.zeit.fits_of(li_info.id, crate::zeit::Which::Hover, h.x, h.y);
@@ -1334,22 +1792,26 @@ impl State {
                     }
                     let r = &l.series.roi;
                     if !r.mean.is_empty() && !l.classes.on() {
-                        let name = format!("ROI mean [{}]{}", l.name, if r.sampled() { " (subsampled)" } else { "" });
+                        let name =
+                            format!("ROI mean [{}]{}{suffix}", l.name, if r.sampled() { " (subsampled)" } else { "" });
                         let sh = shown(&r.stats, &r.mean);
-                        legend_colour(plot, &name, crate::series::ROI_COLOR, &lx, &sh.series(&lx, &r.mean));
-                        if o.roi_spread > 0 {
+                        let roi_color = if on_right { single_right } else { None }.unwrap_or(crate::series::ROI_COLOR);
+                        legend_colour(plot, &name, roi_color, &lxd, &sh.series(&lx, &r.mean));
+                        if o.roi_spread > 0 && !llook.bars {
                             let f = |v: &[f32]| -> Vec<f64> {
                                 lx.iter().zip(v).map(|(&x, &p)| sh.at(f64::from(p), x)).collect()
                             };
-                            band(plot, &name, &lx, &f(&r.p10), &f(&r.p90), &lruns, yellow(31));
+                            band(plot, &name, &lxd, &f(&r.p10), &f(&r.p90), &lruns, yellow(31));
                         }
                         other(plot, &name, &r.mean, &sh, crate::series::ROI_COLOR, 1.8);
                     }
                 }
             }
             // the date's line in a soft glow (after it: the legend takes the line's colour)
-            plot.vline(VLine::new("date", xs[t]).color(orange).width(1.5).allow_hover(false));
-            plot.vline(VLine::new("date", xs[t]).color(orange.gamma_multiply(0.22)).width(6.0).allow_hover(false));
+            if !figure {
+                plot.vline(VLine::new("date", xs[t]).color(orange).width(1.5).allow_hover(false));
+                plot.vline(VLine::new("date", xs[t]).color(orange.gamma_multiply(0.22)).width(6.0).allow_hover(false));
+            }
             let primary = plot.response().is_pointer_button_down_on() && plot.ctx().input(|i| i.pointer.primary_down());
             primary.then(|| plot.pointer_coordinate()).flatten()
         });
@@ -1371,7 +1833,7 @@ impl State {
         }
         ui.painter().with_clip_rect(frame).set(area, self.area_under(&pl, tr, &hidden));
         let x = tr.position_from_point(&egui_plot::PlotPoint::new(xs[t], tr.bounds().min()[1])).x;
-        if (frame.left()..=frame.right()).contains(&x) {
+        if !figure && (frame.left()..=frame.right()).contains(&x) {
             // the date's tag at the foot of its line
             let painter = ui.painter_at(frame.expand(1.0));
             let base = if crate::theme::modern() { 11.0 } else { 12.0 };
@@ -1384,7 +1846,7 @@ impl State {
             painter.rect_filled(r, 3.0, orange);
             painter.galley(r.min + egui::vec2(4.0, 1.5), galley, Color32::BLACK);
         }
-        if let Some(p) = response.response.hover_pos().filter(|p| frame.contains(*p)) {
+        if let Some(p) = response.response.hover_pos().filter(|p| !figure && frame.contains(*p)) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             self.inspector(ui, &pl, tr, p, &hidden);
         }
@@ -1392,12 +1854,7 @@ impl State {
             self.stripes_ui(ui, &pl, tr, STRIP);
         }
         // a click or a drag on the chart picks the nearest date
-        if let Some(p) = response.inner {
-            let nt = info.nearest_layer(p.x);
-            if nt != self.display.t {
-                self.set_date(nt);
-            }
-        }
+        response.inner.map(|p| info.nearest_layer(p.x))
     }
 }
 

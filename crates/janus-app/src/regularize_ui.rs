@@ -149,6 +149,7 @@ impl State {
     }
 
     fn regularize_ui(&mut self, ui: &mut Ui) {
+        crate::welcome::guide_button(ui, "regularize");
         let Some(s) = self.session.as_ref() else {
             ui.weak("Open a series with dates first.");
             return;
