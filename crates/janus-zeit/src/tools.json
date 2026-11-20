@@ -5364,6 +5364,619 @@
     }
    ],
    "chunk_cells": 20000
+  },
+  {
+   "id": "mnf",
+   "name": "Minimum Noise Fraction (MNF)",
+   "category": "Spectral analysis",
+   "description": "The MNF transform of the bands of a date (Zeit's zeit.mnf; Green et al. 1988, IEEE TGRS 26:65-74; Lee et al. 1990, IEEE TGRS 28:295-304): components ordered by signal-to-noise ratio instead of variance, with the noise estimated from the differences between neighbouring pixels. The noise is whitened (unit variance, no correlation between bands), then a principal components rotation follows; each component's eigenvalue is 1 + its SNR (above 1: signal; near 1: noise). Unlike PCA it does not depend on the units of each band. Writes the components as maps (one layer each, the first of them with the most signal) and a multiband file of all of them, the table of eigenvalues (CSV) and the transform (JSON) in the run's folder and, optionally, the bands denoised by the inverse MNF of the first components, as a new layer. Needs two bands or more, and an area whose fine texture is mostly noise to estimate that noise well (choose a noise region, a uniform area, for scenes with much detail). The statistics and the transform come from the whole window.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "all_bands": true
+   },
+   "modes": [
+    "raster"
+   ],
+   "map_date": true,
+   "params": [
+    {
+     "id": "date",
+     "label": "Date",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The date whose bands are transformed (the nearest date of the series); 0: the date shown on the map."
+    },
+    {
+     "id": "scope",
+     "label": "Statistics",
+     "type": "enum",
+     "default": "date",
+     "options": [
+      "date",
+      "all_dates"
+     ],
+     "labels": [
+      "This date",
+      "All dates (one transform, comparable components)"
+     ],
+     "help": "This date: the noise and signal statistics of the chosen date. All dates: pooled over every date, one transform applied to each date, so that component i means the same in all of them (the outputs are then series, one band a date)."
+    },
+    {
+     "id": "bands",
+     "label": "Bands (optional)",
+     "type": "text",
+     "default": "",
+     "help": "The bands to use: empty for all of them, or their names or numbers (1 is the first band of a date) separated by commas. The quality band is never one of them."
+    },
+    {
+     "id": "noise",
+     "label": "Noise estimate",
+     "type": "enum",
+     "default": "diff_hv",
+     "options": [
+      "diff_hv",
+      "diff_h",
+      "diff_v",
+      "diff_diag",
+      "diff_antidiag"
+     ],
+     "labels": [
+      "Right and lower neighbours (pooled)",
+      "Right neighbour",
+      "Lower neighbour",
+      "Lower-right neighbour (SPy's default)",
+      "Lower-left neighbour"
+     ],
+     "help": "The noise covariance is half the covariance of the differences between each pixel and its neighbour (pairs with a missing pixel do not count). Pooled: both directions, more robust to row or column structure. Striping and other spatially correlated noise count as signal."
+    },
+    {
+     "id": "noise_region",
+     "label": "Noise region (optional)",
+     "type": "file",
+     "default": "",
+     "help": "A polygon file or a mask raster of a homogeneous area (water, a uniform field): the differences are taken only inside it (both pixels of a pair); none: the whole window. As ENVI's shift-difference subset. A raster must be on the series' grid; nonzero is inside."
+    },
+    {
+     "id": "n_components",
+     "label": "Components",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 1000,
+     "help": "How many components to write, the highest SNR first; 0: all."
+    },
+    {
+     "id": "output",
+     "label": "Output",
+     "type": "enum",
+     "default": "components",
+     "options": [
+      "components",
+      "denoised",
+      "both"
+     ],
+     "labels": [
+      "MNF components",
+      "Denoised bands (inverse MNF)",
+      "Both"
+     ],
+     "help": "Denoised: the bands rebuilt from the first components only, the others set to their mean (zero), which removes the noise they hold; they open as a new layer."
+    },
+    {
+     "id": "k",
+     "label": "Components kept (denoising)",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 1000,
+     "help": "Components used by the inverse MNF; 0: those with SNR at least the threshold below."
+    },
+    {
+     "id": "snr_min",
+     "label": "Minimum SNR (denoising)",
+     "type": "float",
+     "default": 1.0,
+     "min": -1.0,
+     "max": 1000.0,
+     "help": "With 0 components kept: the components whose SNR (eigenvalue - 1) is at least this are kept. 1: signal variance at least the noise variance."
+    },
+    {
+     "id": "scale",
+     "label": "Component scale",
+     "type": "enum",
+     "default": "noise",
+     "options": [
+      "noise",
+      "unit"
+     ],
+     "labels": [
+      "Noise variance 1 (ENVI, SPy)",
+      "Unit variance"
+     ],
+     "help": "Noise variance 1: each component's variance is its eigenvalue. Unit variance: divided by the square root of the eigenvalue."
+    },
+    {
+     "id": "sample_fraction",
+     "label": "Pixels sampled for the statistics",
+     "type": "float",
+     "default": 1.0,
+     "min": 0.001,
+     "max": 1.0,
+     "help": "Fraction of the pixels (and neighbour pairs) used for the statistics, picked at random with the seed; the transform is applied to every pixel."
+    },
+    {
+     "id": "seed",
+     "label": "Seed",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 2147483647,
+     "help": "Seed of the sample of pixels (with a fraction below 1)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "mnf",
+     "name": "MNF {}",
+     "unit": "",
+     "each": "n_components",
+     "colormap": "Plasma"
+    },
+    {
+     "id": "denoised",
+     "name": "Denoised bands (MNF)",
+     "unit": "as the input",
+     "series": true
+    }
+   ]
+  },
+  {
+   "id": "cva",
+   "name": "Change vector analysis (CVA)",
+   "category": "Change detection",
+   "description": "Magnitude and direction of the change between two dates using all the chosen bands (Zeit's zeit.cva; Malila 1980; the compressed CVA of Bovolo, Marchesi and Bruzzone 2012, IEEE TGRS 50:2196-2212). The magnitude is the length of the vector of band differences; the direction is its angle to the diagonal of uniform change (0 = brighter in every band, 180 = darker in every band), or, with red, NIR and SWIR1 mapped, a sector by the signs of their changes (vegetation loss, gain, water, bare soil...). A pixel changes when its magnitude exceeds a threshold: fixed, Otsu's (1979), or the minimum-error threshold of a two-class Gaussian mixture fitted by EM (Bruzzone and Prieto 2000, IEEE TGRS 38:1171-1182). The threshold comes from a lattice sample of the whole window. The two dates should be on the same radiometric scale: run the radiometric normalization first when they come from different conditions. Writes the maps and, in the run's folder, the table of the sectors (CSV: pixels, area, mean magnitude) and the threshold's record (JSON).",
+   "requires": {
+    "time": "any",
+    "min_dates": 2,
+    "all_bands": true,
+    "optional_bands": [
+     "red",
+     "nir",
+     "swir1"
+    ]
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "before",
+     "label": "Before",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The first date (the nearest date of the series); 0: the first date."
+    },
+    {
+     "id": "after",
+     "label": "After",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The second date (the nearest date of the series); 0: the last date."
+    },
+    {
+     "id": "bands",
+     "label": "Bands (optional)",
+     "type": "text",
+     "default": "",
+     "help": "The bands to use: empty for all of them, or their names or numbers (1 is the first band of a date) separated by commas. The quality band is never one of them."
+    },
+    {
+     "id": "direction",
+     "label": "Direction",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "sign",
+      "c2va",
+      "polar"
+     ],
+     "labels": [
+      "Sectors by the signs of red, NIR and SWIR1 when they are mapped, else the angle",
+      "Sectors by the signs of red, NIR, SWIR1",
+      "Angle to uniform change (any bands)",
+      "2-D angle of two bands, in sectors"
+     ],
+     "help": "Sign: eight sectors by whether red, NIR and SWIR1 went up (a change of exactly 0 is not up); needs the three mapped. C2VA: the angle between the change vector and the diagonal of uniform change, 0 to 180 degrees (no sectors). Polar: the angle of two bands (the first two chosen) in equal sectors from 0 degrees, 0 to 360."
+    },
+    {
+     "id": "polar_bands",
+     "label": "Bands of the polar angle",
+     "type": "text",
+     "default": "",
+     "help": "Two bands (names or numbers separated by a comma); empty: the first two bands used."
+    },
+    {
+     "id": "n_sectors",
+     "label": "Sectors of the polar angle",
+     "type": "int",
+     "default": 4,
+     "min": 1,
+     "max": 360,
+     "help": "Equal sectors of the polar angle from 0 degrees. With 4 and brightness then greenness as the two bands: 1 brighter and greener, 2 darker and greener, 3 darker and less green, 4 brighter and less green (vegetation loss to soil)."
+    },
+    {
+     "id": "threshold",
+     "label": "Threshold",
+     "type": "enum",
+     "default": "otsu",
+     "options": [
+      "otsu",
+      "em",
+      "fixed"
+     ],
+     "labels": [
+      "Otsu",
+      "EM, minimum error (Bruzzone and Prieto 2000)",
+      "Fixed value"
+     ],
+     "help": "Otsu: the split of the histogram of magnitudes that maximizes the variance between the classes. EM: a Gaussian mixture of no change and change, and the threshold of minimum error between them. Both are computed on the lattice sample."
+    },
+    {
+     "id": "value",
+     "label": "Fixed threshold",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Used with a fixed threshold, in the units of the magnitude (after scaling the bands)."
+    },
+    {
+     "id": "em_init",
+     "label": "EM initial split",
+     "type": "float",
+     "default": 0.2,
+     "min": 0.01,
+     "max": 0.9,
+     "help": "The EM starts from the magnitudes below M(1-a) as no change and above M(1+a) as change, M the midpoint of the range of magnitudes."
+    },
+    {
+     "id": "scale",
+     "label": "Scale the bands",
+     "type": "enum",
+     "default": "none",
+     "options": [
+      "none",
+      "std"
+     ],
+     "labels": [
+      "As they are",
+      "By the standard deviation of their difference"
+     ],
+     "help": "Divide each band's difference by its standard deviation so that every band weighs the same."
+    },
+    {
+     "id": "sample",
+     "label": "Pixels for the statistics",
+     "type": "int",
+     "default": 1000000,
+     "min": 0,
+     "max": 2000000000,
+     "help": "The statistics are computed on a lattice of about this many valid pixels (every s-th row and column from the window's first, the same pixels on every run); 0: every pixel. The transformation is then applied to the whole window."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "magnitude",
+     "name": "Change magnitude",
+     "colormap": "Plasma",
+     "unit": "band units"
+    },
+    {
+     "id": "direction",
+     "name": "Change direction",
+     "colormap": "Twilight",
+     "unit": "degrees"
+    },
+    {
+     "id": "change",
+     "name": "Change",
+     "colormap": "Alerts",
+     "unit": "class",
+     "classes": [
+      "No change",
+      "Change"
+     ]
+    },
+    {
+     "id": "sector",
+     "name": "Change sectors",
+     "colormap": "Change sectors",
+     "unit": "class",
+     "classes": [
+      "No change",
+      "Darker in all bands (water, flooding, wetting, shadow)",
+      "Red up, NIR and SWIR down (turbid water, other)",
+      "Vegetation gain (greening, regrowth)",
+      "Visible and NIR up, SWIR down (other)",
+      "NIR down, SWIR up (burn scar, drying vegetation)",
+      "Vegetation loss (clearing to soil)",
+      "NIR and SWIR up, red down (other)",
+      "Brighter in all bands (bare soil, built-up, bright surfaces)"
+     ]
+    }
+   ],
+   "chunk_cells": 200000
+  },
+  {
+   "id": "imad",
+   "name": "iMAD (iteratively reweighted MAD)",
+   "category": "Change detection",
+   "description": "Multivariate alteration detection between two dates (Zeit's zeit.imad; Nielsen, Conradsen and Simpson 1998, RSE 64:1-19; Nielsen 2007, IEEE TIP 16:463-478; Canty and Nielsen 2008, RSE 112:1025-1036): canonical correlation finds the combinations of the bands of each date that agree most, and their differences (the MAD variates) are uncorrelated change images ordered from the largest change. Iterations weight each pixel by its probability of no change until the canonical correlations stop changing, so the result does not depend on gains, offsets or any linear transform of either date (no normalization needed). Gives the MAD variates (the first ones as layers, all of them in one multiband file), the chi-square of change, the probability of no change and the change map at a significance level, and in the run's folder the canonical correlations of each iteration (CSV) and the transformation (JSON). The statistics come from a lattice sample of the whole window.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2,
+    "all_bands": true
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "before",
+     "label": "Before",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The first date, the reference of the canonical analysis (the nearest date of the series); 0: the first date."
+    },
+    {
+     "id": "after",
+     "label": "After",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The second date (the nearest date of the series); 0: the last date."
+    },
+    {
+     "id": "bands",
+     "label": "Bands (optional)",
+     "type": "text",
+     "default": "",
+     "help": "The bands to use: empty for all of them, or their names or numbers (1 is the first band of a date) separated by commas. The quality band is never one of them."
+    },
+    {
+     "id": "max_iter",
+     "label": "Maximum iterations",
+     "type": "int",
+     "default": 50,
+     "min": 1,
+     "max": 500,
+     "help": "1: the original (not iterated) MAD."
+    },
+    {
+     "id": "tol",
+     "label": "Stop when the correlations change by less than",
+     "type": "float",
+     "default": 0.001,
+     "min": 0.0,
+     "max": 0.1,
+     "help": "The iterations stop when no canonical correlation changed by more than this since the iteration before (0: always the maximum)."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance",
+     "type": "float",
+     "default": 0.01,
+     "min": 1e-09,
+     "max": 0.5,
+     "help": "A pixel changes when its probability of no change is below this."
+    },
+    {
+     "id": "lam",
+     "label": "Regularization",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Ridge or curvature penalty for many correlated bands (hyperspectral), in the units of the variances of the bands; 0: none. Breaks the invariance to linear transforms."
+    },
+    {
+     "id": "penalty",
+     "label": "Penalty",
+     "type": "enum",
+     "default": "ridge",
+     "options": [
+      "ridge",
+      "curvature"
+     ],
+     "labels": [
+      "Ridge (length of the coefficients)",
+      "Curvature (second differences along the bands)"
+     ],
+     "help": "With a regularization above 0. Curvature needs the bands in order of wavelength."
+    },
+    {
+     "id": "standardize",
+     "label": "MAD variance",
+     "type": "enum",
+     "default": "weighted",
+     "options": [
+      "weighted",
+      "all"
+     ],
+     "labels": [
+      "From the canonical correlations (Canty and Nielsen 2008)",
+      "Over all the pixels (Nielsen 2007)"
+     ],
+     "help": "How the MAD variates are divided to make the chi-square. The weighted one is a little anti-conservative on data with no change; the other reweights less when much has changed."
+    },
+    {
+     "id": "n_mad",
+     "label": "MAD variates as layers",
+     "type": "int",
+     "default": 3,
+     "min": 0,
+     "max": 1000,
+     "help": "How many MAD variates open as layers, the first having the most change; all of them are in the multiband file of the run's folder."
+    },
+    {
+     "id": "sample",
+     "label": "Pixels for the statistics",
+     "type": "int",
+     "default": 1000000,
+     "min": 0,
+     "max": 2000000000,
+     "help": "The statistics are computed on a lattice of about this many valid pixels (every s-th row and column from the window's first, the same pixels on every run); 0: every pixel. The transformation is then applied to the whole window."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "mad",
+     "name": "MAD {}",
+     "unit": "band units",
+     "each": "n_mad",
+     "colormap": "RdBu"
+    },
+    {
+     "id": "chi2",
+     "name": "Chi-square of change",
+     "colormap": "Plasma",
+     "unit": "chi2"
+    },
+    {
+     "id": "p_nochange",
+     "name": "Probability of no change",
+     "colormap": "Viridis",
+     "unit": "probability",
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "id": "change",
+     "name": "Change (iMAD)",
+     "colormap": "Alerts",
+     "unit": "class",
+     "classes": [
+      "No change",
+      "Change"
+     ]
+    }
+   ],
+   "chunk_cells": 200000
+  },
+  {
+   "id": "radcal",
+   "name": "Radiometric normalization (iMAD invariant pixels)",
+   "category": "Data preparation",
+   "description": "Relative radiometric normalization of the dates to a reference date (Zeit's zeit.radcal; Canty, Nielsen and Schmidt 2004, RSE 91:441-451; Canty and Nielsen 2008): iMAD between the reference and each date finds the pixels that did not change, and an orthogonal regression of each band of the reference on the same band of the date, fitted on two thirds of them, gives its gain and offset; the other third tests the result (paired t-test of the means, F-test of the variances). Every pixel of the date is then gain x value + offset. Writes the normalized series (a file a date, all the bands) as a new layer and, in the run's folder, the table of the fits (CSV) and the iMAD summary of each pair (JSON). The reference, and the dates not chosen, are copied unchanged. Needs enough pixels that did not change: a probability of no change above the threshold is expected of about 5 % of them.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2,
+    "all_bands": true
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "reference",
+     "label": "Reference date",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "The date the others are normalized to (the nearest date of the series); 0: the first date."
+    },
+    {
+     "id": "target",
+     "label": "Date to normalize",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "Only this date (the nearest); 0: every date but the reference."
+    },
+    {
+     "id": "bands",
+     "label": "Bands (optional)",
+     "type": "text",
+     "default": "",
+     "help": "The bands to use: empty for all of them, or their names or numbers (1 is the first band of a date) separated by commas. The quality band is never one of them."
+    },
+    {
+     "id": "threshold",
+     "label": "No-change probability",
+     "type": "float",
+     "default": 0.95,
+     "min": 0.5,
+     "max": 0.9999,
+     "help": "Pixels whose iMAD probability of no change exceeds this are the invariant pixels."
+    },
+    {
+     "id": "holdout",
+     "label": "Share kept for the tests",
+     "type": "float",
+     "default": 0.3333333333333333,
+     "min": 0.0,
+     "max": 0.5,
+     "help": "Every round(1/share)-th invariant pixel in raster order is kept for the tests of the result and left out of the fit; 0: all are used for the fit and there are no tests. At least 30 pixels are needed for the fit."
+    },
+    {
+     "id": "max_iter",
+     "label": "Maximum iterations",
+     "type": "int",
+     "default": 50,
+     "min": 1,
+     "max": 500,
+     "help": "Of the iMAD of each pair."
+    },
+    {
+     "id": "tol",
+     "label": "Stop when the correlations change by less than",
+     "type": "float",
+     "default": 0.001,
+     "min": 0.0,
+     "max": 0.1,
+     "help": "Of the iMAD of each pair."
+    },
+    {
+     "id": "sample",
+     "label": "Pixels for the statistics",
+     "type": "int",
+     "default": 1000000,
+     "min": 0,
+     "max": 2000000000,
+     "help": "The statistics are computed on a lattice of about this many valid pixels (every s-th row and column from the window's first, the same pixels on every run); 0: every pixel. The transformation is then applied to the whole window."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "normalized",
+     "name": "Normalized series",
+     "unit": "as the input",
+     "series": true
+    }
+   ],
+   "chunk_cells": 200000
   }
  ],
  "errors": []

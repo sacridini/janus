@@ -354,6 +354,23 @@ pub fn all() -> &'static [Colormap] {
                 qualitative: true,
                 keys: vec![rgbf(0.60, 0.20, 0.75), rgbf(0.15, 0.50, 0.90), rgbf(0.98, 0.55, 0.05)],
             },
+            // the sectors of a change vector (CVA): no change, then darker in all bands (water), turbid water,
+            // vegetation gain, visible and NIR up, burn scar, vegetation loss, NIR and SWIR up, brighter in all bands
+            Colormap {
+                name: "Change sectors",
+                qualitative: true,
+                keys: vec![
+                    rgbf(0.78, 0.78, 0.76),
+                    rgbf(0.05, 0.20, 0.55),
+                    rgbf(0.45, 0.75, 0.90),
+                    rgbf(0.15, 0.62, 0.30),
+                    rgbf(0.70, 0.85, 0.35),
+                    rgbf(0.55, 0.30, 0.15),
+                    rgbf(0.84, 0.12, 0.12),
+                    rgbf(0.60, 0.40, 0.75),
+                    rgbf(0.98, 0.90, 0.55),
+                ],
+            },
         ]
     })
 }

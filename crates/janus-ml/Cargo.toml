@@ -15,4 +15,4 @@ rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 # the class map's post-processing (sits' Bayesian smoothing, the sieve)
-zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "c3545a6455b09955a5a5f8075136109a408c1a69" }
+zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "65767889de2a94889e21c6f306c5ae346ca044cc" }

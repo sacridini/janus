@@ -382,6 +382,9 @@ fn ints(v: &[i32]) -> String {
 /// when it is released).
 const ZEIT_WITH_EOF: &str = "\"zeit-cdts>=3.8\"";
 
+/// What `pip install` needs for a script of Zeit's `mnf`, `cva`, `imad` or `radcal` (Zeit 3.9).
+const ZEIT_WITH_CHANGE: &str = "\"zeit-cdts>=3.9\"";
+
 /// The Python of a pin's or an ROI's series (and the tools fitted on it).
 pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     let info = spec.info;
@@ -400,6 +403,7 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
         values: vec![0.0; t_n],
         bands: roles_empty,
+        band_numbers: spec.roles.clone(),
         ..Default::default()
     };
     let (run, roi) = (matches!(spec.target, Target::Run { .. }), matches!(spec.target, Target::Roi(_)));
@@ -1241,7 +1245,9 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         spec.name,
         // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd; and in 3.2.1
         // what the pin's code did by hand
-        if calls.iter().any(|(_, _, c)| c.tool == "eof" || c.tool == "lagged_correlation") {
+        if calls.iter().any(|(_, _, c)| matches!(c.tool.as_str(), "mnf" | "cva" | "imad" | "radcal")) {
+            ZEIT_WITH_CHANGE
+        } else if calls.iter().any(|(_, _, c)| c.tool == "eof" || c.tool == "lagged_correlation") {
             ZEIT_WITH_EOF
         } else if zeit_321.get() {
             "\"zeit-cdts>=3.2.1\""

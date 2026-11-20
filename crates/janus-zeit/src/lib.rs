@@ -13,6 +13,7 @@ pub mod bands;
 mod beast;
 mod bfast;
 mod ccdc;
+pub mod change;
 mod clear_observations;
 pub mod cluster;
 mod coded;
@@ -35,11 +36,13 @@ pub mod level2_run;
 pub mod level2_tool;
 pub mod manifest;
 mod mann_kendall;
+pub mod mnf;
 mod nbar;
 mod ndfi;
 pub mod numeric;
 mod phenology;
 pub mod pixel;
+mod planes;
 mod polar_metrics;
 pub mod polygonize;
 pub mod postproc;
@@ -71,10 +74,10 @@ pub mod warp;
 pub mod zonal;
 
 /// The Zeit whose zeit-core is linked (Cargo.toml's revision: 3.8.0, GPL-3.0-or-later, the parts from GPL-2-only code rewritten).
-pub const ZEIT_VERSION: &str = "3.8.0";
+pub const ZEIT_VERSION: &str = "3.9.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "c3545a6455b09955a5a5f8075136109a408c1a69";
+pub const ZEIT_CORE_REV: &str = "65767889de2a94889e21c6f306c5ae346ca044cc";
 
 pub use manifest::{CATEGORIES, CLASSIFICATION, DATA_PREPARATION, Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};

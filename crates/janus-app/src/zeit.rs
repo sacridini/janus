@@ -363,9 +363,16 @@ pub(crate) fn reads_bands(tool: &Tool) -> bool {
 /// them, else its roles' mapped bands.
 pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
     if tool.requires.all_bands == Some(true) {
-        // ImproPhe's fine series: the quality band is applied to the others, not one of them
-        let qa = (tool.id == "improphe" && info.sel.qa_band > 0).then_some(info.sel.qa_band);
-        return (1..=info.bands_per_date as i32).filter(|&b| Some(b) != qa).map(|b| (format!("b{b:03}"), b)).collect();
+        // ImproPhe's fine series and the tools of change (MNF, CVA, iMAD, radiometric normalization): the quality band
+        // is applied to the others, not one of them
+        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal") && info.sel.qa_band > 0)
+            .then_some(info.sel.qa_band);
+        let mut all: Vec<(String, i32)> =
+            (1..=info.bands_per_date as i32).filter(|&b| Some(b) != qa).map(|b| (format!("b{b:03}"), b)).collect();
+        // the roles a tool of every band also reads (CVA's red, NIR and SWIR1 of the sign sectors)
+        let (_, optional) = tool_roles(tool);
+        all.extend(optional.iter().filter_map(|r| roles.get(r).map(|&b| (r.clone(), b))));
+        return all;
     }
     let (needed, optional) = tool_roles(tool);
     needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|&b| (r.clone(), b))).collect()

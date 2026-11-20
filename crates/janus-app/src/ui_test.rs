@@ -26,6 +26,8 @@ mod chart_axis_tests;
 mod climate_tests;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
+#[path = "ui_test_envi.rs"]
+mod envi;
 #[path = "ui_test_eof.rs"]
 mod eof;
 #[path = "ui_test_figures.rs"]
@@ -115,6 +117,8 @@ pub struct UiTest {
     ard: ard::ArdTest,
     /// stages 320-327: the temporal EOF and the lagged correlation (ui_test_eof.rs)
     eof: eof::EofTest,
+    /// stages 400-406: the MNF, the change vector analysis, the iMAD and the normalization (ui_test_envi.rs)
+    envi: envi::EnviTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
     /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs);
@@ -1072,6 +1076,7 @@ impl State {
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
             385..=399 => return self.test_calc_detach(st, t0, ctx),
+            400..=409 => return self.test_envi(st, t0, ctx),
             _ => {}
         }
         None

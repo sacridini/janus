@@ -104,3 +104,84 @@ fn eof_and_lagged_correlation_have_python_calls() {
     let call = janus_zeit::python::tool_call("lagged_correlation", &given(&[]), &input).unwrap();
     assert_eq!(call.compact("").0, "result = zeit.lagged_correlation(series, other_cube)");
 }
+
+#[test]
+fn mnf_cva_imad_and_radcal_have_python_calls() {
+    let given = |tool: &str, v: &[(&str, Value)]| -> Params {
+        Params::with_defaults(tool, &v.iter().map(|(k, x)| (k.to_string(), x.clone())).collect()).unwrap()
+    };
+    let input = PixelInput {
+        years: vec![2019.0, 2020.0, 2021.0],
+        days: Some(vec![17900, 18300, 18700]),
+        values: vec![0.1, 0.2, 0.3],
+        band_numbers: [("red", 3), ("nir", 4), ("swir1", 5)].iter().map(|(r, b)| (r.to_string(), *b)).collect(),
+        ..Default::default()
+    };
+    // MNF of a date: the components, then both
+    let (c, inputs) =
+        calls("mnf", &given("mnf", &[("date", json!(2020.2)), ("n_components", json!(4))]), &input).unwrap();
+    assert_eq!(inputs, vec!["bands_all"]);
+    assert!(c.starts_with("result1 = zeit.mnf(bands_all.isel(time=1), 4, noise='diff_hv', scale='noise'"), "{c}");
+    let (c, _) = calls(
+        "mnf",
+        &given(
+            "mnf",
+            &[("scope", json!("all_dates")), ("output", json!("both")), ("k", json!(3)), ("bands", json!("1, 2,nir"))],
+        ),
+        &input,
+    )
+    .unwrap();
+    assert!(
+        c.starts_with("result1, transform = zeit.mnf(bands_all, None, noise='diff_hv', bands=['b001', 'b002', 'nir']"),
+        "{c}"
+    );
+    assert!(
+        c.contains("return_transform=True")
+            && c.contains("result2 = zeit.mnf_denoise(bands_all, k=3, transform=transform"),
+        "{c}"
+    );
+    let (c, _) = calls("mnf", &given("mnf", &[("output", json!("denoised"))]), &input).unwrap();
+    assert!(c.contains("zeit.mnf_denoise(bands_all.isel(time=2), snr_min=1.0, noise='diff_hv'"), "{c}");
+    // CVA: the two dates by index, the sign sectors with the bands' names in bands_all
+    let (c, _) = calls("cva", &given("cva", &[("threshold", json!("em"))]), &input).unwrap();
+    assert!(
+        c.contains(
+            "zeit.cva(bands_all, dates=(0, 2), roles={'red': 'b003', 'nir': 'b004', 'swir1': 'b005'}, direction='sign'"
+        ),
+        "{c}"
+    );
+    assert!(c.contains("threshold='em', em_init=0.2, sample=1000000"), "{c}");
+    let (c, _) = calls(
+        "cva",
+        &given(
+            "cva",
+            &[
+                ("direction", json!("c2va")),
+                ("threshold", json!("fixed")),
+                ("value", json!(0.25)),
+                ("sample", json!(0)),
+            ],
+        ),
+        &input,
+    )
+    .unwrap();
+    assert!(c.contains("direction='c2va', scale='none', threshold=0.25") && c.contains("sample=None"), "{c}");
+    // iMAD and the normalization
+    let (c, _) = calls(
+        "imad",
+        &given("imad", &[("before", json!(2019.9)), ("after", json!(2021.0)), ("lam", json!(0.5))]),
+        &input,
+    )
+    .unwrap();
+    assert!(c.contains("zeit.imad(bands_all, dates=(1, 2), max_iter=50, tol=0.001, lam=0.5, penalty='ridge'"), "{c}");
+    let (c, _) = calls("radcal", &given("radcal", &[("target", json!(2021.0))]), &input).unwrap();
+    assert!(
+        c.contains("zeit.radcal(bands_all, reference=0, targets=[2], threshold=0.95, holdout=0.3333333333333333"),
+        "{c}"
+    );
+    // the compact call leaves out Zeit's defaults
+    let call = janus_zeit::python::tool_call("imad", &given("imad", &[]), &input).unwrap();
+    assert_eq!(call.compact("").0, "result = zeit.imad(bands_all, dates=(0, 2))");
+    let call = janus_zeit::python::tool_call("radcal", &given("radcal", &[]), &input).unwrap();
+    assert_eq!(call.compact("").0, "result = zeit.radcal(bands_all, reference=0)");
+}

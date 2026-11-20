@@ -640,3 +640,39 @@ fn a_driver_in_files_named_for_months_is_read_with_its_format() {
     let code = make(&open(&daily, &BandSelection::default())).unwrap();
     assert!(!code.contains("date_format"), "{code}");
 }
+
+#[test]
+fn a_run_of_mnf_cva_imad_or_radcal_calls_zeit_on_every_band() {
+    let f = landsat_folder("change-tools");
+    let info = open(&[f], &BandSelection { band: 4, nd_band: 3, ..Default::default() });
+    let out = dir("change-tools-maps");
+    for (id, call) in [
+        ("mnf", "zeit.mnf(bands_all.isel(time=2)"),
+        (
+            "cva",
+            "zeit.cva(bands_all, dates=(0, 2), roles={'red': 'b003', 'nir': 'b004', 'swir1': 'b005'}, direction='sign'",
+        ),
+        ("imad", "zeit.imad(bands_all, dates=(0, 2)"),
+        ("radcal", "zeit.radcal(bands_all, reference=0"),
+    ] {
+        let code = script(&info, run_target([0, 0, W, H], &out), &[tool(id)]);
+        println!("{code}");
+        let flat = code.replace("(\n    ", "(").replace("\n    ", " ");
+        assert!(flat.contains(call), "{id}:\n{code}");
+        assert!(code.contains("bands_all = ") && code.contains("zeit-cdts>=3.9"), "{id}:\n{code}");
+        assert!(code.contains("zeit.save_raster(result, f\"{out_dir}/result\")"), "{id}:\n{code}");
+        // the script is Python at least (the data of a test are too regular for the calls to be run)
+        if let Ok(python) = std::env::var("JANUS_PYTHON") {
+            let file = dir(&format!("change-{id}")).join("rerun.py");
+            std::fs::write(&file, &code).unwrap();
+            let o = std::process::Command::new(python)
+                .arg("-I")
+                .arg("-c")
+                .arg("import ast, sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())")
+                .arg(&file)
+                .output()
+                .unwrap();
+            assert!(o.status.success(), "{id}: {}", String::from_utf8_lossy(&o.stderr));
+        }
+    }
+}

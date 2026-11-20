@@ -528,6 +528,97 @@ impl Inputs {
     }
 }
 
+/// The planes of one band of some dates, with the band's place in the list asked for.
+type BandPlanes = Result<(usize, Vec<Vec<f64>>), String>;
+
+impl Inputs {
+    /// The bands `roles` of some dates over a window: for each date, [band][pixels] (the bands in the order of `roles`,
+    /// the pixels row by row), NaN where a band has no value, where the quality band refuses the date or where the
+    /// mask is 0. Reads only those dates (the bands are read on one thread each, a few at a time).
+    pub(crate) fn read_dates(
+        &mut self,
+        roles: &[String],
+        dates: &[usize],
+        x0: usize,
+        y0: usize,
+        w: usize,
+        h: usize,
+    ) -> Result<Vec<Vec<f64>>, String> {
+        let n = w * h;
+        let t = self.spec.years.len();
+        if let Some(&d) = dates.iter().find(|&&d| d >= t) {
+            return Err(format!("the date {d} is not in the series of {t} dates"));
+        }
+        let limit = match self.spec.n_jobs() {
+            k if k > 0 => k as usize,
+            _ => std::thread::available_parallelism().map_or(4, |k| k.get()),
+        }
+        .clamp(1, 8);
+        let mut slots: Vec<Option<&mut (String, Source)>> = self.bands.iter_mut().map(Some).collect();
+        let mut picked: Vec<(usize, &mut (String, Source))> = vec![];
+        for (i, role) in roles.iter().enumerate() {
+            let at = slots
+                .iter()
+                .position(|s| s.as_ref().is_some_and(|s| &s.0 == role))
+                .ok_or_else(|| format!("ValueError: the band of '{role}' is not mapped"))?;
+            picked.push((i, slots[at].take().ok_or("a band is asked for twice")?));
+        }
+        let mut out = vec![vec![f64::NAN; roles.len() * n]; dates.len()];
+        for group in picked.chunks_mut(limit) {
+            let parts: Vec<BandPlanes> = std::thread::scope(|s| {
+                let running: Vec<_> = group
+                    .iter_mut()
+                    .map(|(i, entry)| {
+                        let i = *i;
+                        let ds: &mut Dataset = &mut entry.1.handles[0];
+                        s.spawn(move || {
+                            let planes = dates
+                                .iter()
+                                .map(|&d| read(ds, d + 1..=d + 1, x0, y0, w, h, false))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            Ok((i, planes))
+                        })
+                    })
+                    .collect();
+                running.into_iter().map(|r| r.join().unwrap_or_else(|_| Err("reading failed".into()))).collect()
+            });
+            for part in parts {
+                let (i, planes) = part?;
+                for (di, plane) in planes.into_iter().enumerate() {
+                    out[di][i * n..(i + 1) * n].copy_from_slice(&plane);
+                }
+            }
+        }
+        // the quality band's refusals, and the mask's pixels outside
+        let rule = self.spec.qa_rule.clone();
+        if let Some(qa) = &mut self.qa {
+            for (di, &d) in dates.iter().enumerate() {
+                let codes = read(qa.ds(), d + 1..=d + 1, x0, y0, w, h, true)?;
+                for (p, &code) in codes.iter().enumerate() {
+                    if !qa_usable(rule.as_deref(), code) {
+                        for b in 0..roles.len() {
+                            out[di][b * n + p] = f64::NAN;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(m) = &self.mask {
+            let keep = read(m, 1..=1, x0, y0, w, h, false)?;
+            for (p, k) in keep.iter().enumerate() {
+                if k.is_nan() || *k == 0.0 {
+                    for plane in out.iter_mut() {
+                        for b in 0..roles.len() {
+                            plane[b * n + p] = f64::NAN;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// The window read in strips of `rows` rows, the next strip read on a thread while `each(row, rows, chunk)` computes
 /// this one (the disk and the CPU at once, as a run does).
 pub(crate) fn for_strips(
@@ -1014,6 +1105,12 @@ pub fn run_job(
     if spec.tool == "lagged_correlation" {
         return crate::correlation::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "mnf" {
+        return crate::mnf::run(spec, tool, &p, progress, cancel);
+    }
+    if matches!(spec.tool.as_str(), "cva" | "imad" | "radcal") {
+        return crate::change::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -1175,6 +1272,12 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     }
     if spec.tool == "lagged_correlation" {
         return crate::correlation::estimate(spec, &p, cells);
+    }
+    if spec.tool == "mnf" {
+        return crate::mnf::estimate(spec, &p, cells);
+    }
+    if matches!(spec.tool.as_str(), "cva" | "imad" | "radcal") {
+        return crate::change::estimate(spec, &p, cells);
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

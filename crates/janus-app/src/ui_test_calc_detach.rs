@@ -203,7 +203,7 @@ impl State {
                 let i = *AT.lock().unwrap();
                 let list = entries();
                 let Some(e) = list.get(i) else {
-                    st.stage = 299;
+                    st.stage = 400; // MNF, CVA, iMAD and the normalization (400-406, ui_test_envi.rs), then 299
                     return None;
                 };
                 (e.open)(self);

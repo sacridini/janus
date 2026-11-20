@@ -226,6 +226,7 @@ impl ToolCall {
             "cat" => &["folded", "cat"],
             "postproc" => &["classes", "filtered"],
             "nbar" => &["nbar", "cfactor"],
+            "mnf" => &["result", "denoised"],
             _ => &["result"],
         }
     }
@@ -315,6 +316,31 @@ fn wrap_call(var: &str, func: &str, args: &[String]) -> String {
     }
     let _ = write!(out, "    {line}\n)");
     out
+}
+
+fn s_id(p: &Params, id: &str) -> String {
+    py_str(p.str(id))
+}
+
+/// A band list parameter's tokens as the names of `bands_all` (`b003` for a band number; a name stays as it is).
+fn band_tokens(p: &Params, id: &str) -> Vec<String> {
+    p.str(id)
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| t.parse::<usize>().map_or_else(|_| t.to_string(), |n| format!("b{n:03}")))
+        .collect()
+}
+
+/// `bands=[...]` of a call, none for every band.
+fn band_args(p: &Params) -> Option<String> {
+    let tokens = band_tokens(p, "bands");
+    (!tokens.is_empty()).then(|| py_list(&tokens))
+}
+
+/// The `sample=` of a call: the number of pixels, `None` for every pixel (0).
+fn sample_arg(p: &Params) -> String {
+    if p.int("sample") <= 0 { "None".into() } else { p.int("sample").to_string() }
 }
 
 /// The calls (code) and the inputs the code needs ("series", "bands_cube", "fmask").
@@ -1116,6 +1142,150 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
                 ],
             ));
             ToolCall::new(tool, pieces, inputs)
+        }
+        "mnf" => {
+            let s = crate::mnf::settings(p).ok()?;
+            let date = crate::mnf::date_of_input(input, p);
+            let x = if s.all_dates { "bands_all".to_string() } else { format!("bands_all.isel(time={date})") };
+            let mut pieces = vec![];
+            let fit = |extra: Vec<Arg>| {
+                let mut a = vec![kw("noise", s_id(p, "noise"))];
+                if let Some(b) = band_args(p) {
+                    a.push(kw("bands", b));
+                }
+                a.extend(extra);
+                a.extend([kw("sample_fraction", f("sample_fraction")), kw("seed", i("seed"))]);
+                a
+            };
+            if !p.str("noise_region").is_empty() {
+                pieces.push(Piece::Raw(format!(
+                    "# the noise region {}: rasterize it on the series' grid and pass it as noise_region= (Zeit takes a boolean (y, x) array or a pixel window)",
+                    py_str(p.str("noise_region"))
+                )));
+            }
+            let k = p.int("k");
+            let denoise_arg = if k > 0 { kw("k", k.to_string()) } else { kw("snr_min", f("snr_min")) };
+            let n_components = if s.n_components == 0 { "None".to_string() } else { s.n_components.to_string() };
+            match (s.components, s.denoised) {
+                (true, true) => {
+                    let mut a = vec![pos(x.clone()), pos(n_components)];
+                    a.extend(fit(vec![kw("scale", s_id(p, "scale"))]));
+                    a.extend([kw("return_transform", "True"), plumbing("nodata", "None"), plumbing("n_jobs", "1")]);
+                    pieces.push(call("result1, transform", "zeit.mnf", a));
+                    pieces.push(call(
+                        "result2",
+                        "zeit.mnf_denoise",
+                        vec![
+                            pos(x),
+                            denoise_arg,
+                            kw("transform", "transform"),
+                            plumbing("nodata", "None"),
+                            plumbing("n_jobs", "1"),
+                        ],
+                    ));
+                }
+                (true, false) => {
+                    let mut a = vec![pos(x), pos(n_components)];
+                    a.extend(fit(vec![kw("scale", s_id(p, "scale"))]));
+                    a.extend([plumbing("nodata", "None"), plumbing("n_jobs", "1")]);
+                    pieces.push(call("result1", "zeit.mnf", a));
+                }
+                _ => {
+                    let mut a = vec![pos(x), denoise_arg];
+                    a.extend(fit(vec![]));
+                    a.extend([plumbing("nodata", "None"), plumbing("n_jobs", "1")]);
+                    pieces.push(call("result1", "zeit.mnf_denoise", a));
+                }
+            }
+            ToolCall::new(tool, pieces, vec!["bands_all"])
+        }
+        "cva" => {
+            let n = input.years.len();
+            let (a, b) = (
+                crate::planes::date_index(&input.years, p.f64("before"), 0),
+                crate::planes::date_index(&input.years, p.f64("after"), n.saturating_sub(1)),
+            );
+            let num = |role: &str| {
+                input.band_numbers.get(role).map(|b| format!("{}: {}", py_str(role), py_str(&format!("b{b:03}"))))
+            };
+            let roles: Option<Vec<String>> = ["red", "nir", "swir1"].iter().map(|r| num(r)).collect();
+            let direction = match (p.str("direction"), &roles) {
+                ("sign", _) | ("auto", Some(_)) => "sign",
+                ("polar", _) => "polar",
+                _ => "c2va",
+            };
+            let mut args = vec![pos("bands_all"), kw("dates", format!("({a}, {b})"))];
+            if let Some(bs) = band_args(p) {
+                args.push(kw("bands", bs));
+            }
+            if direction == "sign" {
+                args.push(kw("roles", format!("{{{}}}", roles?.join(", "))));
+            }
+            args.push(kw("direction", py_str(direction)));
+            if direction == "polar" {
+                let tokens = band_tokens(p, "polar_bands");
+                if tokens.len() == 2 {
+                    args.push(kw("polar_bands", py_list(&tokens)));
+                }
+                args.push(kw("n_sectors", i("n_sectors")));
+            }
+            args.push(kw("scale", s_id(p, "scale")));
+            args.push(kw(
+                "threshold",
+                match p.str("threshold") {
+                    "fixed" => f("value"),
+                    other => py_str(other),
+                },
+            ));
+            args.push(kw("em_init", f("em_init")));
+            args.push(kw("sample", sample_arg(p)));
+            args.extend([plumbing("nodata", "None"), plumbing("n_jobs", "1")]);
+            ToolCall::new(tool, vec![call("result1", "zeit.cva", args)], vec!["bands_all"])
+        }
+        "imad" => {
+            let n = input.years.len();
+            let (a, b) = (
+                crate::planes::date_index(&input.years, p.f64("before"), 0),
+                crate::planes::date_index(&input.years, p.f64("after"), n.saturating_sub(1)),
+            );
+            let mut args = vec![pos("bands_all"), kw("dates", format!("({a}, {b})"))];
+            if let Some(bs) = band_args(p) {
+                args.push(kw("bands", bs));
+            }
+            args.extend([
+                kw("max_iter", i("max_iter")),
+                kw("tol", f("tol")),
+                kw("lam", f("lam")),
+                kw("penalty", s_id(p, "penalty")),
+                kw("standardize", s_id(p, "standardize")),
+                kw("alpha", f("alpha")),
+                kw("sample", sample_arg(p)),
+                plumbing("nodata", "None"),
+                plumbing("n_jobs", "1"),
+            ]);
+            ToolCall::new(tool, vec![call("result1", "zeit.imad", args)], vec!["bands_all"])
+        }
+        "radcal" => {
+            let n = input.years.len();
+            let reference = crate::planes::date_index(&input.years, p.f64("reference"), 0);
+            let mut args = vec![pos("bands_all"), kw("reference", reference.to_string())];
+            if p.f64("target") > 0.0 {
+                let k = crate::planes::date_index(&input.years, p.f64("target"), n.saturating_sub(1));
+                args.push(kw("targets", format!("[{k}]")));
+            }
+            if let Some(bs) = band_args(p) {
+                args.push(kw("bands", bs));
+            }
+            args.extend([
+                kw("threshold", f("threshold")),
+                kw("holdout", f("holdout")),
+                kw("max_iter", i("max_iter")),
+                kw("tol", f("tol")),
+                kw("sample", sample_arg(p)),
+                plumbing("nodata", "None"),
+                plumbing("n_jobs", "1"),
+            ]);
+            ToolCall::new(tool, vec![call("result1", "zeit.radcal", args)], vec!["bands_all"])
         }
         "clear_observations" => one(call(
             "result1",

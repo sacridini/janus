@@ -69,6 +69,8 @@ pub struct PixelInput {
     pub granules: Vec<Vec<String>>,
     /// where the pixel is on the series' grid, for the tools that need its place (the angles of Sentinel-2)
     pub site: Option<Site>,
+    /// each mapped role's band number in a date's file (a script's calls name the bands of every band by number)
+    pub band_numbers: BTreeMap<String, i32>,
 }
 
 /// A pixel's place: the grid it is in (CRS as WKT, north-up geotransform) and its column and row.
