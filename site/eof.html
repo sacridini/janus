@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EOF and lagged correlation · Janus</title>
+<meta name="description" content="A step-by-step guide to the lagged correlation and the temporal EOF in Janus: where the vegetation follows the rain and after how many months, with an effective-sample-size p-value and a false discovery rate, and the few patterns that explain a series of maps, with North's test and a varimax rotation.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="EOF and lagged correlation · Janus">
+<meta property="og:description" content="Where does the vegetation respond to rain, and with how much delay? CHIRPS rainfall against an NDVI series, the lags as maps, and the modes of the NDVI anomalies.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/eof/01-series-rain.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / EOF and lagged correlation</p>
+    <p class="eyebrow">Climate and vegetation · modes of variability · significance</p>
+    <h1>EOF and lagged correlation.</h1>
+    <p class="lede">Where does the vegetation respond to rain, and with how much delay? <span class="ui">Lagged correlation</span> answers it pixel by pixel: the correlation of every pixel's series with a driver at several lags, the lag where it is strongest, and a test that knows a series remembers its past. <span class="ui">EOF / principal components</span> asks the other question, with no driver: which few maps, each with a time series that says when it was on, explain most of the variability of the series? This guide uses CHIRPS rainfall and an NDVI series of the same area for both.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#question">The question</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#rain">The rain</a></li>
+      <li><a href="#lag">Lagged correlation</a></li>
+      <li><a href="#maps">Reading the maps</a></li>
+      <li><a href="#tab">The Modes tab: one pixel's lags</a></li>
+      <li><a href="#chart">On the chart, and in the calculator</a></li>
+      <li><a href="#eof">The EOF</a></li>
+      <li><a href="#north">How many modes are real</a></li>
+      <li><a href="#varimax">Rotating the first modes</a></li>
+      <li><a href="#repeat">Doing it again</a></li>
+      <li><a href="#speed">Speed, and checked against the originals</a></li>
+      <li><a href="#limits">What they cannot do</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="question">
+      <h2><span class="n">01</span>The question</h2>
+      <p>A vegetation index does not follow the rain on the same day. In a dry-land area the rain of a month fills the soil, the leaves come some weeks later, and the greenness of a month is a sum of the rain of the months before it. How long that takes depends on the soil, the roots and the cover: a grassland answers in a month, a deep-rooted woodland in three. A map of that delay, and of where there is any response at all, says where rain limits the vegetation and where something else does.</p>
+      <p>Two tools answer it, and they ask different questions:</p>
+      <dl class="terms">
+        <dt>Lagged correlation</dt><dd>You bring a <strong>driver</strong>: a rainfall series, a climate index, the mean of a region. At lag <em>k</em> each pixel's value at <em>t</em> is paired with the driver's at <em>t − k</em>, so the driver leads, and a driver that acts two months later shows its strongest correlation at lag 2. The maps are the best correlation, its lag and its significance.</dd>
+        <dt>EOF</dt><dd>You bring nothing. The cube of maps over time (dates by pixels) is decomposed into <strong>modes</strong>: a map (the EOF) and a time series (its principal component, PC) each, ordered by the share of the variance they explain. The first mode of vegetation anomalies is usually the whole area greener or browner than its calendar month's normal, and its PC says when.</dd>
+      </dl>
+      <p>Both work on <em>anomalies</em>: the seasonal cycle of each pixel is taken out first (the mean of each calendar month), because without that step every pixel correlates with every seasonal driver and the first mode is simply the seasons. Both have a test chosen for series that remember their past, which is what monthly vegetation does. Zeit has both as <code>zeit.lagged_correlation</code> and <code>zeit.eof</code>; this page is about the Janus tools, <span class="ui">Tools → Temporal dynamics → Lagged correlation</span> and <span class="ui">EOF / principal components</span>, which read the window in strips of rows and so work on a series that does not fit in memory.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The screenshots use 25 years of <strong>16-day EVI at 250 m</strong> over 170 km of western France, 45.2° to 46.9° N and 0.9° W to 0.95° E (the Charente and the Poitou): 575 dates from 2001-01-01 to 2025-12-19, over 677 × 680 pixels in EPSG:3035, one multiband GeoTIFF of 622 MB. Cloudy dates leave gaps: 360,000 of the 460,000 pixels have enough dates to be kept (the 0.8 valid fraction of the EOF; the lagged correlation keeps 361,000). It is a temperate, mostly agricultural landscape, not a dry land: the rain here limits the vegetation less than it does in a semi-arid one, so the correlations are weak, which is a fair case to study how to read weak ones. The rainfall is CHIRPS v3 monthly for the same box, fetched from inside Janus (next section), and both series have the same period.</p>
+      <figure class="fig">
+        <a href="assets/img/eof/01-series-rain.jpg"><picture><source type="image/webp" srcset="assets/img/eof/01-series-rain.webp"><img src="assets/img/eof/01-series-rain.jpg" alt="The Janus window with the EVI of western France on the map and, under it, the chart of a pin: the EVI as a line on the left axis and the monthly CHIRPS rainfall as bars on the right axis." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>The series and the rain.</b> The EVI at a pin (left axis, a line every 16 days) and CHIRPS monthly rainfall (right axis, bars) for the same months. The seasons are in both, which is why the correlation is taken on anomalies.</figcaption>
+      </figure>
+    </section>
+
+    <section id="rain">
+      <h2><span class="n">03</span>The rain</h2>
+      <p><span class="ui">File → Climate data...</span> downloads <strong>CHIRPS v3</strong> rainfall (Climate Hazards Center; 0.05°, about 5 km, 60°S to 60°N, from 1981) for the map's visible area, the ROI or a box in degrees, between two months (the active series' dates by default). Only the box is read from each remote cloud-optimized GeoTIFF, so a small area is a few kilobytes a month, not the whole grid. The window counts the files and the pixels before <span class="ui">Download</span>, which is a task like any other (<span class="ui">Tools → Tasks</span>, with Cancel); a file already in the folder is kept, so downloading again reads only the dates that failed.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/eof/02-climate-window.png"><img src="assets/img/eof/02-climate-window.png" alt="The Climate data window: CHIRPS v3, monthly, the box of the map in degrees, the period of the NDVI series, the number of files and pixels, and the Download button." loading="lazy"></a>
+        <figcaption><b>Climate data.</b> The box, the period and what it costs, before anything is downloaded.</figcaption>
+      </figure>
+      <p>The result opens as a series layer, <em>CHIRPS rainfall (mm/month)</em>, on its own coarse grid and on top, with the series being studied staying active. Each GeoTIFF carries the source, the licence and the citation; CHIRPS is in the public domain and the guide's data credit it (Funk et al. 2015). The chart draws it as bars; put it on the right axis in the chart's <span class="ui">Series axes</span> menu, as in the figure above.</p>
+      <p>The rain's grid is 5 km and the NDVI's is much finer. That is what the lagged correlation expects: the driver may be on any grid and in any CRS, and it is put on the series' grid first, by nearest neighbour or bilinear. Each NDVI pixel is then paired with the rainfall of the 5 km cell it is in, and every pixel inside a cell shares one driver; the maps below will show the cells.</p>
+    </section>
+
+    <section id="lag">
+      <h2><span class="n">04</span>Lagged correlation</h2>
+      <p>Open <span class="ui">Tools → Temporal dynamics → Lagged correlation</span> with the NDVI series active. A raster run only: the correlation of a pixel needs no neighbour, but the false discovery rate below needs every pixel's result.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/eof/03-lagcorr-window.png"><img src="assets/img/eof/03-lagcorr-window.png" alt="The Lagged correlation window: Driver series set to the CHIRPS layer, the driver pixel by pixel, lags 4, the lags in calendar months, anomalies from the monthly climatology, Pearson, best lag by the largest absolute correlation, the effective number of pairs and the Sidak adjustment on, a false discovery rate of 0.10." loading="lazy"></a>
+        <figcaption><b>The window</b> with the parameters of this guide: the CHIRPS layer as the driver, pixel by pixel, at lags 0 to 4 months.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Driver series, The driver is</dt><dd>Another open series (the CHIRPS layer, here) read <em>pixel by pixel</em>; or that series' <em>mean over the window</em>, one regional index for every pixel; or a <em>CSV file</em> of dates and values (a monthly index of ENSO, say: a date such as <code>2020-03</code> and a value on each line, a header skipped, empty or <code>NA</code> as missing).</dd>
+        <dt>Lags</dt><dd>The lags 0, 1, ..., K. The default is 3; the rain of a dry-land area may need 4 to 6.</dd>
+        <dt>The lags are in</dt><dd><em>Calendar months</em> (the default): both series are averaged to months first, so a monthly rainfall can drive a 16-day NDVI and a lag is a month whatever the cadence. <em>Dates of the series</em> matches the driver to the series' dates (the nearest within a tolerance, exactly, or in the same month or year) and counts the lags in observations: two steps of a 16-day series are 32 days.</dd>
+        <dt>Anomalies</dt><dd>What is taken out of both series before they are correlated: the monthly climatology by default. Without it, the seasonal cycle of both makes every pixel correlate with the rain, at the lag that lines the seasons up, and the map is a map of the calendar. Raw values correlate their trends too.</dd>
+        <dt>Method</dt><dd>Pearson's r, or Spearman's on the ranks, for outliers and monotone relations that are not straight lines.</dd>
+        <dt>Best lag</dt><dd>Which lag is each pixel's best: the largest |r| (the default), or the largest positive or the largest negative one. A vegetation that responds to rain with a plus sign wants the positive.</dd>
+        <dt>Effective n, Sidak, FDR</dt><dd>The three corrections of the next section.</dd>
+      </dl>
+      <h3>What the test counts</h3>
+      <p>Monthly anomalies of vegetation are not independent: next month looks like this one. A correlation of two such series over 100 months is not worth 100 independent pairs, and a t test that thinks so is far too confident. Janus uses the <strong>effective number of pairs</strong> <em>n</em> (1 − <em>r<sub>x</sub> r<sub>y</sub></em>) / (1 + <em>r<sub>x</sub> r<sub>y</sub></em>), with <em>r<sub>x</sub></em> and <em>r<sub>y</sub></em> the lag-1 autocorrelations of the pixel's series and of the driver (Bretherton et al. 1999) and a two-sided Student t test on it. It is written to the map <em>Effective pairs at the best lag</em>. Switching it off treats the pairs as independent, and the p-values come out too small for smooth series.</p>
+      <p>Two more steps follow, because there are K + 1 lags and thousands of pixels:</p>
+      <ul>
+        <li>The best lag's p-value is adjusted for having tried the lags, <em>1 − (1 − p)<sup>K + 1</sup></em> (Šidák): the best of four correlations is not a single draw.</li>
+        <li>The pixels' adjusted p-values are tested together by the <strong>false discovery rate</strong> (Benjamini and Hochberg 1995): of the pixels marked significant, about this fraction is expected to be false hits, 0.10 by default. A 5% test on each of the 361,000 pixels of the example would mark some 18,000 of them by chance alone. Wilks (2016) recommends twice the level a single test would have, which is where 0.10 comes from.</li>
+      </ul>
+      <p>The run writes seven maps, each a layer: the correlation at the best lag, the best lag, the p-value of the best lag, the false discovery rate <em>q</em>, the map of significant pixels, the effective pairs at the best lag, and the correlation at every lag (a band for each).</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">05</span>Reading the maps</h2>
+      <p>Three of them carry the answer. The correlation says <em>how much</em>, the lag says <em>when</em>, and the significance says <em>where to believe either</em>:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/eof/04-best-r.jpg"><picture><source type="image/webp" srcset="assets/img/eof/04-best-r.webp"><img src="assets/img/eof/04-best-r.jpg" alt="The map of the correlation at the best lag, red-blue, from -1 to 1: mostly pale blue and pale red, weak positive and negative values over the whole area." width="1680" height="1050" loading="lazy"></picture></a>
+          <figcaption><b>Best r.</b> The correlation at each pixel's best lag.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/eof/05-best-lag.jpg"><picture><source type="image/webp" srcset="assets/img/eof/05-best-lag.webp"><img src="assets/img/eof/05-best-lag.jpg" alt="The map of the best lag in months, viridis from 0 to 4: blue (lag 1) nearly everywhere, scattered purple (lag 0) and a few yellow patches (lag 4)." width="1680" height="1050" loading="lazy"></picture></a>
+          <figcaption><b>Best lag</b>, in months.</figcaption>
+        </figure>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/eof/06-significant.jpg"><picture><source type="image/webp" srcset="assets/img/eof/06-significant.webp"><img src="assets/img/eof/06-significant.jpg" alt="The map of the pixels that pass the false discovery rate, in two colours, and the Janus window around it." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>Significant</b> at a false discovery rate of 0.10: the pixels where the other two maps can be read.</figcaption>
+      </figure>
+      <p>What the maps say about this area: <strong>163,491 of the 361,137 pixels (45.3%) pass the false discovery rate</strong> of 0.10. Where they do, the median best lag is <strong>1 month</strong> and r is between 0.17 and 0.32 (the 5th and 95th percentiles; median 0.22). Over all the pixels the median r at the best lag is 0.15, which is what a monthly anomaly of EVI at 250 m and rain at 5 km give: a weak relation that is real, but explains a few percent of the variance of a pixel. The lag is 1 month for 71% of the significant pixels, 0 for 25% and 2 to 4 for the remaining 4%; the lag map shows the one-month response nearly everywhere and the lag 0 as scattered pixels, with a few patches at lag 4. The median effective number of pairs is 259 against 300 months: this vegetation remembers less than a dry land's. The pale red-blue of the first map is that, a weak correlation, and the colour scale is kept at the full -1 to 1 so that it cannot be read as a strong one.</p>
+      <h3>How to read the lag map</h3>
+      <ul>
+        <li><strong>A lag counts only where the pixel is significant.</strong> Where the correlation is weak, the best of four small values is any of them, and the lag map there is noise. Look at the lag map through the map of significant pixels.</li>
+        <li><strong>Lag 0 is not "no delay".</strong> Months are the unit: a response in 10 days is lag 0. And a pixel whose best lag is the last one tried may be better at the next: lengthen the lags and run again.</li>
+        <li><strong>The blocks are the rain's.</strong> The driver is a 5 km cell shared by all the pixels in it, so the maps show its edges. A finer driver, or a regional mean, would not change what the pixels do, only what they are compared with.</li>
+        <li><strong>A lag is not a cause.</strong> The pixel follows the driver after <em>k</em> months; that the driver is why is another question. Two series with the same slow trend or a seasonal residual they share correlate at every lag, and the effective-n correction reduces that but does not remove it.</li>
+      </ul>
+    </section>
+
+    <section id="tab">
+      <h2><span class="n">06</span>The Modes tab: one pixel's lags</h2>
+      <p>The best lag is one number a pixel. <span class="ui">Analysis → Modes</span>, with a lagged-correlation run open, draws all of them for the pixel under the cursor or a pin: r against the lag, with the |r| a correlation has to pass <em>at that pixel</em> (it depends on the pixel's effective n), the share of pixels that pass the false discovery rate, and a histogram of their best lags.</p>
+      <figure class="fig">
+        <a href="assets/img/eof/07-modes-lag.png"><img src="assets/img/eof/07-modes-lag.png" alt="Analysis, Modes tab for the lagged correlation: r against the lag at a pin, with the dashed lines of the critical absolute r, the share of significant pixels as a number, and the histogram of their best lags in months." loading="lazy"></a>
+        <figcaption><b>Modes, for a lagged correlation.</b> A pin's r at each lag against the level it must pass, and when the significant pixels respond.</figcaption>
+      </figure>
+      <p>The shape of the curve says more than its peak. A response that peaks at lag 2 and falls on both sides is a delay; a curve that decays from lag 0 is a regional mean followed at once; a flat one inside the dashed lines is a pixel with nothing to say. The histogram is the answer to "with how much delay" in one picture: where its mass sits is the area's lag.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">07</span>On the chart, and in the calculator</h2>
+      <p>To <em>see</em> a lag, the rain should be drawn shifted. Calculate the correlation as a map with the raster calculator, <code>corr(evi, rain, lag=1m)</code>: the correlation over time of the two series, an image, with the driver <code>y</code> leading by one month (<a href="calculator.html#time">the calculator's guide</a> has its syntax). On a layer that came from <code>corr(x, y, lag=k)</code>, the chart's <span class="ui">Series axes</span> menu offers <span class="ui">Shift y by the lag (k)</span>: the rain is drawn <em>k</em> months later and labelled <em>(shifted +k)</em>, so that its peaks fall under the peaks of the EVI they were correlated with. With the 1-month lag of this area the shift is a single bar width, so the two charts below differ by little, which is the honest picture of a weak response. It is a view only; the data and the dates in the inspector do not change.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/eof/08-chart-unshifted.png"><img src="assets/img/eof/08-chart-unshifted.png" alt="The chart of a pin over a few years: the EVI line and the rain bars on the right axis." loading="lazy"></a>
+          <figcaption><b>As it happened.</b> The rain's bars on their own months.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/eof/09-chart-shifted.png"><img src="assets/img/eof/09-chart-shifted.png" alt="The same chart with the rain shifted by one month: the legend saying rain (right) (shifted +1m)." loading="lazy"></a>
+          <figcaption><b>Shifted by the lag.</b> The bars now stand one month later, under the EVI they were correlated with.</figcaption>
+        </figure>
+      </div>
+      <p>The calculator's <code>corr()</code> correlates the values as they are, seasonal cycle included, and gives r only. For the anomalies, the p-value that counts the series' memory and the best of several lags in one run, use the tool.</p>
+    </section>
+
+    <section id="eof">
+      <h2><span class="n">08</span>The EOF</h2>
+      <p>Now without the rain. <span class="ui">Tools → Temporal dynamics → EOF / principal components</span> takes the cube of the NDVI anomalies and finds the few patterns that explain most of it. The steps are Zeit's, written from the papers:</p>
+      <ol>
+        <li><strong>Anomalies.</strong> The monthly climatology is taken out of each pixel (a month needs two values at least). A harmonic fit (a constant and sine and cosine pairs of the year) is there for dates that are not monthly, and <em>The pixel's mean</em> leaves the seasons in, which makes them the first modes.</li>
+        <li><strong>Weights.</strong> Each pixel counts for the area it covers (its geodesic area in the series' CRS, normalized to mean 1); the cosine of the latitude is for a geographic CRS; none counts every pixel the same.</li>
+        <li><strong>The decomposition,</strong> from the small side. The cube has hundreds of dates and perhaps millions of pixels, so it is the dates-by-dates matrix that is decomposed, summed over blocks of pixels read in turn. With up to 1000 dates (<em>Automatic</em>, the solver's default; the 575 dates of the example are exact) it is exact; with more it is a randomized range finder with power iterations (Halko, Martinsson and Tropp 2011), a few passes over the pixels, which is as good as exact for the first modes. A window that does not fit in memory works: the anomalies are kept as float32 in memory, or in a scratch file of the run's folder when they would take more than a quarter of the RAM.</li>
+        <li><strong>Units.</strong> A mode's map is in the data's units per standard deviation of its PC: a value of 0.03 on an NDVI map says that when the PC is one standard deviation above its mean, that pixel's NDVI is 0.03 above its normal. <em>Orthonormal EOFs</em> gives unit-length maps and puts the variance in the PCs.</li>
+      </ol>
+      <figure class="fig narrow">
+        <a href="assets/img/eof/10-eof-window.png"><img src="assets/img/eof/10-eof-window.png" alt="The EOF window: 10 modes computed, 4 maps written, anomalies from the monthly climatology, weights by area, units per standard deviation, the solver on automatic, no rotation, North's test counting the effective dates." loading="lazy"></a>
+        <figcaption><b>The window.</b> Ten modes, the first four as maps; everything else as it comes.</figcaption>
+      </figure>
+      <p>A run writes the maps of the first modes, each a layer <em>EOF 1</em>, <em>EOF 2</em>... in a red-blue scale (the layer's amplitude is the mode's PC, and its name carries its variance), and, in the run's folder, <code>pcs.csv</code> (every PC by date) and <code>eof.json</code> (the variances, North's test and the settings). <em>Correlation maps</em> adds, for each, the correlation of every pixel's anomalies with the mode's PC, which has the same pattern in units that need no scale.</p>
+      <figure class="fig">
+        <a href="assets/img/eof/11-eof-maps.jpg"><picture><source type="image/webp" srcset="assets/img/eof/11-eof-maps.webp"><img src="assets/img/eof/11-eof-maps.jpg" alt="The Janus window with the map of EOF 1 in red-blue and, under it, the chart of a pin: its EVI as a line and the dashed line of EOF 1's contribution to it." width="1680" height="1050" loading="lazy"></picture></a>
+        <figcaption><b>The first mode.</b> EOF 1, 17.7% of the variance as the layer's name says: one sign over the whole area, the colours only stretch the 2nd to the 98th percentile of its values (0.012 to 0.057).</figcaption>
+      </figure>
+      <p>In this area <strong>EOF 1 explains 17.7% of the variance of the anomalies</strong>, six times the next mode (3.0%, then 2.7% and 2.4%). Its map has the same sign over all the pixels, 0.016 to 0.053 EVI per standard deviation of the PC (the 5th and 95th percentiles; median 0.036): the whole area greener or browner than its calendar month's normal at the same time. Its PC says when. The years with the lowest annual mean are 2010, 2009, 2003 and 2005 (2005 is the driest of the record, 535 mm of rain against 660 to 1100 in the others, and 2003 was the year of the heat wave), and those with the highest are 2024, 2015, 2014 and 2023, three of them among the four wettest years. Annual mean of the PC and the year's rain correlate at 0.33, and the area's monthly rain leads the monthly PC 1 by one month with r = 0.31, the lag the lagged correlation found pixel by pixel. So the PC partly follows the rain, and not only it: 2009 and 2010 are low years that were not particularly dry. EOF 2 (3.0%) is a north-south gradient and EOF 3 (2.7%) a patch of one sign in the south-west, and neither stands apart from its neighbours (next sections).</p>
+      <h3>The Modes tab, for an EOF</h3>
+      <p><span class="ui">Analysis → Modes</span> with an EOF run: the <strong>scree plot</strong> (the share of the variance of each mode, with North's error as whiskers: a mode that is separable from its neighbours is filled, one that is mixed with them is hollow), the <strong>principal components</strong> over the dates, and a table of the modes with their variance, their error and whether they are separable. <span class="ui">Show map</span> opens a mode's map; <span class="ui">Copy</span> and <span class="ui">Save PCs</span> give the components to a spreadsheet or a script.</p>
+      <figure class="fig">
+        <a href="assets/img/eof/12-modes-eof.png"><img src="assets/img/eof/12-modes-eof.png" alt="Analysis, Modes tab for an EOF run: the scree plot of ten modes with North's error bars, the first filled and the others hollow; the PCs of the first three modes over the dates; the table with variance, error and separable." loading="lazy"></a>
+        <figcaption><b>Modes, for an EOF.</b> The scree plot, the components, and the table.</figcaption>
+      </figure>
+      <p>With a map of a mode on top of the others, the chart also draws the mode at the pixel under the cursor or a pin: the mode's amplitude at that pixel, which is its PC times the map's value there, over the pixel's own anomalies. It says how much of this pixel's series the mode explains, which no number does as quickly.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/eof/13-chart-overlay.png"><img src="assets/img/eof/13-chart-overlay.png" alt="The chart of a pin with the mode's contribution drawn over the pixel's NDVI anomalies." loading="lazy"></a>
+        <figcaption><b>EOF 1 at a pixel,</b> over that pixel's anomalies.</figcaption>
+      </figure>
+      <p>The two tools meet here. The PC of a mode is a series, and a series can be the driver of the lagged correlation: save the PCs (<span class="ui">Save PCs</span> writes <code>pcs.csv</code>: <code>date</code>, <code>year</code>, <code>filled</code>, then <code>pc1</code>, <code>pc2</code>...), keep the <code>date</code> column and the one of the PC wanted as the file's first two columns (the driver's CSV reads the first column as the date and the second as the value), and run Lagged correlation with it as the driver (<em>A CSV file</em>): the map says where the mode's pattern holds, and at what lag it follows the rain.</p>
+    </section>
+
+    <section id="north">
+      <h2><span class="n">09</span>How many modes are real</h2>
+      <p>An eigenvalue is estimated from a finite number of dates and has a sampling error of about <em>λ</em> √(2 / <em>n</em>) (North et al. 1982). When the error bars of two neighbouring eigenvalues overlap, the two modes are not separable: sampling noise alone could rotate one into the other, and neither should be interpreted by itself, only the pair as one subspace. The Modes tab shows it as filled and hollow bars; <code>eof.json</code> has it as <code>north_error</code> and <code>separable</code>.</p>
+      <p>What matters is the <em>n</em>. It is the number of <strong>independent</strong> dates, and monthly anomalies of vegetation remember. The window's default, <em>The effective dates</em>, counts <em>T</em> (1 − <em>ρ</em>) / (1 + <em>ρ</em>) with the lag-1 autocorrelation <em>ρ</em> of each PC, fewer for a smoother PC. <em>All the dates</em> counts every date, as the usual packages do, which is right for a series with no memory and gives error bars that are far too narrow for this one: modes look separable that are not.</p>
+      <p>In this run the lag-1 autocorrelation of PC 1 is 0.62, which makes its 566 dates worth <strong>133 independent ones</strong>. <strong>One mode stands clear of its neighbours with the effective dates</strong> (EOF 1, 17.7% against 3.0%), against <strong>two with all the dates</strong> (EOF 1 and EOF 4, 2.4%: it only looks apart because its error bars were drawn for 566 independent dates). Modes 2 and 3 (3.0% and 2.7%) are mixed with each other either way, and so are those of the tail from the fifth on, where the variance decays slowly and what is left looks like noise: do not read those modes by themselves.</p>
+    </section>
+
+    <section id="varimax">
+      <h2><span class="n">10</span>Rotating the first modes</h2>
+      <p>An EOF is a statistical pattern, not a process. The modes are orthogonal by construction and real phenomena are not, so a mode can be a mixture of two. <span class="ui">Rotate the first modes</span> (at least 2) rotates that many by Kaiser's (1958) <strong>varimax</strong>, which pushes the loadings of each pixel towards a single mode and so gives patterns that are more local and easier to read. <span class="ui">Kaiser normalization</span> (on by default) divides the rows by their communality first. The rotated maps are written as <em>Rotated EOF</em> layers, <em>ordered by their variance</em>, which is no longer the order of the singular values.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/eof/14-unrotated.png"><img src="assets/img/eof/14-unrotated.png" alt="The maps of EOF 2 and EOF 3, unrotated, side by side in red-blue with their colour bars: both signs over large parts of the area, red in the north and blue in the south for the first." loading="lazy"></a>
+          <figcaption><b>Not rotated.</b> EOF 2 (3.0%) and EOF 3 (2.7%), which North's test cannot tell apart: a north-south gradient with both signs, and a pattern of patches with both signs.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/eof/15-rotated.png"><img src="assets/img/eof/15-rotated.png" alt="The first three rotated EOFs side by side in red-blue, each mostly of one sign, with its share of the variance in the layer's name." loading="lazy"></a>
+          <figcaption><b>Rotated</b> (the first three modes: 10.0%, 8.3% and 5.1% of the variance): the same subspace as maps that are mostly one sign, which a reader can name more easily than the orthogonal ones.</figcaption>
+        </figure>
+      </div>
+      <p>Rotation is the analyst's choice and the result depends on it: the patterns change with the number of modes rotated, and rotating modes that North's test says are mixed is what it is for, not a way to make them real. Rotate the modes that together are a subspace, and say how many.</p>
+    </section>
+
+    <section id="repeat">
+      <h2><span class="n">11</span>Doing it again</h2>
+      <p>The analysis is meant to be repeatable by someone who does not use Janus. A run of either tool leaves, beside its maps, <code>rerun.py</code>, a script of Zeit that redoes it (the result's Provenance window gives the same code with <span class="ui">Python...</span>, and <a href="docs-usage.html#python-history">Python history</a> keeps it): <code>zeit.eof(series, rotate=3, north_n='autocorrelation')</code> and <code>zeit.lagged_correlation(series, other_cube, lags=4)</code>, with the parameters of the window as they were: the script lists those that are not Zeit's own defaults (Janus's <em>The effective dates</em> is not Zeit's default, so <code>north_n</code> is there). The driver is read as <code>zeit.load_raster(folder, masked=True, date_format="%Y-%m", like=series, resampling='nearest')</code>: Zeit puts it on the series' grid when it is told to, and reads <code>chirps_2020-01.tif</code> as a month only when told the format. The false discovery rate is a function of its own and takes any array of p-values:</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+series = zeit.load_raster("EVI_series.tif", masked=True).squeeze("band", drop=True)
+rain = zeit.load_raster("chirps/", masked=True, date_format="%Y-%m",
+                        like=series, resampling="nearest")           # on the series' grid
+
+lc = zeit.lagged_correlation(series, rain, lags=4)                   # the driver leads
+lc.best_lag.where(lc.significant)                                    # the lag, where it can be read
+
+ds = zeit.eof(series, n_modes=10, rotate=3, north_n="autocorrelation")
+ds.variance.values[:3], ds.separable.values[:3]
+
+mk = zeit.mann_kendall(series)
+q, threshold, significant = zeit.fdr(mk.p, alpha=0.10)               # any map of p-values</code></pre></div>
+      <p>An assistant can run both without the window: the MCP tool <code>run_tool</code> takes <code>"tool": "eof"</code> or <code>"lagged_correlation"</code>, the <code>series</code> and the <code>params</code> (<code>describe_tool</code> lists them), and <code>climate_data</code> downloads the CHIRPS rainfall for a box (<code>bbox_lonlat</code>, <code>start</code> and <code>end</code> as <code>YYYY-MM</code>) and answers its folder as a <code>series</code>, so the whole of this guide is a handful of calls. The lagged correlation's driver is not in <code>params</code> but is the call's <code>coarse</code>, as it is ImproPhe's series to sharpen (unless <code>y_mode</code> is <code>"file"</code>, with <code>y_file</code>):</p>
+      <div class="pycode"><pre class="code" tabindex="0"><code>{ "tool": "lagged_correlation",
+  "series": "EVI_series.tif",
+  "coarse": "chirps/*.tif",
+  "params": { "lags": 4, "best": "positive", "alpha_fdr": 0.1 } }</code></pre></div>
+      <p><code>best</code> takes <code>"absolute"</code> (the default), <code>"positive"</code> or <code>"negative"</code>; <code>coarse</code> is a path, a glob or an object with <code>paths</code> as <code>series</code> is.</p>
+    </section>
+
+    <section id="speed">
+      <h2><span class="n">12</span>Speed, and checked against the originals</h2>
+      <p>Zeit's own benchmark, on 25 years of 16-day EVI over a 170 km square of Europe (575 dates, 677 × 680 pixels at 250 m, averaged to 300 months, 361,000 pixels kept): the exact EOF takes <strong>1.89 s on 8 threads</strong>, against 8.83 s for <code>eofs</code> and 11.3 s for <code>xeofs</code> doing only the decomposition; the lagged correlation at 7 lags of 460,000 pixels takes 2.3 s, against 31.5 s for <code>xarray.corr</code> alone, which gives r and nothing else. Zeit is 3 to 8 times faster than the references on one thread and more on eight. The decompositions agree with <code>xeofs</code> and <code>eofs</code> to rounding (the explained variance to 1e-14, the maps and PCs to 1 − |cos| of 1e-14, North's errors to 1e-14), the varimax with xeofs' rotator to 1e-14, and the correlations with <code>xarray.corr</code> (r identical in float32, no pair count or best lag different), <code>scipy</code>'s Pearson, Spearman and Student t and its false discovery rate. The tables and the conventions that differ between the packages are in <a href="https://github.com/sacridini/zeit-cdts/blob/main/docs/benchmarks/vs-originals.md#eofs-and-lagged-correlation">Zeit's comparison with the originals</a>.</p>
+      <p>Janus reads the window in strips and writes maps, which the library calls do not, so its times are its own: on the series of this guide (575 dates, 460,000 pixels, 361,000 of them kept) and 4 threads, the EOF of 10 modes takes <strong>8 s</strong> (9 s with the first three modes rotated, 4 maps written) and the lagged correlation against the CHIRPS layer at 5 lags <strong>20 s</strong>, with the maps written and open in both cases. The maps agree with Zeit's calls on the same data; the self-test of the application checks it on a synthetic series with two known patterns and a driver in another CRS, and checks the calculator's <code>corr()</code> against the tool's r at lag 2.</p>
+    </section>
+
+    <section id="limits">
+      <h2><span class="n">13</span>What they cannot do</h2>
+      <ul>
+        <li><strong>A lag is not a cause.</strong> A pixel that follows the driver after three months does not prove the driver is why; a shared trend or seasonal residual correlates at every lag.</li>
+        <li><strong>The signs of an EOF are arbitrary.</strong> A map and its PC can be flipped together without changing anything. Janus fixes them (the PC correlates positively with the area's mean anomaly, the largest value positive for a dipole) so that a rerun, or a run with other threads, gives the same signs; another package chooses its own.</li>
+        <li><strong>A trend is a mode.</strong> A pixel's slope is variance, and the first mode may be a PC that rises and falls: the anomalies are not detrended. Fit the trend elsewhere (<a href="trend-test.html">the trend test</a>) if it is not the subject.</li>
+        <li><strong>Gaps.</strong> A pixel with fewer valid dates than the <em>Valid fraction</em> has no value in the maps; a date with too few valid pixels is left out of the fit but gets its PC from the gappy projection of Everson and Sirovich (1995) on the pixels it has. A series full of clouds may make the PCs of those dates less sure.</li>
+        <li><strong>Regular dates.</strong> EOFs assume about equal steps. An irregular series is better averaged to months first (<span class="ui">Tools → Data preparation</span>).</li>
+        <li><strong>Raster runs only.</strong> Both need the whole window: a single pixel's series has no map to decompose and the false discovery rate has nothing to count.</li>
+      </ul>
+      <p>The tools that smooth and summarize a series first are in the <a href="methods.html">methods</a>; the seasons themselves, which these tools take out, are the subject of <a href="phenology.html">Phenology</a>; the correlation as a calculator function is in <a href="calculator.html#time">the calculator's guide</a>.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">14</span>References</h2>
+      <ul class="refs">
+        <li>Benjamini, Y., Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. <em>Journal of the Royal Statistical Society B</em>, 57(1), 289–300. <a href="https://doi.org/10.1111/j.2517-6161.1995.tb02031.x">doi:10.1111/j.2517-6161.1995.tb02031.x</a></li>
+        <li>Bretherton, C. S., Widmann, M., Dymnikov, V. P., Wallace, J. M., Bladé, I. (1999). The effective number of spatial degrees of freedom of a time-varying field. <em>Journal of Climate</em>, 12, 1990–2009. <a href="https://doi.org/10.1175/1520-0442(1999)012%3C1990:TENOSD%3E2.0.CO;2">doi:10.1175/1520-0442(1999)012&lt;1990:TENOSD&gt;2.0.CO;2</a></li>
+        <li>Everson, R., Sirovich, L. (1995). Karhunen–Loève procedure for gappy data. <em>Journal of the Optical Society of America A</em>, 12, 1657–1664. <a href="https://doi.org/10.1364/JOSAA.12.001657">doi:10.1364/JOSAA.12.001657</a></li>
+        <li>Funk, C., Peterson, P., Landsfeld, M., Pedreros, D., Verdin, J., Shukla, S., et al. (2015). The climate hazards infrared precipitation with stations: a new environmental record for monitoring extremes. <em>Scientific Data</em>, 2, 150066. <a href="https://doi.org/10.1038/sdata.2015.66">doi:10.1038/sdata.2015.66</a> (CHIRPS; version 3 is described at the <a href="https://www.chc.ucsb.edu/data/chirps3">Climate Hazards Center</a>.)</li>
+        <li>Halko, N., Martinsson, P. G., Tropp, J. A. (2011). Finding structure with randomness: probabilistic algorithms for constructing approximate matrix decompositions. <em>SIAM Review</em>, 53(2), 217–288. <a href="https://doi.org/10.1137/090771806">doi:10.1137/090771806</a></li>
+        <li>Kaiser, H. F. (1958). The varimax criterion for analytic rotation in factor analysis. <em>Psychometrika</em>, 23, 187–200. <a href="https://doi.org/10.1007/BF02289233">doi:10.1007/BF02289233</a></li>
+        <li>North, G. R., Bell, T. L., Cahalan, R. F., Moeng, F. J. (1982). Sampling errors in the estimation of empirical orthogonal functions. <em>Monthly Weather Review</em>, 110, 699–706. <a href="https://doi.org/10.1175/1520-0493(1982)110%3C0699:SEITEO%3E2.0.CO;2">doi:10.1175/1520-0493(1982)110&lt;0699:SEITEO&gt;2.0.CO;2</a></li>
+        <li>Wilks, D. S. (2016). &ldquo;The stippling shows statistically significant grid points&rdquo;: how research results are routinely overstated and overinterpreted, and what to do about it. <em>Bulletin of the American Meteorological Society</em>, 97, 2263–2273. <a href="https://doi.org/10.1175/BAMS-D-15-00267.1">doi:10.1175/BAMS-D-15-00267.1</a></li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.eof</code>, <code>zeit.lagged_correlation</code>, <code>zeit.fdr</code>).</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+<script src="assets/main.js" defer></script>
+</body>
+</html>

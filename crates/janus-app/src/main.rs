@@ -94,6 +94,7 @@ mod settings;
 mod shots;
 mod shots_alerts;
 mod shots_clips;
+mod shots_eof;
 mod shots_layout;
 mod shots_ml;
 mod shots_tune;
@@ -266,6 +267,7 @@ Developer options:
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
                       (IN from tools/make_tutorial_data.py), alerts (the same IN; DETER and GLAD-S2 fetched),
                       tune (IN: the folder of the synthetic validation project, janus_validation),
+                      eof (IN: a multi-date EVI GeoTIFF; CHIRPS fetched; JANUS_SHOTS_CACHE keeps it),
                       landtrendr, ccdc, coded (tools/make_guide_data.py),
                       bfast, phenology (an EVI series); layout (IN any series: every panel, window and menu at
                       font sizes of 10 to 28 px, the texts that do not fit their place in OUT/report.txt);

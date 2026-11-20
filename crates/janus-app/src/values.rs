@@ -181,7 +181,16 @@ impl State {
     pub(crate) fn chart_shown(&self) -> bool {
         let (Some(s), Some(l)) = (&self.session, self.layers.get(self.active)) else { return false };
         let chart = !l.canvas && l.visible && (l.emb.is_some() || (s.info.t() > 1 && !s.info.stack));
-        chart && !self.result_over(l.z)
+        // (a temporal EOF's mode on top leaves the chart: it draws the mode over the pixel's anomalies, modes.rs)
+        let hides = |r: &crate::zeit::ResultLayer| {
+            r.visible
+                && !r.preview
+                && r.place.aligned
+                && r.opacity > 0.0
+                && r.z >= l.z
+                && r.eof.as_ref().is_none_or(|m| m.kind == crate::modes::ModeKind::Corr)
+        };
+        chart && !self.zeit.results.iter().any(hides)
     }
 
     /// A run's map shown over the place `z` of the drawing order (not a tool's preview).

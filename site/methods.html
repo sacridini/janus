@@ -48,7 +48,7 @@
 <section class="guide-hero">
   <div class="wrap">
     <p class="crumbs"><a href="./">Janus</a> / Methods</p>
-    <p class="eyebrow"><!-- n:method-count -->34<!-- /n:method-count --> methods · compiled from Zeit</p>
+    <p class="eyebrow"><!-- n:method-count -->36<!-- /n:method-count --> methods · compiled from Zeit</p>
     <h1>Every method, and which one to use.</h1>
     <p class="lede">Every method is compiled into Janus from Zeit, run on the chart for one pixel and on the whole image, and each guide shows one on real data. Say what your data is and what you want to find, and the list narrows to what fits.</p>
   </div>
@@ -82,7 +82,7 @@
     </div>
     <div class="m-bar">
       <div class="m-search"><label class="m-label" for="m-q">Search</label><input id="m-q" type="search" placeholder="Name or word" autocomplete="off" spellcheck="false"></div>
-      <p class="m-count" id="m-count" aria-live="polite">34 of 34 methods</p>
+      <p class="m-count" id="m-count" aria-live="polite">36 of 36 methods</p>
       <button type="button" class="chip m-clear" id="m-clear" hidden>Clear</button>
     </div>
   </div>
@@ -160,6 +160,8 @@
       <li class="m-card" id="emerging-hot-spots" data-cadence="any" data-questions="spatial trend" data-text="emerging hot spots where values cluster high or low and how that changed: the getis-ord gi* of every date and its trend, as esri's patterns (new, intensifying, persistent, sporadic... hot and cold spots). ≥ 3 dates"><h3>Emerging hot spots</h3><p>Where values cluster high or low and how that changed: the Getis-Ord Gi* of every date and its trend, as ESRI's patterns (new, intensifying, persistent, sporadic... hot and cold spots).</p><span class="m-req">≥ 3 dates</span><a class="m-guide" href="hotspots.html">Guide &rarr;</a></li>
       <li class="m-card" id="agreement" data-cadence="any" data-questions="spatial abrupt" data-text="agreement where and when several change maps agree: the consensus year and how many back it. on result maps"><h3>Agreement</h3><p>Where and when several change maps agree: the consensus year and how many back it.</p><span class="m-req">on result maps</span></li>
       <li class="m-card" id="texture" data-cadence="any" data-questions="spatial classes" data-text="texture the grain of a landscape in a moving window: the glcm's properties and window statistics of a temporal summary of the series, one map per feature, as inputs for a classifier. any series, whole-image runs only"><h3>Texture</h3><p>The grain of a landscape in a moving window: the GLCM's properties and window statistics of a temporal summary of the series, one map per feature, as inputs for a classifier.</p><span class="m-req">any series, whole-image runs only</span></li>
+      <li class="m-card" id="eof" data-cadence="subannual everydate" data-questions="spatial" data-text="eof / principal components the few maps and time series that explain most of a window's variability, with each mode's share of the variance, north's test and an optional varimax rotation. ≥ 8 dates"><h3>EOF / principal components</h3><p>The few maps and time series that explain most of a window's variability, with each mode's share of the variance, North's test and an optional varimax rotation.</p><span class="m-req">≥ 8 dates</span><a class="m-guide" href="eof.html">Guide &rarr;</a></li>
+      <li class="m-card" id="lagged-correlation" data-cadence="subannual everydate" data-questions="spatial" data-text="lagged correlation where each pixel follows a driver (rainfall, a climate index, a regional mean) and after how many months: best r, best lag, an effective-n p-value and the pixels that pass the false discovery rate. ≥ 12 dates and a driver"><h3>Lagged correlation</h3><p>Where each pixel follows a driver (rainfall, a climate index, a regional mean) and after how many months: best r, best lag, an effective-n p-value and the pixels that pass the false discovery rate.</p><span class="m-req">≥ 12 dates and a driver</span><a class="m-guide" href="eof.html">Guide &rarr;</a></li>
     </ul>
   </section>
   <section class="m-group" id="prepare" data-group>

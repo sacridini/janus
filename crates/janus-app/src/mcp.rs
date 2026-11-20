@@ -390,7 +390,7 @@ fn catalogue() -> Vec<Value> {
         tool(
             "run_tool",
             "Run a Zeit tool on a series",
-            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. Level 1C to surface reflectance (`level2`, FORCE's force-l2ps) takes no series: `params.input` is a Sentinel-2 .SAFE folder (or a folder of them, run one at a time; a scene needs 13-18 GiB of memory) and `params.dem` the elevation raster; it writes boa.tif, qai.tif and the other products under `output_dir/<product>/`. ImproPhe takes the series to sharpen as `coarse` (another series in the same CRS; `series` is the fine one, every band of each date). TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
+            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. Level 1C to surface reflectance (`level2`, FORCE's force-l2ps) takes no series: `params.input` is a Sentinel-2 .SAFE folder (or a folder of them, run one at a time; a scene needs 13-18 GiB of memory) and `params.dem` the elevation raster; it writes boa.tif, qai.tif and the other products under `output_dir/<product>/`. ImproPhe takes the series to sharpen as `coarse` (another series in the same CRS; `series` is the fine one, every band of each date). The lagged correlation takes its driver as `coarse` (another series on any grid and in any CRS, e.g. the `series` of climate_data), unless `params.y_mode` is 'file' (a CSV of dates and values in `params.y_file`) or 'window_mean'. TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
             with(
                 json!({
                     "tool": { "type": "string" },
@@ -1324,11 +1324,13 @@ impl Server {
         let dir = out_dir(a, id)?;
         let mut spec = crate::zeit::base_spec(&info, tool, &params, info.t().saturating_sub(1), self.threads);
         crate::zeit::series_inputs(&info, tool, &roles, &dir.join("series"), &mut spec)?;
-        if tool.params.iter().any(|p| p.kind == "series") {
-            // ImproPhe: the series to sharpen, another series (a path or an object as `series`)
+        // a lagged correlation whose driver is a CSV file needs no other series
+        let by_file = id == "lagged_correlation" && params.get("y_mode").and_then(Value::as_str) == Some("file");
+        if tool.params.iter().any(|p| p.kind == "series") && !by_file {
+            // ImproPhe: the series to sharpen; the lagged correlation: its driver (a path, or an object as `series`)
             let coarse = a.get("coarse").filter(|v| !v.is_null()).ok_or_else(|| {
                 format!(
-                    "{} needs `coarse`: the series to sharpen (a path, or {{paths, band...}} as `series`)",
+                    "{} needs `coarse`: the other series (ImproPhe's series to sharpen, the lagged correlation's driver), a path, or {{paths, band...}} as `series`",
                     tool.name
                 )
             })?;

@@ -1645,7 +1645,15 @@ impl State {
         let hidden_id = egui::Id::new("chart hidden series");
         let was_hidden: Vec<egui::Id> = ui.data(|d| d.get_temp(hidden_id)).unwrap_or_default();
         let off = |name: &str| was_hidden.contains(&egui::Id::new(name));
+        // (a tour of the guides may show a stretch of the years only)
+        let stretch = self.shots.as_ref().and_then(|s| s.chart_years).map(|(a, b)| {
+            let (a, b) = (info.x_from_decimal_year(a), info.x_from_decimal_year(b));
+            a..=b
+        });
         let response = plot.show(ui, |plot| {
+            if let Some(r) = stretch {
+                plot.set_plot_bounds_x(r);
+            }
             let roi = &sr.roi;
             if !roi.mean.is_empty() && !categorical {
                 let name_s = pl.tag(roi_name(roi));

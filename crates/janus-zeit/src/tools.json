@@ -4998,7 +4998,7 @@
       "Exact (Gram matrix)",
       "Randomized (Halko et al.)"
      ],
-     "help": "Automatic: exact with up to 256 dates (one pass over the pixels), else randomized. Randomized reads the pixels a few times (power iterations + 2) and is as good as exact for the first modes."
+     "help": "Automatic: exact with up to 1000 dates (one pass over the pixels), else randomized. Randomized reads the pixels a few times (power iterations + 2) and is as good as exact for the first modes."
     },
     {
      "id": "oversampling",

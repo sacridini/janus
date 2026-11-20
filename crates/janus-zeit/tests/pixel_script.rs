@@ -593,3 +593,50 @@ fn a_run_of_an_eof_or_a_lagged_correlation_calls_zeit_with_the_driver_series() {
     let code = make_script(&[("lagged_correlation".into(), csv)], None).unwrap();
     assert!(code.contains("driver = pd.read_csv('oni.csv'") && code.contains("import pandas as pd"), "{code}");
 }
+
+#[test]
+fn a_driver_in_files_named_for_months_is_read_with_its_format() {
+    // Zeit reads `chirps_2020-01.tif` as the year's first day, so two months of a year would be "the same date"
+    let d = dir("driver-months");
+    let dates: Vec<String> = (0..30).map(|t| format!("2019-{:02}-{:02}", 1 + t / 3, 1 + 10 * (t % 3))).collect();
+    let bands: Vec<Vec<u16>> = (0..30).map(|t| (0..W * H).map(|i| 5000 + (100 * t + i) as u16).collect()).collect();
+    write(&d.join("series.tif"), &bands, &dates, 1e-4, 0.0);
+    let info = open(&[d.join("series.tif")], &BandSelection::default());
+    let months: Vec<PathBuf> = (1..=4)
+        .map(|m| {
+            let f = d.join(format!("chirps_2019-{m:02}.tif"));
+            write(&f, &[(0..W * H).map(|i| 3000 + (50 * m + i) as u16).collect()], &["rain".to_string()], 1e-4, 0.0);
+            f
+        })
+        .collect();
+    let driver = open(&months, &BandSelection::default());
+    let roles = roles(&info);
+    let path = |p: &str| p.replace('\\', "/");
+    let tools = [tool("lagged_correlation")];
+    let make = |other: &CubeInfo| {
+        let spec = Spec {
+            info: &info,
+            version: "test",
+            name: "series",
+            target: run_target([0, 0, W, H], &d.join("maps")),
+            roles: &roles,
+            tools: &tools,
+            path: &path,
+            other: Some(other),
+            chain: &[],
+        };
+        pixel_script(&spec)
+    };
+    let code = make(&driver).unwrap();
+    assert!(code.contains("masked=True, date_format=\"%Y-%m\", like=series, resampling='nearest')"), "{code}");
+    // a driver of dates in its names needs no format (but is put on the series' grid all the same)
+    let daily: Vec<PathBuf> = (1..=3)
+        .map(|m| {
+            let f = d.join(format!("rain_2019-{m:02}-15.tif"));
+            write(&f, &[(0..W * H).map(|i| 3000 + (50 * m + i) as u16).collect()], &["rain".to_string()], 1e-4, 0.0);
+            f
+        })
+        .collect();
+    let code = make(&open(&daily, &BandSelection::default())).unwrap();
+    assert!(!code.contains("date_format"), "{code}");
+}

@@ -223,6 +223,23 @@
     "thumb": "assets/img/tune/01-project.jpg"
   },
   {
+    "slug": "eof",
+    "title": "EOF and lagged correlation",
+    "label": "Monthly series and a driver",
+    "summary": "Where the vegetation follows the rain and after how many months, and the few patterns that explain a series of maps: CHIRPS rainfall against NDVI, the lags, the modes and North's test.",
+    "track": "explore",
+    "minutes": 25,
+    "data": null,
+    "learn": [
+      "The question",
+      "The rain",
+      "Lagged correlation",
+      "Reading the maps"
+    ],
+    "figures": 15,
+    "thumb": "assets/img/eof/01-series-rain.jpg"
+  },
+  {
     "slug": "snic",
     "title": "SNIC segmentation",
     "label": "Landsat, every date",
@@ -296,7 +313,7 @@
     "label": "Any series of bands",
     "summary": "EVI and the 275 Awesome Spectral Indices on a Sentinel-2 series, the open layers combined by short names, 107 dates reduced to an image, classes by rules.",
     "track": "explore",
-    "minutes": 16,
+    "minutes": 17,
     "data": null,
     "learn": [
       "An index on the series",

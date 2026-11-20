@@ -493,5 +493,35 @@
       "seasons"
     ],
     "guide": null
+  },
+  {
+    "id": "eof",
+    "name": "EOF / principal components",
+    "summary": "The few maps and time series that explain most of a window's variability, with each mode's share of the variance, North's test and an optional varimax rotation.",
+    "requires": "≥ 8 dates",
+    "group": "spatial",
+    "cadence": [
+      "subannual",
+      "everydate"
+    ],
+    "questions": [
+      "spatial"
+    ],
+    "guide": "eof"
+  },
+  {
+    "id": "lagged-correlation",
+    "name": "Lagged correlation",
+    "summary": "Where each pixel follows a driver (rainfall, a climate index, a regional mean) and after how many months: best r, best lag, an effective-n p-value and the pixels that pass the false discovery rate.",
+    "requires": "≥ 12 dates and a driver",
+    "group": "spatial",
+    "cadence": [
+      "subannual",
+      "everydate"
+    ],
+    "questions": [
+      "spatial"
+    ],
+    "guide": "eof"
   }
 ]

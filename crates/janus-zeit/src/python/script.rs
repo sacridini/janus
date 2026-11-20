@@ -361,6 +361,18 @@ fn window(spec: &Spec) -> Result<Window, String> {
     })
 }
 
+/// Whether a file is named for a month (`chirps_2020-01.tif`: four digits, a dash, two digits, and no day after them).
+fn month_name(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let stem = name.rsplit_once('.').map_or(name, |s| s.0).as_bytes();
+    let digits = |at: usize, n: usize| stem.get(at..at + n).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
+    (0..stem.len()).any(|i| {
+        let boundary = i == 0 || !stem[i - 1].is_ascii_digit();
+        let day = stem.get(i + 7) == Some(&b'-') && digits(i + 8, 2);
+        boundary && digits(i, 4) && stem.get(i + 4) == Some(&b'-') && digits(i + 5, 2) && !digits(i + 7, 1) && !day
+    })
+}
+
 /// A Python list of ints.
 fn ints(v: &[i32]) -> String {
     format!("[{}]", v.iter().map(i32::to_string).collect::<Vec<_>>().join(", "))
@@ -843,21 +855,39 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
                 .map_or(String::new(), |(_, p, _)| p.str("by").to_string());
             let years: Vec<String> =
                 (0..other.t()).map(|t| (other.decimal_year(t).floor() as i64).to_string()).collect();
-            let dates = if other.time_is_date { String::new() } else { format!(", dates=[{}]", years.join(", ")) };
+            // (Zeit reads a file named for a month, `chirps_2020-01.tif`, as the year's first day: the format says so)
+            let dates = if !other.time_is_date {
+                format!(", dates=[{}]", years.join(", "))
+            } else if other.layers.len() > 1 && other.layers.iter().all(|l| month_name(&l.path)) {
+                ", date_format=\"%Y-%m\"".to_string()
+            } else {
+                String::new()
+            };
             let scale = if crd.bpd == 1 {
                 (ofirst.meta.scale, ofirst.meta.offset) != (1.0, 0.0)
             } else {
                 cbands.iter().any(|&b| scale_offset(&ofirst.path, b + ofirst.band_base) != (1.0, 0.0))
             };
             let scale_arg = if scale { ", scale=True" } else { "" };
+            // a lagged correlation's driver is put on the series' grid, as the tool does (Zeit's call wants it there)
+            let like = if want_other && !want_improphe {
+                let how =
+                    calls.iter().find(|(_, _, c)| c.tool == "lagged_correlation").map_or("nearest", |(_, p, _)| {
+                        if p.str("resampling") == "bilinear" { "bilinear" } else { "nearest" }
+                    });
+                format!(", like=series, resampling='{how}'")
+            } else {
+                String::new()
+            };
             new_zeit.set(new_zeit.get() || scale);
             body.line(if want_improphe {
                 "# the coarse series: every band of each date but its quality band, over its whole grid"
             } else {
-                "# the driver series: its first band of each date, over its whole grid (Zeit puts it on the series' grid)"
+                "# the driver series: its first band of each date, over its whole grid, put on the series' grid"
             });
             body.line(format!("coarse_src = {}", crd.src));
-            let load = |extra: String| format!("zeit.load_raster(coarse_src{extra}{scale_arg}, masked=True{dates})");
+            let load =
+                |extra: String| format!("zeit.load_raster(coarse_src{extra}{scale_arg}, masked=True{dates}{like})");
             let cnames = unique(cbands.iter().map(|&b| band_name(other, b)).collect());
             if crd.stack && crd.bpd > 1 {
                 let pos: Vec<i32> = cbands.iter().map(|b| b - 1).collect();

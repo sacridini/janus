@@ -93,6 +93,9 @@ pub struct Shots {
     pub(crate) scroll: Option<(Tab, f32)>,
     pub(crate) val: crate::shots_validation::ValShots,
     pub(crate) tune: crate::shots_tune::TuneShots,
+    pub(crate) eof: crate::shots_eof::EofShots,
+    /// the chart shows these years only (decimal years)
+    pub(crate) chart_years: Option<(f64, f64)>,
     /// the stage whose summary was printed (shots_ml.rs)
     pub(crate) printed: usize,
     /// the font sizes' tour (shots_layout.rs)
@@ -298,6 +301,7 @@ impl State {
             "validation" => self.shots_validation(sh, ctx),
             "alerts" => self.shots_alerts(sh, ctx),
             "tune" => self.shots_tune(sh, ctx),
+            "eof" => self.shots_eof(sh, ctx),
             "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
             "clip-explore" | "clip-detect" => self.shots_clips(sh, ctx),
