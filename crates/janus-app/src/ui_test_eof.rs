@@ -480,6 +480,14 @@ impl State {
                         self.settings.s.font_size = st.eof.font;
                         let s = &self.settings.s;
                         crate::theme::apply(ctx, s.look(), s.panel_opacity, st.eof.font);
+                        // Save figure of the tab: a PNG and an SVG of the components' chart
+                        let dir = std::env::temp_dir().join("janus_eof_figures");
+                        let _ = std::fs::create_dir_all(&dir);
+                        let source = crate::figure_ui::Source::Analysis(crate::modes::TAB);
+                        match self.figures_check(source, &dir, "analysis_modes", ctx) {
+                            Ok(n) => println!("    Modes figure: {n}"),
+                            Err(e) => return fail(&format!("Analysis > Modes as a figure: {e}")),
+                        }
                         // Show map on mode 2: its map visible, the others of the run not
                         if !self.modes_show_map(&run, 2, false) {
                             return fail("Show map should find the map of mode 2");

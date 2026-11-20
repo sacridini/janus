@@ -385,6 +385,9 @@ impl State {
                     self.open_figure(crate::figure_ui::Source::Analysis(shown));
                 }
             }
+            if shown == 11 {
+                crate::welcome::guide_button(ui, "eof");
+            }
         });
         ui.separator();
         self.analysis_tab(ui, shown);
@@ -418,8 +421,8 @@ impl State {
     }
 }
 
-/// The tabs that have Save figure (their plots; the Trend test is a table, the Atlas and Dates are maps).
-pub(crate) const FIGURE_TABS: [usize; 7] = [0, 1, 2, 4, 5, 6, 7];
+/// The tabs that have Save figure (their plots (Modes: the components and the lag charts); the Trend test is a table, the Atlas and Dates are maps).
+pub(crate) const FIGURE_TABS: [usize; 8] = [0, 1, 2, 4, 5, 6, 7, 11];
 
 /// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
 pub(crate) const ANALYSIS_TABS: [(usize, &str); 11] = [

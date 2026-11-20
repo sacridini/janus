@@ -432,7 +432,7 @@ impl State {
             ui.weak("Run Tools > Temporal dynamics > Temporal EOF or Lagged correlation on this series first.");
             return;
         };
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             ui.label("Run");
             let width = crate::fit::combo_width(ui, runs.iter().map(|r| r.1.as_str()));
             egui::ComboBox::from_id_salt("modes run")
@@ -514,7 +514,7 @@ impl State {
                 *on = (0..pcs.len()).map(|k| k < 3).collect();
             }
         }
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             ui.label(RichText::new("Components").strong());
             if !eof.rotated.is_empty() {
                 ui.checkbox(&mut self.analysis.modes.rotated, "Rotated").on_hover_text(
@@ -565,43 +565,52 @@ impl State {
         ui.weak("Each component in standard deviations. The orange line is the map's date.");
         ui.separator();
 
-        // the table
+        // the table (a figure is the plots: it is left out)
         let mut show = None;
-        egui::Grid::new(("modes table", info.id)).num_columns(7).striped(true).spacing([14.0, 3.0]).show(ui, |ui| {
-            for h in ["Mode", "% of the variance", "Cumulative %", "North's error (%)", "Separable", "Rotated %", ""] {
-                ui.label(RichText::new(h).strong());
-            }
-            ui.end_row();
-            let mut cumulative = 0.0;
-            for k in 0..m {
-                cumulative += eof.variance[k];
-                ui.label(format!("{}", k + 1));
-                ui.label(format!("{:.1}", 100.0 * eof.variance[k]));
-                ui.label(format!("{:.1}", 100.0 * cumulative));
-                ui.label(eof.delta.get(k).map_or("".into(), |d| format!("{:.2}", 100.0 * d)));
-                ui.label(match eof.separable.get(k) {
-                    Some(true) => "yes",
-                    Some(false) => "mixed",
-                    None => "",
-                });
-                ui.label(eof.rotated.get(k).map_or("".into(), |v| format!("{:.1}", 100.0 * v)));
-                let id = if rotated_on { format!("eof_rotated_{}", k + 1) } else { format!("eof_{}", k + 1) };
-                let written = run.path_of(&id).is_some();
-                if ui
-                    .add_enabled(written, egui::Button::new("Show map"))
-                    .on_hover_text("The map of this mode on top, and its pattern at the chart's pixel")
-                    .on_disabled_hover_text("Only the first modes' maps were written (the Maps setting of the run)")
-                    .clicked()
-                {
-                    show = Some(k + 1);
-                }
-                ui.end_row();
-            }
-        });
+        if !crate::figure::active() {
+            egui::Grid::new(("modes table", info.id)).num_columns(7).striped(true).spacing([14.0, 3.0]).show(
+                ui,
+                |ui| {
+                    for h in
+                        ["Mode", "% of the variance", "Cumulative %", "North's error (%)", "Separable", "Rotated %", ""]
+                    {
+                        ui.label(RichText::new(h).strong());
+                    }
+                    ui.end_row();
+                    let mut cumulative = 0.0;
+                    for k in 0..m {
+                        cumulative += eof.variance[k];
+                        ui.label(format!("{}", k + 1));
+                        ui.label(format!("{:.1}", 100.0 * eof.variance[k]));
+                        ui.label(format!("{:.1}", 100.0 * cumulative));
+                        ui.label(eof.delta.get(k).map_or("".into(), |d| format!("{:.2}", 100.0 * d)));
+                        ui.label(match eof.separable.get(k) {
+                            Some(true) => "yes",
+                            Some(false) => "mixed",
+                            None => "",
+                        });
+                        ui.label(eof.rotated.get(k).map_or("".into(), |v| format!("{:.1}", 100.0 * v)));
+                        let id = if rotated_on { format!("eof_rotated_{}", k + 1) } else { format!("eof_{}", k + 1) };
+                        let written = run.path_of(&id).is_some();
+                        if ui
+                            .add_enabled(written, egui::Button::new("Show map"))
+                            .on_hover_text("The map of this mode on top, and its pattern at the chart's pixel")
+                            .on_disabled_hover_text(
+                                "Only the first modes' maps were written (the Maps setting of the run)",
+                            )
+                            .clicked()
+                        {
+                            show = Some(k + 1);
+                        }
+                        ui.end_row();
+                    }
+                },
+            );
+        }
         if let Some(k) = show {
             self.modes_show_map(&run.run, k, rotated_on);
         }
-        ui.horizontal_wrapped(|ui| {
+        crate::figure::controls_wrapped(ui, |ui| {
             if ui.button("Copy PCs").on_hover_text("The components of every date as CSV (pcs.csv of the run)").clicked()
             {
                 ui.ctx().copy_text(eof.csv.clone());
@@ -661,7 +670,7 @@ impl State {
             ui.weak("Hover over the map or place a pin to read r at every lag.");
         } else {
             let src = sources.iter().position(|s| s.0 == self.analysis.modes.source).unwrap_or(0);
-            ui.horizontal_wrapped(|ui| {
+            crate::figure::controls_wrapped(ui, |ui| {
                 egui::ComboBox::from_id_salt("modes source")
                     .width(crate::fit::combo_width(ui, sources.iter().map(|s| s.1.as_str())))
                     .selected_text(&sources[src].1)

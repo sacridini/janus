@@ -48,7 +48,7 @@ impl State {
     }
 
     /// A PNG and an SVG of `source`: sizes and content. Returns a note.
-    fn figures_check(
+    pub(crate) fn figures_check(
         &mut self,
         source: Source,
         dir: &std::path::Path,
