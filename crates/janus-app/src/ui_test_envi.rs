@@ -10,7 +10,8 @@
 //! its own (14 dates of VV and VH in dB, a file each, with a block whose backscatter rose at one date): 407 writes and
 //! opens it and runs the test (the maps, the classes of the directions, the series of directions); 408 puts a pin in the
 //! block (its chart marks the change at the date the map gives) and runs the run's Python through Zeit (JANUS_PYTHON);
-//! 409 puts everything back.
+//! 409 first runs the test on the VV planes alone (a series of one band a date: single polarization), then puts
+//! everything back.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -952,6 +953,146 @@ impl State {
                         "omnibus: a pin in the block marks the change at the map's date, brightening; rerun.py calls zeit.omnibus on the converted bands ({report})"
                     ),
                 );
+                None
+            }
+            409 if st.envi.phase < 3 => {
+                // a series of one band a date (the VV planes alone): the band is VV, single polarization
+                if st.envi.phase == 0 {
+                    if self.opening.is_some() || !self.layer_jobs.queue.is_empty() {
+                        return None;
+                    }
+                    let one = st.envi.dir.join("vv_only");
+                    let _ = std::fs::create_dir_all(&one);
+                    for t in 0..S1_T {
+                        let (y, m, d) = janus_zeit::numeric::civil(s1_day(t));
+                        let name = format!("s1_{y:04}-{m:02}-{d:02}.tif");
+                        let write = || -> Result<(), String> {
+                            let src = gdal::Dataset::open(st.envi.dir.join(&name)).map_err(|e| e.to_string())?;
+                            let v = src
+                                .rasterband(1)
+                                .and_then(|b| b.read_as::<f32>((0, 0), (S1_W, S1_H), (S1_W, S1_H), None))
+                                .map_err(|e| e.to_string())?;
+                            let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
+                            let mut ds = drv
+                                .create_with_band_type::<f32, _>(one.join(&name), S1_W, S1_H, 1)
+                                .map_err(|e| e.to_string())?;
+                            ds.set_geo_transform(&[600000.0, 10.0, 0.0, 7500000.0, 0.0, -10.0])
+                                .map_err(|e| e.to_string())?;
+                            let wkt = gdal::spatial_ref::SpatialRef::from_epsg(32723)
+                                .and_then(|s| s.to_wkt())
+                                .map_err(|e| e.to_string())?;
+                            ds.set_projection(&wkt).map_err(|e| e.to_string())?;
+                            let mut band = ds.rasterband(1).map_err(|e| e.to_string())?;
+                            band.set_no_data_value(Some(-9999.0)).map_err(|e| e.to_string())?;
+                            let mut buf = gdal::raster::Buffer::new((S1_W, S1_H), v.data().to_vec());
+                            band.write((0, 0), (S1_W, S1_H), &mut buf).map_err(|e| e.to_string())
+                        };
+                        if let Err(e) = write() {
+                            return fail(&format!("the single-band series could not be written: {e}"));
+                        }
+                    }
+                    let files: Vec<String> = (0..S1_T)
+                        .map(|t| {
+                            let (y, m, d) = janus_zeit::numeric::civil(s1_day(t));
+                            one.join(format!("s1_{y:04}-{m:02}-{d:02}.tif")).to_string_lossy().into_owned()
+                        })
+                        .collect();
+                    self.open_inputs(files, true, ctx);
+                    st.envi.phase = 1;
+                    return None;
+                }
+                if st.envi.phase == 1 {
+                    if self.opening.is_some()
+                        || !self.layer_jobs.queue.is_empty()
+                        || self.layers.len() != st.envi.layers + 2
+                        || !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1))
+                    {
+                        return None;
+                    }
+                    let k = self.layers.len() - 1;
+                    self.set_active(k, ctx);
+                    let info = self.layer_session(k)?.info.clone();
+                    if info.t() != S1_T || info.bands_per_date != 1 {
+                        return fail(&format!(
+                            "the series should be {S1_T} dates of one band: {} of {}",
+                            info.t(),
+                            info.bands_per_date
+                        ));
+                    }
+                    let tool = manifest().tool("omnibus")?;
+                    if self.active_roles().get("vv") != Some(&1) {
+                        return fail("the only band of the series should be VV for the omnibus test");
+                    }
+                    if let Some(why) = crate::zeit::applicability(tool, &info) {
+                        return fail(&format!("the omnibus test should apply to a series of one band: {why}"));
+                    }
+                    match self.envi_start("omnibus", json!({ "enl": S1_ENL, "alpha": 0.01, "scale": "auto" }), ctx) {
+                        Ok(run) => st.envi.runs.push(("omnibus-vv".into(), run)),
+                        Err(e) => return fail(&e),
+                    }
+                    st.envi.phase = 2;
+                    return None;
+                }
+                let run = st.envi.runs.iter().find(|r| r.0 == "omnibus-vv")?.1.clone();
+                match self.envi_done(&run, waited) {
+                    Err(e) => return fail(&e),
+                    Ok(false) => return None,
+                    Ok(true) => {}
+                }
+                let step_year = self.session.as_ref()?.info.decimal_year(S1_STEP) as f32;
+                let soon = self.session.as_ref()?.info.decimal_year(S1_STEP + 2) as f32;
+                let first = self.envi_map(&run, "omnibus_first_change.tif")?;
+                let ndates = self.envi_map(&run, "omnibus_n_dates.tif")?;
+                let (mut inside, mut by_then, mut outside, mut false_alarms) = (0, 0, 0, 0);
+                for (i, &f) in first.data.iter().enumerate() {
+                    if ndates.data[i] != S1_T as f32 {
+                        return fail(&format!("every pixel has {S1_T} valid dates: {} at {i}", ndates.data[i]));
+                    }
+                    if s1_in_block(i) {
+                        inside += 1;
+                        by_then += usize::from(f >= step_year && f <= soon);
+                    } else {
+                        outside += 1;
+                        false_alarms += usize::from(f.is_finite());
+                    }
+                }
+                println!(
+                    "    omnibus, VV alone: {by_then} of {inside} block pixels by two dates after the step, {false_alarms} of {outside} outside"
+                );
+                if by_then * 10 < inside * 7 || false_alarms * 10 > outside {
+                    return fail("VV alone should find the block at the step, and little else");
+                }
+                let text = std::fs::read_to_string(Path::new(&run).join("omnibus.json")).unwrap_or_default();
+                let rec: Value = serde_json::from_str(&text).unwrap_or_default();
+                let code = std::fs::read_to_string(Path::new(&run).join("rerun.py")).unwrap_or_default();
+                if rec["bands"] != json!(["vv"]) || !code.contains("bands=['b001']") {
+                    return fail(&format!("single polarization: the record {rec}, the script:\n{code}"));
+                }
+                let mut report = "the Python not run".to_string();
+                if let Ok(python) = std::env::var("JANUS_PYTHON") {
+                    match std::process::Command::new(python).arg("-I").arg(Path::new(&run).join("rerun.py")).output() {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => {
+                            return fail(&format!("the VV script failed: {}", String::from_utf8_lossy(&o.stderr)));
+                        }
+                        Err(e) => return fail(&format!("python: {e}")),
+                    }
+                    let theirs = gdal::Dataset::open(Path::new(&run).join("python").join("result.tif"))
+                        .and_then(|d| d.rasterband(1)?.read_as::<f32>((0, 0), (S1_W, S1_H), (S1_W, S1_H), None))
+                        .map(|b| b.data().to_vec());
+                    let Ok(theirs) = theirs else { return fail("Zeit's result.tif of the VV run should be readable") };
+                    let differing = theirs
+                        .iter()
+                        .zip(&first.data)
+                        .filter(|(a, b)| !(a.is_nan() && b.is_nan()) && (*a - *b).abs() > 1e-4)
+                        .count();
+                    if differing * 100 > S1_W * S1_H {
+                        return fail(&format!("Zeit's first change of VV alone differs in {differing} pixels"));
+                    }
+                    report = format!("Zeit's first change differs in {differing} pixels");
+                }
+                println!("    single band: {report}");
+                st.envi.phase = 3;
                 None
             }
             409 => {

@@ -623,8 +623,7 @@ impl State {
         let Some(s) = &self.session else { return BTreeMap::new() };
         if self.zeit.roles_for != s.info.id {
             self.zeit.roles_for = s.info.id;
-            self.zeit.roles =
-                janus_cube::roles::guess_band_roles(&s.info).into_iter().map(|(r, b)| (r.to_string(), b)).collect();
+            self.zeit.roles = guess_roles(&s.info);
         }
         self.zeit.roles.clone()
     }
@@ -3314,7 +3313,14 @@ pub(crate) fn other_bands(info: &CubeInfo) -> Vec<i32> {
 
 /// The roles of a series' bands (guessed from their names).
 pub(crate) fn guess_roles(info: &CubeInfo) -> BTreeMap<String, i32> {
-    janus_cube::roles::guess_band_roles(info).into_iter().map(|(r, b)| (r.to_string(), b)).collect()
+    let mut roles: BTreeMap<String, i32> =
+        janus_cube::roles::guess_band_roles(info).into_iter().map(|(r, b)| (r.to_string(), b)).collect();
+    // a series of one band a date (VV alone, from single-band files): its band is VV, which only the radar tools
+    // (the omnibus test, single polarization) read
+    if info.bands_per_date == 1 {
+        roles.entry("vv".into()).or_insert(1);
+    }
+    roles
 }
 
 /// A series of a series' pixel as a pixel run gets it, its bands read (multiband tools).
