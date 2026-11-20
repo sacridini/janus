@@ -1322,6 +1322,7 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
             ToolCall::new(tool, pieces, vec!["bands_all"])
         }
         "topocorr" => topocorr_call(tool, p, input)?,
+        "coregister" => coregister_call(tool, p, input)?,
         "clear_observations" => one(call(
             "result1",
             "zeit.clear_observations",
@@ -1493,6 +1494,151 @@ fn topocorr_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
             plumbing("n_jobs", "1"),
         ],
     ));
+    Some(ToolCall::new(tool, pieces, vec!["bands_all"]))
+}
+
+/// A number as Python writes it shortest: a whole one as an int (Zeit's `max_shift=5`), else its repr.
+fn py_num(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 { format!("{}", v as i64) } else { py_float(v) }
+}
+
+/// The co-registration's call, `zeit.coregister` or `zeit.coregister_local` on the series' bands (the quality band's
+/// refusals NaN, the quality band itself left out), the reference a date or the median of some, and the shifts' table.
+/// The reference layer (another open series) is not written.
+fn coregister_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall> {
+    use crate::coregister::Reference;
+    let set = crate::coregister::settings(p).ok()?;
+    if set.reference == Reference::Layer || input.bands_per_date == 0 {
+        return None;
+    }
+    let name = |n: i32| format!("b{n:03}");
+    // the bands moved: every one but the quality band
+    let moved: Vec<String> = (1..=input.bands_per_date as i32).filter(|&b| b != input.qa_band).map(name).collect();
+    // the band matched: the one asked for, or the NIR, the red, the first
+    let matched = match p.str("band") {
+        "auto" => ["nir", "red"]
+            .iter()
+            .find_map(|r| input.band_numbers.get(*r))
+            .copied()
+            .or_else(|| (1..=input.bands_per_date as i32).find(|&b| b != input.qa_band)),
+        role => input.band_numbers.get(role).copied(),
+    }?;
+    let matched = name(matched);
+    let n = input.years.len();
+    let mut pieces = vec![Piece::Raw(
+        "# Janus moves the quality band by nearest neighbour and keeps what it refuses in the files it writes; Zeit moves every\n\
+         # band it is given by `resampling`, so the cube here is the bands with those pixels NaN, the quality band left out."
+            .into(),
+    )];
+    pieces.push(Piece::Raw(format!("cube = bands_all.sel(band={})", py_list(&moved))));
+    if set.mask_buffer > 0 {
+        pieces.push(Piece::Raw(format!(
+            "from scipy.ndimage import binary_dilation\n\
+             def grow(da, pixels):  # Janus grows what has no value by `pixels` (a square) before the matching\n    \
+                 bad = xr.apply_ufunc(lambda m: binary_dilation(m, structure=np.ones((3, 3), bool), iterations=pixels), da.isnull(), input_core_dims=[['y', 'x']], output_core_dims=[['y', 'x']], vectorize=True)\n    \
+                 return da.where(~bad)\n\
+             cube = grow(cube, {})  # the margin around the clouds and the missing pixels, here in every band",
+            set.mask_buffer
+        )));
+    }
+    let band = format!("bands_all.sel(band={})", py_str(&matched));
+    match set.reference {
+        Reference::Date => {
+            let k = p.int("ref_date");
+            if k > 0 {
+                if k as usize > n {
+                    return None;
+                }
+                pieces.push(Piece::Raw(format!(
+                    "ref = cube.sel(band={}).isel(time={})  # the reference: date {k}",
+                    py_str(&matched),
+                    k - 1
+                )));
+            } else {
+                pieces.push(Piece::Raw(format!(
+                    "clear = {band}.notnull().sum(['y', 'x'])  # the clear pixels of each date\n\
+                     ref = cube.sel(band={}).isel(time=int(clear.argmax('time')))  # the reference: the date with the most",
+                    py_str(&matched)
+                )));
+            }
+        }
+        Reference::Composite => {
+            let dates: Vec<usize> = if p.str("ref_dates") == "all" || input.sensors.len() != n {
+                (0..n).collect()
+            } else {
+                let mut count: std::collections::BTreeMap<&str, usize> = Default::default();
+                for s in input.sensors.iter().filter(|s| !s.is_empty()) {
+                    *count.entry(s.as_str()).or_default() += 1;
+                }
+                match count.iter().max_by_key(|(_, c)| **c).map(|(s, _)| *s) {
+                    Some(sensor) => (0..n).filter(|&d| input.sensors[d] == sensor).collect(),
+                    None => (0..n).collect(),
+                }
+            };
+            let list: Vec<String> = dates.iter().map(usize::to_string).collect();
+            pieces.push(Piece::Raw(format!(
+                "stack = {band}.isel(time=[{}])  # the dates of the composite\n\
+                 ref = stack.median('time').where(stack.notnull().sum('time') >= 3)  # a pixel needs three clear dates",
+                list.join(", ")
+            )));
+        }
+        Reference::Layer => return None,
+    }
+    let f = |id: &str| py_num(p.f64(id));
+    if set.local {
+        let (warp, order) = match p.str("warp") {
+            "tps" => ("'tps'".to_string(), None),
+            poly => ("'polynomial'".to_string(), poly.strip_prefix("poly").map(str::to_string)),
+        };
+        let mut args = vec![
+            pos("cube"),
+            pos("ref"),
+            kw("grid_res", p.int("grid_res").to_string()),
+            kw("window_size", p.int("window_size").to_string()),
+            kw("max_shift", f("max_shift")),
+            kw("max_iter", p.int("max_iter").to_string()),
+            kw("min_reliability", py_num(if set.min_reliability > 0.0 { set.min_reliability } else { 60.0 })),
+            kw("tie_point_filter_level", set.filter_level.to_string()),
+            kw("rs_max_outlier", f("rs_max_outlier")),
+            kw("rs_tolerance", f("rs_tolerance")),
+            kw("rs_random_state", "0"),
+            kw("warp", warp),
+        ];
+        if let Some(o) = order {
+            args.push(kw("order", o));
+        }
+        args.extend([
+            kw("min_points", set.min_points.to_string()),
+            kw("band", py_str(&matched)),
+            kw("resampling", py_str(&set.resampling)),
+            kw("arosics_compat", py_bool(set.arosics_compat)),
+            plumbing("nodata", "None"),
+            plumbing("n_jobs", "1"),
+        ]);
+        pieces.push(call("result1, points", "zeit.coregister_local", args));
+        pieces.push(Piece::Raw(
+            "points.to_csv('tie_points.csv')  # a row a tie point of every date, as Janus's tie_points.csv".into(),
+        ));
+    } else {
+        let min_reliability = if set.min_reliability > 0.0 { py_num(set.min_reliability) } else { "None".into() };
+        pieces.push(call(
+            "result1, shifts",
+            "zeit.coregister",
+            vec![
+                pos("cube"),
+                pos("ref"),
+                kw("window_size", p.int("window_size").to_string()),
+                kw("max_shift", f("max_shift")),
+                kw("max_iter", p.int("max_iter").to_string()),
+                kw("band", py_str(&matched)),
+                kw("resampling", py_str(&set.resampling)),
+                kw("min_reliability", min_reliability),
+                plumbing("nodata", "None"),
+                plumbing("n_jobs", "1"),
+            ],
+        ));
+        pieces.push(Piece::Raw("shifts.to_csv('shifts.csv')  # a row a date, as Janus's shifts.csv".into()));
+    }
     Some(ToolCall::new(tool, pieces, vec!["bands_all"]))
 }
 
