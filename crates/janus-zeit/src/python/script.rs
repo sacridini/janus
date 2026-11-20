@@ -424,10 +424,13 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         // each date's sensor and granule metadata, for the tools that need them (found in the files, as the run does)
         input.sensors = if crate::sensors::needs(id) { crate::sensors::of_series(info) } else { vec![] };
         input.granules = if crate::granules::needs(id, params) { crate::granules::of_series(info) } else { vec![] };
-        if id == "topocorr" {
-            input.suns = crate::sun::of_series(info);
+        // the bands of a date and its quality band: the calls that name the bands they move
+        if matches!(id.as_str(), "topocorr" | "coregister") {
             input.bands_per_date = info.bands_per_date;
             input.qa_band = info.sel.qa_band;
+        }
+        if id == "topocorr" {
+            input.suns = crate::sun::of_series(info);
             let window = match &spec.target {
                 Target::Run { window, .. } => *window,
                 _ => [0, 0, info.width, info.height],
