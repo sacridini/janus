@@ -229,3 +229,73 @@ fn omnibus_has_a_python_call_on_the_mapped_bands_with_the_scale_converted() {
     let call = janus_zeit::python::tool_call("omnibus", &given(&[("scale", json!("linear"))]), &input).unwrap();
     assert_eq!(call.compact("").0, "result = zeit.omnibus(bands_all, bands=['b002', 'b001'])");
 }
+
+#[test]
+fn the_topographic_correction_has_a_python_call_with_the_dem_and_the_sun_of_each_date() {
+    use janus_zeit::sun::SunHint;
+    let given = |v: &[(&str, Value)]| -> Params {
+        Params::with_defaults("topocorr", &v.iter().map(|(k, x)| (k.to_string(), x.clone())).collect()).unwrap()
+    };
+    let hint = |z: f64, a: f64| SunHint { stac: Some([z, a]), ..Default::default() };
+    let input = PixelInput {
+        years: vec![2020.0, 2020.5],
+        days: Some(vec![18300, 18400]),
+        values: vec![0.1, 0.2],
+        band_numbers: [("red", 3), ("nir", 4)].iter().map(|(r, b)| (r.to_string(), *b)).collect(),
+        // six bands and a quality band the 7th
+        bands_per_date: 7,
+        qa_band: 7,
+        suns: vec![hint(38.5, 141.0), hint(41.25, 139.5)],
+        ..Default::default()
+    };
+    // a DEM file: reprojected onto the cube's grid; the sun as numbers; every band but the quality band
+    let file = given(&[("dem_source", json!("file")), ("dem", json!("/data/dem.tif"))]);
+    let (c, inputs) = calls("topocorr", &file, &input).unwrap();
+    assert_eq!(inputs, vec!["bands_all"]);
+    assert!(c.contains("dem = zeit.load_raster('/data/dem.tif').rio.reproject_match(bands_all.isel(time=0, band=0), resampling=Resampling.bilinear)"), "{c}");
+    assert!(c.contains("# the sun of each date as Janus found it (STAC item), one number a date"), "{c}");
+    assert!(
+        c.contains(
+            "result1 = zeit.topographic_correction(bands_all, dem, sun_zenith=[38.5, 41.25], sun_azimuth=[141.0, 139.5], method='scs+c', sample=None, min_slope=5.0, min_sample=100, bands=['b001', 'b002', 'b003', 'b004', 'b005', 'b006'], nodata=None, n_jobs=1)"
+        ),
+        "{c}"
+    );
+    // Zeit's own default is 'c': the script says why it passes the method
+    assert!(c.contains("Zeit's own default method is 'c'"), "{c}");
+    // the Copernicus DEM: the download, with its notice; the vegetation sample with the NDVI of the mapped bands
+    let cop = given(&[
+        ("sample", json!("ndvi")),
+        ("ndvi_min", json!(0.4)),
+        ("method", json!("c")),
+        ("bands", json!("3, nir")),
+    ]);
+    let (c, _) = calls("topocorr", &cop, &input).unwrap();
+    assert!(c.contains("produced using Copernicus WorldDEM-30") && c.contains("collections=['cop-dem-glo-30']"), "{c}");
+    assert!(c.contains("ndvi = (bands_all.sel(band='b004') - bands_all.sel(band='b003')) / (bands_all.sel(band='b004') + bands_all.sel(band='b003'))"), "{c}");
+    assert!(c.contains("sample = ((ndvi > 0.4) & (slope >= 5.0)).values"), "{c}");
+    assert!(c.contains("sample=sample") && c.contains("bands=['b003', 'nir']") && c.contains("method='c'"), "{c}");
+    // the angle bands as the sun, in hundredths of a degree
+    let mut with_angles = input.clone();
+    with_angles.band_numbers.extend([("sza".to_string(), 5), ("saa".to_string(), 6)]);
+    let (c, _) =
+        calls("topocorr", &given(&[("dem_source", json!("file")), ("angle_scale", json!("hundredths"))]), &with_angles)
+            .unwrap();
+    assert!(
+        c.contains("sun_zenith=bands_all.sel(band='b005') * 0.01, sun_azimuth=bands_all.sel(band='b006') * 0.01"),
+        "{c}"
+    );
+    assert!(c.contains("bands=['b001', 'b002', 'b003', 'b004']"), "the angle bands are not corrected: {c}");
+    // a date with no sun: no call; the compact call leaves out Zeit's defaults
+    let mut none = input.clone();
+    none.suns = vec![hint(38.5, 141.0), SunHint::default()];
+    assert!(calls("topocorr", &file, &none).is_none());
+    let compact = janus_zeit::python::tool_call("topocorr", &given(&[("dem_source", json!("file"))]), &input)
+        .unwrap()
+        .compact("")
+        .0;
+    assert!(compact.contains("method='scs+c'") && compact.contains("sun_zenith=[38.5, 41.25]"), "{compact}");
+    assert!(
+        !compact.contains("min_slope") && !compact.contains("min_sample") && !compact.contains("n_jobs"),
+        "{compact}"
+    );
+}

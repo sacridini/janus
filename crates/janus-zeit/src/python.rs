@@ -1321,6 +1321,7 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
             ));
             ToolCall::new(tool, pieces, vec!["bands_all"])
         }
+        "topocorr" => topocorr_call(tool, p, input)?,
         "clear_observations" => one(call(
             "result1",
             "zeit.clear_observations",
@@ -1348,6 +1349,151 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
         )),
         _ => return None,
     })
+}
+
+/// The topographic correction's call: the DEM on the cube's grid (the user's file, or the Copernicus DEM read from
+/// Planetary Computer), each date's sun as Janus found it, the sample, and `zeit.topographic_correction` on the bands
+/// to correct. Needs every date's sun from one kind of source (numbers, the angle bands, or the granule metadata).
+fn topocorr_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall> {
+    use crate::sun::{Known, Source};
+    let set = crate::topocorr::settings(p).ok()?;
+    let n = input.years.len();
+    let all_names: Vec<String> = (1..=input.bands_per_date as i32).map(|b| format!("b{b:03}")).collect();
+    // the bands corrected: those asked for, else every one but the quality band and the angle bands
+    let skip: Vec<String> = crate::topocorr::ANGLE_ROLES
+        .iter()
+        .filter_map(|r| input.band_numbers.get(*r))
+        .chain((input.qa_band > 0).then_some(&input.qa_band))
+        .map(|b| format!("b{b:03}"))
+        .collect();
+    let named = band_tokens(p, "bands");
+    let corrected: Vec<String> =
+        if named.is_empty() { all_names.iter().filter(|b| !skip.contains(b)).cloned().collect() } else { named };
+    if corrected.is_empty() {
+        return None;
+    }
+    let have_bands = input.band_numbers.contains_key("sza") && input.band_numbers.contains_key("saa");
+    let known = Known { hints: &input.suns, bands: have_bands, granules: &input.granules, centre: input.sun_centre };
+    let plan = crate::sun::plan(p, &known, n);
+    if plan.iter().any(|s| matches!(s, Source::Missing(_))) {
+        return None;
+    }
+    let mut pieces = vec![Piece::Raw(
+        "# Zeit's own default method is 'c': Janus's is SCS+C, so the method is passed. Janus corrects every pixel, clouds\n\
+         # included (the quality band only keeps them out of the regression); this script leaves the pixels its quality band\n\
+         # masks as NaN."
+            .into(),
+    )];
+    // the DEM on the cube's grid
+    let resampling = match p.str("dem_resampling") {
+        "cubic" => "Resampling.cubic",
+        "near" => "Resampling.nearest",
+        _ => "Resampling.bilinear",
+    };
+    if p.str("dem_source") == "file" {
+        pieces.push(Piece::Raw(format!(
+            "from rasterio.enums import Resampling\n\
+             dem = zeit.load_raster({}).rio.reproject_match(bands_all.isel(time=0, band=0), resampling={resampling})  # the DEM on the cube's grid",
+            py_str(p.str("dem"))
+        )));
+    } else {
+        let collection = p.str("dem_source");
+        pieces.push(Piece::Raw(format!(
+            "# The Copernicus DEM, as Janus read it: {notice}.\n\
+             # Needs `pip install planetary-computer pystac-client`.\n\
+             import planetary_computer, pystac_client\n\
+             from rasterio.enums import Resampling\n\
+             from rioxarray.merge import merge_arrays\n\
+             catalog = pystac_client.Client.open(\"https://planetarycomputer.microsoft.com/api/stac/v1\", modifier=planetary_computer.sign_inplace)\n\
+             west, south, east, north = bands_all.rio.transform_bounds(\"EPSG:4326\")\n\
+             items = catalog.search(collections=[{coll}], bbox=[west - 0.01, south - 0.01, east + 0.01, north + 0.01], datetime=\"2021-04-01/2021-05-01\").item_collection()\n\
+             tiles = [zeit.load_raster(item.assets[\"data\"].href).squeeze(drop=True) for item in items]\n\
+             dem = merge_arrays(tiles).rio.reproject_match(bands_all.isel(time=0, band=0), resampling={resampling})  # the DEM on the cube's grid",
+            notice = crate::dem::notice(collection),
+            coll = py_str(collection),
+        )));
+    }
+    // each date's sun
+    let (zenith, azimuth) = match plan.first() {
+        Some(Source::Scene { .. }) if plan.iter().all(|s| matches!(s, Source::Scene { .. })) => {
+            let list = |f: &dyn Fn(f64, f64) -> f64| {
+                let v: Vec<String> = plan
+                    .iter()
+                    .map(|s| match s {
+                        Source::Scene { zenith, azimuth, .. } => py_float(f(*zenith, *azimuth)),
+                        _ => String::new(),
+                    })
+                    .collect();
+                format!("[{}]", v.join(", "))
+            };
+            let mut kinds: Vec<&str> = plan.iter().map(Source::name).collect();
+            kinds.sort_unstable();
+            kinds.dedup();
+            pieces.push(Piece::Raw(format!(
+                "# the sun of each date as Janus found it ({}), one number a date",
+                kinds.join(", ")
+            )));
+            (list(&|z, _| z), list(&|_, a| a))
+        }
+        Some(Source::Bands) if plan.iter().all(|s| *s == Source::Bands) => {
+            let scale = if p.str("angle_scale") == "hundredths" { " * 0.01" } else { "" };
+            let band = |r: &str| format!("bands_all.sel(band='b{:03}'){scale}", input.band_numbers[r]);
+            (band("sza"), band("saa"))
+        }
+        Some(Source::Granules) if plan.iter().all(|s| *s == Source::Granules) => {
+            let sources: Vec<String> = input
+                .granules
+                .iter()
+                .map(|g| match g.as_slice() {
+                    [] => "None".to_string(),
+                    [one] => py_str(one),
+                    many => py_list(many),
+                })
+                .collect();
+            pieces.push(Piece::Raw(format!(
+                "# Sentinel-2's sun from each date's granule metadata (MTD_TL.xml), one source per date of the cube\n\
+                 sources = [{}]\n\
+                 angles = zeit.sentinel2_angles(sources, like=bands_all.isel(band=0), view_band='B06')",
+                sources.join(", ")
+            )));
+            ("angles".to_string(), "angles".to_string())
+        }
+        _ => return None,
+    };
+    // the sample
+    let sample = if set.ndvi {
+        let num = |r: &str| input.band_numbers.get(r).map(|b| format!("b{b:03}"));
+        let (red, nir) = (num("red")?, num("nir")?);
+        pieces.push(Piece::Raw(format!(
+            "from zeit._topocorr import slope_aspect  # Horn's slope and aspect of the DEM, as the correction takes them\n\
+             slope = slope_aspect(dem).slope  # degrees\n\
+             ndvi =(bands_all.sel(band='{nir}') - bands_all.sel(band='{red}')) / (bands_all.sel(band='{nir}') + bands_all.sel(band='{red}'))\n\
+             sample = ((ndvi > {}) & (slope >= {})).values  # vegetation on a slope; the pixels the quality band masks are NaN, so out",
+            py_float(set.ndvi_min),
+            py_float(set.min_slope)
+        )));
+        "sample".to_string()
+    } else {
+        "None".to_string()
+    };
+    pieces.push(call(
+        "result1",
+        "zeit.topographic_correction",
+        vec![
+            pos("bands_all"),
+            pos("dem"),
+            kw("sun_zenith", zenith),
+            kw("sun_azimuth", azimuth),
+            kw("method", py_str(p.str("method"))),
+            kw("sample", sample),
+            kw("min_slope", py_float(set.min_slope)),
+            kw("min_sample", set.min_sample.to_string()),
+            kw("bands", py_list(&corrected)),
+            plumbing("nodata", "None"),
+            plumbing("n_jobs", "1"),
+        ],
+    ));
+    Some(ToolCall::new(tool, pieces, vec!["bands_all"]))
 }
 
 /// The cube of the observations the quality band keeps (the others missing, as Janus leaves them out); `fmask` is a

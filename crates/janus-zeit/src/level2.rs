@@ -252,7 +252,7 @@ pub fn band_grid(safe: &Safe, resolution: Option<f64>, desc: Option<&Desc>) -> R
 /// A raster of any CRS and cell on `grid`, by GDAL's own warp (`GDALWarp` onto a dataset of that grid, `-et 0`, so that every
 /// pixel is transformed exactly: the values of Zeit's `to_grid(..., tolerance=0)`), `T` the type of the result, `nodata`
 /// the no-data value of the result (and of the source too when the source has none: `default_src_nodata`).
-fn warp_to_grid<T: Copy + GdalType + Default>(
+pub(crate) fn warp_to_grid<T: Copy + GdalType + Default>(
     src: &Path,
     grid: &Grid,
     method: &str,

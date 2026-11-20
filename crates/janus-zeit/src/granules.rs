@@ -25,7 +25,8 @@ pub const FILE: &str = "MTD_TL.xml";
 
 /// Whether a run of `tool` with these parameters reads the granule metadata.
 pub fn needs(tool: &str, p: &crate::pixel::Params) -> bool {
-    tool == "nbar" && p.str("angles") == "sentinel2"
+    (tool == "nbar" && p.str("angles") == "sentinel2")
+        || (tool == "topocorr" && matches!(p.str("sun"), "auto" | "sentinel2"))
 }
 
 /// The metadata of the Sentinel-2 product a local file is in, or beside it.

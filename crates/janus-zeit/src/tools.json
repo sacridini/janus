@@ -4660,6 +4660,216 @@
    "chunk_cells": 20000
   },
   {
+   "id": "topocorr",
+   "name": "Topographic correction (C, SCS+C)",
+   "category": "Data preparation",
+   "description": "Takes the relief's illumination out of surface reflectance, as zeit.topographic_correction: the slope and aspect of a digital elevation model (Horn 1981) give each pixel's illumination cos i = cos sz cos s + sin sz sin s cos(saz - a) for each date's sun; for each band of each date the reflectance is regressed on cos i, rho = b + m cos i, c = b / m, and corrected by the C-correction (Teillet, Guindon & Goodenough 1982), rho (cos sz + c) / (cos i + c), or SCS+C (Soenen, Peddle & Coburn 2005), rho (cos s cos sz + c) / (cos i + c), which keeps the sun-canopy-sensor geometry of forests on steep slopes. The DEM is a file of yours or the Copernicus DEM GLO-30 or GLO-90 read from Planetary Computer for the series' extent and warped onto the series' grid. The sun of each date comes from its angle bands, its Sentinel-2 granule metadata, its STAC item or Landsat MTL, or its acquisition time, or is typed. Needs a reflectance series in a projected CRS (metres). A run writes the corrected series (a file a date, the quality band kept as the last band) and opens it as a new layer, with the c of every band and date (topo_c.csv) and a before and after check (validation.csv). Empirical and Lambertian: it assumes the same cover on all slopes (choose the vegetation sample when it is not), and pixels in deep shadow are left as they are. The Copernicus DEM is a surface model of about 30 or 90 m: trees and buildings are in it, and it is coarser than Sentinel-2's 10 m.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "all_bands": true,
+    "optional_bands": [
+     "red",
+     "nir",
+     "sza",
+     "saa"
+    ]
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "method",
+     "label": "Method",
+     "type": "enum",
+     "default": "scs+c",
+     "options": [
+      "scs+c",
+      "c"
+     ],
+     "labels": [
+      "SCS+C (Soenen et al. 2005)",
+      "C-correction (Teillet et al. 1982)"
+     ],
+     "help": "SCS+C keeps the sun-canopy-sensor geometry (cos s in the numerator), which suits forests on steep slopes; the C-correction is the classic one (and Zeit's own default in Python: the Copy Python script states the method it ran). Both use the same c = b / m of the regression of each band of each date on cos i."
+    },
+    {
+     "id": "dem_source",
+     "label": "Elevation model",
+     "type": "enum",
+     "default": "cop-dem-glo-30",
+     "options": [
+      "cop-dem-glo-30",
+      "cop-dem-glo-90",
+      "file"
+     ],
+     "labels": [
+      "Copernicus DEM GLO-30 (downloaded)",
+      "Copernicus DEM GLO-90 (downloaded)",
+      "A file"
+     ],
+     "help": "Copernicus DEM: the tiles over the series' extent are read from Planetary Computer (Earth Search if it does not answer), mosaicked and warped onto the series' grid by bilinear resampling, and kept in the results folder for the next run. It is a surface model (trees and buildings included) of about 30 or 90 m, coarser than Sentinel-2's 10 m: the slopes at 10 m are smoothed versions. GLO-90 for series of 60 m or coarser. The vertical datum (EGM2008) does not matter for slopes. Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved."
+    },
+    {
+     "id": "dem",
+     "label": "DEM file",
+     "type": "file",
+     "default": "",
+     "help": "With 'A file': elevations in metres, any grid and CRS; warped onto the series' grid."
+    },
+    {
+     "id": "dem_resampling",
+     "label": "DEM resampling",
+     "type": "enum",
+     "default": "bilinear",
+     "options": [
+      "bilinear",
+      "cubic",
+      "near"
+     ],
+     "help": "How the DEM is put on the series' grid (FORCE: bilinear)."
+    },
+    {
+     "id": "sun",
+     "label": "Sun angles from",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "bands",
+      "sentinel2",
+      "stac",
+      "fixed"
+     ],
+     "labels": [
+      "Each date's best source",
+      "Angle bands (sza, saa)",
+      "Sentinel-2 granule metadata (per pixel)",
+      "STAC item / Landsat MTL / acquisition time",
+      "Typed (the same for every date)"
+     ],
+     "help": "Automatic: per date, the angle bands if mapped (HLS's SZA and SAA), else the Sentinel-2 MTD_TL.xml (per pixel), else the STAC item (s2:mean_solar_*, view:sun_elevation, view:sun_azimuth) or the Landsat MTL beside the file (SUN_ELEVATION, SUN_AZIMUTH), else the sun's position at the acquisition time over the window's centre; a date with none stops the run unless 'If a date has no sun' is 'Use the typed angles'. The source of every date is in topo_c.csv."
+    },
+    {
+     "id": "angle_scale",
+     "label": "Angle bands unit",
+     "type": "enum",
+     "default": "degrees",
+     "options": [
+      "degrees",
+      "hundredths"
+     ],
+     "labels": [
+      "Degrees",
+      "Hundredths of a degree (HLS, Landsat Collection 2)"
+     ],
+     "help": "As in NBAR: HLS's and Landsat Collection 2's angle bands are in hundredths of a degree."
+    },
+    {
+     "id": "missing_sun",
+     "label": "If a date has no sun",
+     "type": "enum",
+     "default": "error",
+     "options": [
+      "error",
+      "fixed"
+     ],
+     "labels": [
+      "Stop and name it",
+      "Use the typed angles"
+     ],
+     "help": "What to do when none of the sources gives a date a sun: stop and name the date, or use the typed zenith and azimuth for it (and for every date with sun = fixed)."
+    },
+    {
+     "id": "sun_zenith",
+     "label": "Sun zenith",
+     "type": "float",
+     "default": 35.0,
+     "min": 0.0,
+     "max": 89.9,
+     "unit": "degrees",
+     "help": "The typed sun zenith (90 minus the elevation)."
+    },
+    {
+     "id": "sun_azimuth",
+     "label": "Sun azimuth",
+     "type": "float",
+     "default": 135.0,
+     "min": 0.0,
+     "max": 360.0,
+     "unit": "degrees",
+     "help": "The typed sun azimuth, clockwise from north."
+    },
+    {
+     "id": "sample",
+     "label": "c estimated on",
+     "type": "enum",
+     "default": "slope",
+     "options": [
+      "slope",
+      "ndvi"
+     ],
+     "labels": [
+      "Every pixel on a slope",
+      "Vegetation (NDVI above a threshold)"
+     ],
+     "help": "The pixels of the regression of each band and date (clouds, shadows and snow of the quality band always left out): every pixel with a slope of at least the minimum slope (Zeit's default), or only vegetation (NDVI above the threshold, with red and NIR mapped), since c assumes one cover on all slopes. The NDVI is of the values the series gives, with the file's scale and offset applied: Landsat Collection 2's digital numbers are not reflectance until they are."
+    },
+    {
+     "id": "min_slope",
+     "label": "Minimum slope",
+     "type": "float",
+     "default": 5.0,
+     "min": 0.0,
+     "max": 60.0,
+     "unit": "degrees",
+     "help": "Pixels flatter than this stay out of the regression (cos i carries no information there); they are still corrected."
+    },
+    {
+     "id": "ndvi_min",
+     "label": "NDVI threshold",
+     "type": "float",
+     "default": 0.5,
+     "min": -1.0,
+     "max": 1.0,
+     "help": "With the vegetation sample: the NDVI a pixel must exceed to enter the regression."
+    },
+    {
+     "id": "min_sample",
+     "label": "Fewest pixels for a fit",
+     "type": "int",
+     "default": 100,
+     "min": 3,
+     "max": 10000000,
+     "help": "A band of a date with fewer sample pixels, no spread in cos i, or a regression that does not rise with the illumination is copied unchanged and listed in topo_c.csv."
+    },
+    {
+     "id": "bands",
+     "label": "Bands to correct (optional)",
+     "type": "text",
+     "default": "",
+     "help": "Empty: every band except the angle bands and the quality band; or their names or numbers (1 is the first band of a date) separated by commas."
+    },
+    {
+     "id": "write_cosi",
+     "label": "Write cos i",
+     "type": "bool",
+     "default": false,
+     "help": "A file a date with cos i, to inspect the illumination."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "corrected",
+     "name": "Topographically corrected",
+     "unit": "as the series",
+     "series": true
+    }
+   ],
+   "chunk_cells": 200000
+  },
+  {
    "id": "improphe",
    "name": "ImproPhe (FORCE)",
    "category": "Data preparation",

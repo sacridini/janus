@@ -229,6 +229,14 @@ impl Tifs {
         Ok(Tifs { w, files })
     }
 
+    /// A metadata item (default domain) on every file.
+    pub(crate) fn set_metadata(&mut self, key: &str, value: &str) -> Result<(), String> {
+        for (path, ds) in &mut self.files {
+            ds.set_metadata_item(key, value, "").map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        Ok(())
+    }
+
     /// The rows `row..row + rows` of file `file`: `planes` is [band][rows x w].
     pub(crate) fn write(&mut self, file: usize, row: usize, rows: usize, planes: &[f32]) -> Result<(), String> {
         let w = self.w;

@@ -71,6 +71,14 @@ pub struct PixelInput {
     pub site: Option<Site>,
     /// each mapped role's band number in a date's file (a script's calls name the bands of every band by number)
     pub band_numbers: BTreeMap<String, i32>,
+    /// the bands of a date's file, and the number of its quality band (0: none): the topographic correction's call names
+    /// the bands it corrects
+    pub bands_per_date: usize,
+    pub qa_band: i32,
+    /// what each date's files say of its sun, and the window's centre as latitude and longitude, for the topographic
+    /// correction's call
+    pub suns: Vec<crate::sun::SunHint>,
+    pub sun_centre: Option<(f64, f64)>,
 }
 
 /// A pixel's place: the grid it is in (CRS as WKT, north-up geotransform) and its column and row.

@@ -382,7 +382,7 @@ fn ints(v: &[i32]) -> String {
 /// when it is released).
 const ZEIT_WITH_EOF: &str = "\"zeit-cdts>=3.8\"";
 
-/// What `pip install` needs for a script of Zeit's `mnf`, `cva`, `imad`, `radcal` or `omnibus` (Zeit 3.9).
+/// What `pip install` needs for a script of Zeit's `mnf`, `cva`, `imad`, `radcal`, `omnibus` or `topographic_correction` (Zeit 3.9).
 const ZEIT_WITH_CHANGE: &str = "\"zeit-cdts>=3.9\"";
 
 /// The Python of a pin's or an ROI's series (and the tools fitted on it).
@@ -424,6 +424,16 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         // each date's sensor and granule metadata, for the tools that need them (found in the files, as the run does)
         input.sensors = if crate::sensors::needs(id) { crate::sensors::of_series(info) } else { vec![] };
         input.granules = if crate::granules::needs(id, params) { crate::granules::of_series(info) } else { vec![] };
+        if id == "topocorr" {
+            input.suns = crate::sun::of_series(info);
+            input.bands_per_date = info.bands_per_date;
+            input.qa_band = info.sel.qa_band;
+            let window = match &spec.target {
+                Target::Run { window, .. } => *window,
+                _ => [0, 0, info.width, info.height],
+            };
+            input.sun_centre = info.geo_transform.and_then(|g| crate::sun::centre_lat_lon(&info.crs_wkt, &g, window));
+        }
         // a tool the Zeit calls cannot be written for (it needs dates the series lacks, or endmembers) is left out
         let note = match tool_call(id, params, &input) {
             // the bands of a date are one pixel's: an ROI has the mean of its series only
@@ -1245,7 +1255,7 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         spec.name,
         // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd; and in 3.2.1
         // what the pin's code did by hand
-        if calls.iter().any(|(_, _, c)| matches!(c.tool.as_str(), "mnf" | "cva" | "imad" | "radcal" | "omnibus")) {
+        if calls.iter().any(|(_, _, c)| matches!(c.tool.as_str(), "mnf" | "cva" | "imad" | "radcal" | "omnibus" | "topocorr")) {
             ZEIT_WITH_CHANGE
         } else if calls.iter().any(|(_, _, c)| c.tool == "eof" || c.tool == "lagged_correlation") {
             ZEIT_WITH_EOF

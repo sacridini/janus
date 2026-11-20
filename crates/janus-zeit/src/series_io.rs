@@ -336,7 +336,7 @@ impl Args {
 }
 
 /// gdalbuildvrt's own code: `srcs` into the VRT `dst` with `args`.
-fn build_vrt(dst: &Path, srcs: &[String], args: &[String]) -> Result<(), String> {
+pub(crate) fn build_vrt(dst: &Path, srcs: &[String], args: &[String]) -> Result<(), String> {
     let a = Args::new(args);
     let s = Args::new(srcs);
     let d = CString::new(dst.to_string_lossy().as_ref()).unwrap_or_default();

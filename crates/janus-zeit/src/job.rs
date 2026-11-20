@@ -68,6 +68,9 @@ pub struct JobSpec {
     /// where a date has no metadata), for NBAR with its angles from them (`granules::of_series`)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub granules: Vec<Vec<String>>,
+    /// each date's sun as its files say it (STAC, Landsat MTL, acquisition time), for the topographic correction
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suns: Vec<crate::sun::SunHint>,
     /// a categorical layer's classes: the names and colours of its class series outputs ("uint16")
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<ClassDef>,
@@ -267,6 +270,7 @@ pub fn qa_usable(rule: Option<&str>, qa: f64) -> bool {
         Some("landsat_c2") => code & 0x3B == 0,
         Some("nonzero") => code != 0,
         Some("scl") => (4..=6).contains(&code),
+        Some("hls_fmask") => code != 255 && code & 0x1E == 0,
         _ => true,
     };
     ok && keep
@@ -544,6 +548,22 @@ impl Inputs {
         w: usize,
         h: usize,
     ) -> Result<Vec<Vec<f64>>, String> {
+        self.read_dates_with(roles, dates, x0, y0, w, h, true)
+    }
+
+    /// `read_dates` with the quality band's refusals left in the values (`apply_qa` false: the pixels it refuses keep
+    /// what the bands hold; `qa_codes` gives the codes). The mask's outside pixels are NaN either way.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn read_dates_with(
+        &mut self,
+        roles: &[String],
+        dates: &[usize],
+        x0: usize,
+        y0: usize,
+        w: usize,
+        h: usize,
+        apply_qa: bool,
+    ) -> Result<Vec<Vec<f64>>, String> {
         let n = w * h;
         let t = self.spec.years.len();
         if let Some(&d) = dates.iter().find(|&&d| d >= t) {
@@ -591,7 +611,7 @@ impl Inputs {
         }
         // the quality band's refusals, and the mask's pixels outside
         let rule = self.spec.qa_rule.clone();
-        if let Some(qa) = &mut self.qa {
+        if let Some(qa) = self.qa.as_mut().filter(|_| apply_qa) {
             for (di, &d) in dates.iter().enumerate() {
                 let codes = read(qa.ds(), d + 1..=d + 1, x0, y0, w, h, true)?;
                 for (p, &code) in codes.iter().enumerate() {
@@ -616,6 +636,27 @@ impl Inputs {
             }
         }
         Ok(out)
+    }
+}
+
+impl Inputs {
+    /// The quality band's codes of some dates over a window, as they are (one `[pixels]` array a date); None when the
+    /// series has no quality band.
+    pub(crate) fn qa_codes(
+        &mut self,
+        dates: &[usize],
+        x0: usize,
+        y0: usize,
+        w: usize,
+        h: usize,
+    ) -> Result<Option<Vec<Vec<f64>>>, String> {
+        let Some(qa) = &mut self.qa else { return Ok(None) };
+        dates.iter().map(|&d| read(qa.ds(), d + 1..=d + 1, x0, y0, w, h, true)).collect::<Result<Vec<_>, _>>().map(Some)
+    }
+
+    /// The quality rule of the series (None without one).
+    pub(crate) fn qa_rule(&self) -> Option<&str> {
+        self.spec.qa_rule.as_deref().filter(|_| self.qa.is_some())
     }
 }
 
@@ -1112,6 +1153,9 @@ pub fn run_job(
     if matches!(spec.tool.as_str(), "cva" | "imad" | "radcal") {
         return crate::change::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "topocorr" {
+        return crate::topocorr::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -1282,6 +1326,9 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     }
     if matches!(spec.tool.as_str(), "cva" | "imad" | "radcal") {
         return crate::change::estimate(spec, &p, cells);
+    }
+    if spec.tool == "topocorr" {
+        return crate::topocorr::estimate(spec, &p, cells);
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
