@@ -18,6 +18,8 @@ mod animation;
 mod ard;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_calc_detach.rs"]
+mod calc_detach_tests;
 #[path = "ui_test_chart_axis.rs"]
 mod chart_axis_tests;
 #[path = "ui_test_climate.rs"]
@@ -1069,6 +1071,7 @@ impl State {
             350..=354 => return self.test_chart_axis(st, t0, ctx),
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
+            385..=389 => return self.test_calc_detach(st, t0, ctx),
             _ => {}
         }
         None
