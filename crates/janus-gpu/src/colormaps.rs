@@ -371,6 +371,17 @@ pub fn all() -> &'static [Colormap] {
                     rgbf(0.98, 0.90, 0.55),
                 ],
             },
+            // the direction of a radar change (the omnibus test): none, brightening, darkening, indefinite
+            Colormap {
+                name: "Change direction",
+                qualitative: true,
+                keys: vec![
+                    rgbf(0.78, 0.78, 0.76),
+                    rgbf(0.93, 0.60, 0.10),
+                    rgbf(0.15, 0.35, 0.80),
+                    rgbf(0.55, 0.30, 0.70),
+                ],
+            },
         ]
     })
 }

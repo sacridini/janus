@@ -952,6 +952,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),
         "ewmacd" => crate::ewmacd::chunk(p, chunk, ctx),
+        "omnibus" => crate::omnibus::chunk(p, chunk, ctx),
         "unmix" => crate::unmix::chunk(p, chunk, ctx),
         "unmix_spectrum" => crate::unmix::spectrum_chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
@@ -1186,6 +1187,9 @@ pub fn run_job(
     })?;
     let outputs = outs.describe(&p, ctx.model.as_ref());
     drop(outs);
+    if spec.tool == "omnibus" {
+        crate::omnibus::write_record(&dir, &p, &spec.years, &ctx, spec.bands.contains_key(crate::omnibus::VH))?;
+    }
     Ok(JobResult { outputs, window })
 }
 

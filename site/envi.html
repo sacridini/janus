@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Noise and change: MNF, CVA, iMAD and radiometric normalization · Janus</title>
-<meta name="description" content="A guide to four ENVI-style tools in Janus: the minimum noise fraction (MNF) transform, change vector analysis (CVA), the iteratively reweighted multivariate alteration detection (iMAD) and the radiometric normalization by its invariant pixels, with their parameters, outputs and Python equivalents.">
+<title>Noise and change: MNF, CVA, iMAD, radiometric normalization and the radar omnibus test · Janus</title>
+<meta name="description" content="A guide to five tools of noise and change in Janus: the minimum noise fraction (MNF) transform, change vector analysis (CVA), the iteratively reweighted multivariate alteration detection (iMAD), the radiometric normalization by its invariant pixels, and the omnibus change test of a Sentinel-1 series, with their parameters, outputs and Python equivalents.">
 <meta name="theme-color" content="#0F0F0F">
 <link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
 <link rel="icon" href="favicon.ico?v=4" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Noise and change: MNF, CVA, iMAD and radiometric normalization · Janus">
-<meta property="og:description" content="Denoise and reduce a multiband image with the MNF, map the change between two dates with CVA and iMAD, and put a date on the radiometric scale of another.">
+<meta property="og:title" content="Noise and change: MNF, CVA, iMAD, radiometric normalization and the radar omnibus test · Janus">
+<meta property="og:description" content="Denoise and reduce a multiband image with the MNF, map the change between two dates with CVA and iMAD, put a date on the radiometric scale of another, and date the changes of a Sentinel-1 series with the omnibus test.">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
@@ -49,7 +49,7 @@
     <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Noise and change</p>
     <p class="eyebrow">Spectral analysis · change detection · data preparation</p>
     <h1>Noise and change.</h1>
-    <p class="lede">Four tools from the ENVI toolbox now run in Janus on a series of images: the <span class="ui">Minimum Noise Fraction</span> transform, which orders the components of a multiband image by signal-to-noise ratio instead of variance; <span class="ui">change vector analysis</span> and <span class="ui">iMAD</span>, two ways to map the change between two dates using all the bands at once; and the <span class="ui">radiometric normalization</span> that puts one date on the scale of another by the pixels that did not change. This guide says what each does, where it is, what its parameters mean and how to read what it writes.</p>
+    <p class="lede">Five tools of noise and change run in Janus on a series of images. Four come from the ENVI toolbox: the <span class="ui">Minimum Noise Fraction</span> transform, which orders the components of a multiband image by signal-to-noise ratio instead of variance; <span class="ui">change vector analysis</span> and <span class="ui">iMAD</span>, two ways to map the change between two dates using all the bands at once; and the <span class="ui">radiometric normalization</span> that puts one date on the scale of another by the pixels that did not change. The fifth is for radar: the <span class="ui">omnibus change test</span> finds the dates at which the backscatter of a Sentinel-1 series changed, pixel by pixel. This guide says what each does, where it is, what its parameters mean and how to read what it writes.</p>
   </div>
 </section>
 
@@ -58,11 +58,12 @@
   <nav class="toc" aria-label="On this page">
     <p>On this page</p>
     <ol>
-      <li><a href="#intro">The four tools</a></li>
+      <li><a href="#intro">The five tools</a></li>
       <li><a href="#mnf">Minimum Noise Fraction</a></li>
       <li><a href="#cva">Change vector analysis</a></li>
       <li><a href="#imad">iMAD</a></li>
       <li><a href="#radcal">Radiometric normalization</a></li>
+      <li><a href="#omnibus">Omnibus change test (Sentinel-1)</a></li>
       <li><a href="#chain">Putting them in order</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
@@ -71,8 +72,8 @@
   <article class="article">
 
     <section id="intro">
-      <h2><span class="n">01</span>The four tools</h2>
-      <p>All four work on the bands of one or two dates of the active series, so the series needs <strong>two bands or more per date</strong> (red and NIR, say, or six reflectance bands), and the last three need two dates or more. They are Zeit tools (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code> and <code>zeit.radcal</code>) and share a way of working:</p>
+      <h2><span class="n">01</span>The five tools</h2>
+      <p>The first four work on the bands of one or two dates of the active series, so the series needs <strong>two bands or more per date</strong> (red and NIR, say, or six reflectance bands), and the last three need two dates or more. They are Zeit tools (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code> and <code>zeit.radcal</code>) and share a way of working. The <a href="#omnibus">omnibus test</a> (<code>zeit.omnibus</code>) is of another kind: it follows every pixel through <em>all</em> the dates of a radar series, VV and VH, as the change tools of a series do, and has its own section. What follows applies to the first four:</p>
       <ul>
         <li>The statistics (a noise covariance, a threshold, canonical correlations, a regression) are fitted on a <strong>lattice sample</strong> of the whole window, every <em>s</em>-th row and column, so the same pixels are used on every run. The transformation is then applied to every pixel, <strong>strip by strip</strong>, so a window larger than the memory works.</li>
         <li>The <strong>quality band</strong>, when the series has one, is applied as a mask: a masked pixel is empty in every output and does not enter the statistics.</li>
@@ -271,8 +272,60 @@ norm = zeit.radcal(ts, reference=0, threshold=0.95)
 zeit.radcal_table(norm)                                      # gain, offset and tests by date and band</code></pre></div>
     </section>
 
+    <section id="omnibus">
+      <h2><span class="n">06</span>Omnibus change test (Sentinel-1)</h2>
+      <p>A radar image is covered with speckle, so the difference of two dates is mostly noise, and a threshold on it flags hundreds of pixels that did not change. The <strong>omnibus test</strong> (Conradsen, Nielsen and Skriver 2016; Canty et al. 2020) is built for it. For each pixel it takes the series of the VV and VH backscatter and asks, with a likelihood-ratio test of multilook radar observations, whether <em>all</em> the dates have the same mean. If it rejects that at the significance level, the statistic splits into one test for each date against the dates before it since the last change; the first that rejects is a <strong>change</strong>, the series restarts at that date, and the search goes on. Each change found has the false alarm probability of the level you chose, and every change of a pixel has a date and a direction.</p>
+      <p>Use it on a stack of one relative orbit and pass (ascending or descending, the same orbit number), as many dates as there are. <strong>The viewing geometry changes the backscatter, and the test reads that as change:</strong> mix two orbits and every pixel changes where they alternate. Janus does not know the orbit of the images once they are loaded, so choose them when you search the catalogue (the pass in the STAC panel).</p>
+      <p><strong>Where:</strong> <span class="ui">Tools → Change detection → Omnibus change test (Sentinel-1)</span>. Map the band of <code>vv</code> in the window (required) and, for a dual-polarization series, <code>vh</code>; with VH left unused the test is of VV alone. Bands with <code>vv</code> and <code>vh</code> in their names are found by themselves. A <strong>pin</strong> shows the test on the chart: a vertical line at each change, by its direction, and the dates, the p-value and the direction in the table beside it.</p>
+      <!-- figure: the omnibus window and a pin's chart with the change lines -->
+      <h3>What the test needs</h3>
+      <ul>
+        <li><strong>Linear power</strong> (sigma0 or gamma0), not dB. The statistics do not change with a factor constant over the series, so sigma0 and the terrain-flattened gamma0 of one orbit give the same result. Images in dB are converted: see <code>scale</code>.</li>
+        <li>The <strong>equivalent number of looks</strong> of the speckle. 4.4 is the usual value of Sentinel-1 IW GRD. Radiometrically terrain-corrected products are resampled and have another one, which Zeit's <code>zeit.estimate_enl</code> measures on a homogeneous area.</li>
+        <li>A date that has no value in a band, or a value that is not positive (the layover and shadow of RTC products), is skipped for that pixel only: a pixel uses its own valid dates, a change is dated at the next valid one, and a pixel with fewer than two valid dates is empty in every output.</li>
+      </ul>
+      <p>A test of one new date against the mean of those before it has limited power: a change is found at its own date in part of the pixels and a date or two later in the rest, and about (<em>j</em> &minus; 1) &times; <code>alpha</code> of the pixels report a change too early, <em>j</em> being the number of dates since the last change. Read the dates as &ldquo;at or soon after&rdquo;.</p>
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>enl</code></td><td>4.4</td><td>The equivalent number of looks of the speckle.</td></tr>
+            <tr><td><code>alpha</code></td><td>0.01</td><td>The significance level of each test: a change is registered when its p-value is below it.</td></tr>
+            <tr><td><code>approximation</code></td><td>improved</td><td>How the p-values are computed. <code>improved</code>: the chi-square corrected for few looks (Conradsen, Skriver and Nielsen 2024), more accurate. <code>chi2</code>: the chi-square of Wilks for &minus;2 ln <em>Q</em>, as in the Earth Engine tutorial of Canty et al., with more false alarms at few looks.</td></tr>
+            <tr><td><code>scale</code></td><td>auto</td><td>What the bands are in. <code>linear</code>: power. <code>db</code>: dB, converted by 10<sup>x/10</sup>. <code>auto</code>: dB when the <strong>median of the finite values of the mapped bands is negative</strong> (linear power is positive, and dB backscatter of land and water is negative), decided once for the run from its first strip of rows; otherwise linear. Choose it yourself if the rule could fail. Values that are not positive after the conversion are skipped.</td></tr>
+            <tr><td><code>per_date</code></td><td>off</td><td>Also write the direction at each date as a series (below).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The median filter of the p-values that Canty's scripts offer is not implemented: Zeit requires it to be 0.</p>
+      <h3>Outputs</h3>
+      <p>The dates are <strong>decimal years</strong> of the series' dates, as the other change tools write them (BFAST, CCDC, EWMACD), so the maps take the same colours and can be compared in <span class="ui">Agreement of change maps</span>.</p>
+      <ul>
+        <li><em>First change</em>, <em>Last change</em> and <em>Strongest change</em>: the date of the first and the last change of the pixel and of the one with the largest test statistic. Empty where nothing changed.</li>
+        <li><em>Number of changes</em>.</li>
+        <li><em>Direction of the first change</em> and <em>of the last change</em>: the classes <strong>None</strong>, <strong>Brightening</strong> (the backscatter went up in every band), <strong>Darkening</strong> (down in every band) and <strong>Indefinite</strong> (up in one band and down in the other, which a single-polarization series cannot give).</li>
+        <li><em>P-value of the whole series</em>: the probability, if nothing had changed, of a statistic as large as the pixel's; small where the series is not constant. It is the test of all the dates at once and is not corrected for the many pixels of a map.</li>
+        <li><em>Valid dates</em>: how many dates the pixel used.</li>
+        <li>With <code>per_date</code>: <em>Change direction at each date</em>, a series that opens hidden under the maps, with 1, 2 or 3 at the dates of the changes (brightening, darkening, indefinite), 0 at the other valid dates and nothing where the date is not valid. Use it to count the changes of an area by date.</li>
+        <li><code>omnibus.json</code>, in the run's folder: the parameters, the scale the bands were read in and the dates, as Zeit keeps them.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Start with the map of the first change on a place you know changed (a clearing, a flood, a harvest) and see whether its date is right. A flood darkens VV and VH; the clearing of a forest changes the backscatter of both, in a direction that depends on the incidence angle and the moisture; a harvest may brighten or darken. Then look at a pixel of a stable place: it should have no line on the chart. If a stable area has many changes, the usual causes are a wrong number of looks, a mix of orbits, or a wet season that moves the whole series; a region with regular changes (rice paddies, irrigated fields) has several in each pixel, and the number of changes is then the map to read.</p>
+      <!-- figure: the first-change map and the directions of a flood -->
+      <h3>In Python</h3>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+s1 = zeit.load_raster("s1_rtc.tif", masked=True)              # (time, band, y, x), bands vv and vh, linear power
+change = zeit.omnibus(s1, bands=("vv", "vh"), enl=4.4, alpha=0.01)
+change.sel(band="first_change")                               # decimal years; the directions are 0 none, 1 up, 2 down, 3 mixed
+
+# a series in dB: convert it first
+change = zeit.omnibus(10 ** (s1 / 10), enl=4.4)</code></pre></div>
+    </section>
+
     <section id="chain">
-      <h2><span class="n">06</span>Putting them in order</h2>
+      <h2><span class="n">07</span>Putting them in order</h2>
       <p>The usual order for a change study on a series of images is:</p>
       <ol>
         <li><strong>Normalize</strong> the dates to a reference with the radiometric normalization, when the scenes differ in conditions and the next step is not invariant to them.</li>
@@ -280,23 +333,26 @@ zeit.radcal_table(norm)                                      # gain, offset and 
         <li><strong>Map the change</strong> with CVA, which needs the normalized dates and gives a direction, or iMAD, which does not need them and gives a probability.</li>
       </ol>
       <p>iMAD is also the engine of the normalization: it is an iMAD between the reference and each date followed by a regression. Run iMAD on the original dates and CVA on the normalized ones, and compare the two change maps; where they disagree, look at the magnitude and the probability maps there.</p>
-      <p>The tools that follow a series through time rather than two dates (<a href="landtrendr.html">LandTrendr</a>, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>) have their own guides in <a href="guides.html">the list</a>, and every tool is in the <a href="methods.html">methods</a>.</p>
+      <p>The omnibus test is for radar and stands apart from this order: it needs no normalization (it is invariant to a constant factor) and no choice of two dates. The tools that follow a series through time rather than two dates (<a href="landtrendr.html">LandTrendr</a>, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>) have their own guides in <a href="guides.html">the list</a>, and every tool is in the <a href="methods.html">methods</a>.</p>
     </section>
 
     <section id="refs">
-      <h2><span class="n">07</span>References</h2>
+      <h2><span class="n">08</span>References</h2>
       <ul class="refs">
         <li>Bovolo, F., Marchesi, S., Bruzzone, L. (2012). A framework for automatic and unsupervised detection of multiple changes in multitemporal images. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 50(6), 2196&ndash;2212. <a href="https://doi.org/10.1109/TGRS.2011.2171493">doi:10.1109/TGRS.2011.2171493</a></li>
         <li>Bruzzone, L., Prieto, D. F. (2000). Automatic analysis of the difference image for unsupervised change detection. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 38(3), 1171&ndash;1182. <a href="https://doi.org/10.1109/36.843009">doi:10.1109/36.843009</a></li>
         <li>Canty, M. J., Nielsen, A. A. (2008). Automatic radiometric normalization of multitemporal satellite imagery with the iteratively re-weighted MAD transformation. <em>Remote Sensing of Environment</em>, 112(3), 1025&ndash;1036. <a href="https://doi.org/10.1016/j.rse.2007.07.013">doi:10.1016/j.rse.2007.07.013</a></li>
         <li>Canty, M. J., Nielsen, A. A., Schmidt, M. (2004). Automatic radiometric normalization of multitemporal satellite imagery. <em>Remote Sensing of Environment</em>, 91(3&ndash;4), 441&ndash;451. <a href="https://doi.org/10.1016/j.rse.2003.10.024">doi:10.1016/j.rse.2003.10.024</a></li>
+        <li>Canty, M. J., Nielsen, A. A., Conradsen, K., Skriver, H. (2020). Statistical analysis of changes in Sentinel-1 time series on the Google Earth Engine. <em>Remote Sensing</em>, 12(1), 46. <a href="https://doi.org/10.3390/rs12010046">doi:10.3390/rs12010046</a></li>
+        <li>Conradsen, K., Nielsen, A. A., Skriver, H. (2016). Determining the points of change in time series of polarimetric SAR data. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 54(5), 3007&ndash;3024. <a href="https://doi.org/10.1109/TGRS.2015.2510160">doi:10.1109/TGRS.2015.2510160</a></li>
+        <li>Conradsen, K., Skriver, H., Nielsen, A. A. (2024). Improved approximations of the distribution of the test statistic of the omnibus test for change in multilook polarimetric SAR data. <em>IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing</em>, 17, 16359&ndash;16376.</li>
         <li>Green, A. A., Berman, M., Switzer, P., Craig, M. D. (1988). A transformation for ordering multispectral data in terms of image quality with implications for noise removal. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 26(1), 65&ndash;74. <a href="https://doi.org/10.1109/36.3001">doi:10.1109/36.3001</a></li>
         <li>Lee, J. B., Woodyatt, A. S., Berman, M. (1990). Enhancement of high spectral resolution remote-sensing data by a noise-adjusted principal components transform. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 28(3), 295&ndash;304. <a href="https://doi.org/10.1109/36.54356">doi:10.1109/36.54356</a></li>
         <li>Malila, W. A. (1980). Change vector analysis: an approach for detecting forest changes with Landsat. <em>Proceedings of the Machine Processing of Remotely Sensed Data Symposium</em>, 326&ndash;335. Purdue University.</li>
         <li>Nielsen, A. A. (2007). The regularized iteratively reweighted MAD method for change detection in multi- and hyperspectral data. <em>IEEE Transactions on Image Processing</em>, 16(2), 463&ndash;478. <a href="https://doi.org/10.1109/TIP.2006.888195">doi:10.1109/TIP.2006.888195</a></li>
         <li>Nielsen, A. A., Conradsen, K., Simpson, J. J. (1998). Multivariate alteration detection (MAD) and MAF postprocessing in multispectral, bitemporal image data: new approaches to change detection studies. <em>Remote Sensing of Environment</em>, 64(1), 1&ndash;19. <a href="https://doi.org/10.1016/S0034-4257(97)00162-4">doi:10.1016/S0034-4257(97)00162-4</a></li>
         <li>Otsu, N. (1979). A threshold selection method from gray-level histograms. <em>IEEE Transactions on Systems, Man, and Cybernetics</em>, 9(1), 62&ndash;66. <a href="https://doi.org/10.1109/TSMC.1979.4310076">doi:10.1109/TSMC.1979.4310076</a></li>
-        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code>, <code>zeit.radcal</code>).</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.mnf</code>, <code>zeit.mnf_denoise</code>, <code>zeit.cva</code>, <code>zeit.imad</code>, <code>zeit.radcal</code>, <code>zeit.omnibus</code>).</li>
       </ul>
     </section>
 

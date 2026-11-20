@@ -227,6 +227,7 @@ impl ToolCall {
             "postproc" => &["classes", "filtered"],
             "nbar" => &["nbar", "cfactor"],
             "mnf" => &["result", "denoised"],
+            "omnibus" => &["result", "direction"],
             _ => &["result"],
         }
     }
@@ -1286,6 +1287,39 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
                 plumbing("n_jobs", "1"),
             ]);
             ToolCall::new(tool, vec![call("result1", "zeit.radcal", args)], vec!["bands_all"])
+        }
+        "omnibus" => {
+            crate::omnibus::settings(p).ok()?;
+            // the cube's band of each polarization: `bands_all` names them b001, b002...
+            let name = |role: &str| input.band_numbers.get(role).map(|b| format!("b{b:03}"));
+            let mut names = vec![name(crate::omnibus::VV)?];
+            names.extend(name(crate::omnibus::VH));
+            let to_linear = "bands_all = 10.0 ** (bands_all / 10.0)";
+            let mut pieces = vec![];
+            match p.str("scale") {
+                "db" => pieces.push(Piece::Raw(format!("{to_linear}  # dB to linear power"))),
+                "auto" => pieces.push(Piece::Raw(format!(
+                    "if float(bands_all.sel(band={}).median(skipna=True)) < 0:  # a negative median: dB, as Janus's automatic scale\n    {to_linear}  # to linear power",
+                    py_list(&names)
+                ))),
+                _ => {}
+            }
+            let per_date = p.bool("per_date");
+            pieces.push(call(
+                if per_date { "result1, result2" } else { "result1" },
+                "zeit.omnibus",
+                vec![
+                    pos("bands_all"),
+                    kw("bands", py_list(&names)),
+                    kw("enl", f("enl")),
+                    kw("alpha", f("alpha")),
+                    kw("approximation", s("approximation")),
+                    kw("per_date", py_bool(per_date)),
+                    plumbing("nodata", "None"),
+                    plumbing("n_jobs", "1"),
+                ],
+            ));
+            ToolCall::new(tool, pieces, vec!["bands_all"])
         }
         "clear_observations" => one(call(
             "result1",

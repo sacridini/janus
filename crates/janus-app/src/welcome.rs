@@ -82,6 +82,7 @@ pub const NATIVE_PAGES: &[(&str, &str)] = &[
     ("cva", "envi.html#cva"),
     ("imad", "envi.html#imad"),
     ("radcal", "envi.html#radcal"),
+    ("omnibus", "envi.html#omnibus"),
     ("alerts", "docs-usage.html#official-alerts-against-a-map-of-change"),
     ("stac", "stac.html"),
     ("classification", "deep-learning.html"),

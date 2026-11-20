@@ -185,3 +185,47 @@ fn mnf_cva_imad_and_radcal_have_python_calls() {
     let call = janus_zeit::python::tool_call("radcal", &given("radcal", &[]), &input).unwrap();
     assert_eq!(call.compact("").0, "result = zeit.radcal(bands_all, reference=0)");
 }
+
+#[test]
+fn omnibus_has_a_python_call_on_the_mapped_bands_with_the_scale_converted() {
+    let given = |v: &[(&str, Value)]| -> Params {
+        Params::with_defaults("omnibus", &v.iter().map(|(k, x)| (k.to_string(), x.clone())).collect()).unwrap()
+    };
+    let input = PixelInput {
+        years: vec![2020.0, 2020.5],
+        days: Some(vec![18300, 18400]),
+        values: vec![0.1, 0.2],
+        band_numbers: [("vv", 2), ("vh", 1)].iter().map(|(r, b)| (r.to_string(), *b)).collect(),
+        ..Default::default()
+    };
+    // the automatic scale: the median decides in Python as it does in Janus
+    let (c, inputs) = calls("omnibus", &given(&[]), &input).unwrap();
+    assert_eq!(inputs, vec!["bands_all"]);
+    assert!(c.starts_with("if float(bands_all.sel(band=['b002', 'b001']).median(skipna=True)) < 0:"), "{c}");
+    assert!(c.contains("    bands_all = 10.0 ** (bands_all / 10.0)"), "{c}");
+    assert!(
+        c.contains(
+            "result1 = zeit.omnibus(bands_all, bands=['b002', 'b001'], enl=4.4, alpha=0.01, approximation='improved', per_date=False"
+        ),
+        "{c}"
+    );
+    // dB: converted unconditionally; linear: not at all; the series of directions too
+    let (c, _) = calls("omnibus", &given(&[("scale", json!("db")), ("per_date", json!(true))]), &input).unwrap();
+    assert!(c.starts_with("bands_all = 10.0 ** (bands_all / 10.0)  # dB to linear power"), "{c}");
+    assert!(c.contains("result1, result2 = zeit.omnibus(") && c.contains("per_date=True"), "{c}");
+    let (c, _) = calls(
+        "omnibus",
+        &given(&[("scale", json!("linear")), ("enl", json!(9.5)), ("approximation", json!("chi2"))]),
+        &input,
+    )
+    .unwrap();
+    assert!(!c.contains("10.0 **") && c.contains("enl=9.5") && c.contains("approximation='chi2'"), "{c}");
+    // one polarization: VV alone; none mapped: no call
+    let vv_only = PixelInput { band_numbers: [("vv".to_string(), 1)].into_iter().collect(), ..input.clone() };
+    let (c, _) = calls("omnibus", &given(&[("scale", json!("linear"))]), &vv_only).unwrap();
+    assert!(c.contains("bands=['b001']"), "{c}");
+    assert!(calls("omnibus", &given(&[]), &PixelInput::default()).is_none());
+    // the compact call leaves out Zeit's defaults
+    let call = janus_zeit::python::tool_call("omnibus", &given(&[("scale", json!("linear"))]), &input).unwrap();
+    assert_eq!(call.compact("").0, "result = zeit.omnibus(bands_all, bands=['b002', 'b001'])");
+}

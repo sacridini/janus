@@ -117,7 +117,8 @@ pub struct UiTest {
     ard: ard::ArdTest,
     /// stages 320-327: the temporal EOF and the lagged correlation (ui_test_eof.rs)
     eof: eof::EofTest,
-    /// stages 400-406: the MNF, the change vector analysis, the iMAD and the normalization (ui_test_envi.rs)
+    /// stages 400-409: the MNF, the change vector analysis, the iMAD, the normalization and the radar omnibus test
+    /// (ui_test_envi.rs)
     envi: envi::EnviTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
@@ -1076,7 +1077,8 @@ impl State {
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
             385..=399 => return self.test_calc_detach(st, t0, ctx),
-            400..=409 => return self.test_envi(st, t0, ctx),
+            400..=406 => return self.test_envi(st, t0, ctx),
+            407..=409 => return self.test_omnibus(st, t0, ctx),
             _ => {}
         }
         None

@@ -40,6 +40,7 @@ pub mod mnf;
 mod nbar;
 mod ndfi;
 pub mod numeric;
+pub mod omnibus;
 mod phenology;
 pub mod pixel;
 mod planes;

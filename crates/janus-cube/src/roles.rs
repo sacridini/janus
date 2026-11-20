@@ -14,7 +14,7 @@ pub type BandRoles = BTreeMap<&'static str, i32>;
 /// The roles found in the band names: keywords, most specific first; a band takes the first role it matches (red
 /// edge, QA and Fmask bands none). Unnamed stacks of 6 or more bands are taken as Blue..SWIR2 in order.
 pub fn guess_band_roles(info: &CubeInfo) -> BandRoles {
-    const KEYS: [(&str, &[&str]); 7] = [
+    const KEYS: [(&str, &[&str]); 9] = [
         ("swir1", &["swir1", "swir16", "swir161"]),
         ("swir2", &["swir2", "swir22", "swir220"]),
         ("thermal", &["thermal", "lwir", "tir", "stb10", "brightness"]),
@@ -22,6 +22,9 @@ pub fn guess_band_roles(info: &CubeInfo) -> BandRoles {
         ("blue", &["blue"]),
         ("green", &["green"]),
         ("red", &["red"]),
+        // a radar series (Sentinel-1)
+        ("vv", &["vv"]),
+        ("vh", &["vh"]),
     ];
     let mut r = BandRoles::new();
     let mut generic = true;
@@ -77,5 +80,10 @@ mod tests {
         let r = guess_band_roles(&named(&["Band 1", "Band 2", "Band 3", "Band 4", "Band 5", "Band 6"]));
         assert_eq!((r["blue"], r["swir2"]), (1, 6));
         assert!(guess_band_roles(&named(&["Band 1", "Band 2", "Band 3"])).is_empty());
+        // radar
+        let r = guess_band_roles(&named(&["VV", "VH"]));
+        assert_eq!((r["vv"], r["vh"]), (1, 2));
+        let r = guess_band_roles(&named(&["sigma0_vh", "sigma0_vv"]));
+        assert_eq!((r["vv"], r["vh"]), (2, 1));
     }
 }

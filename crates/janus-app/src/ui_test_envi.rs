@@ -1,4 +1,4 @@
-//! `--selftest-ui` stages 400-406: the MNF, the change vector analysis, the iMAD and the radiometric normalization
+//! `--selftest-ui` stages 400-409: the MNF, the change vector analysis, the iMAD and the radiometric normalization
 //! (Tools > Spectral analysis, Change detection, Data preparation), on a series the test writes itself: three dates (a
 //! file each, 2019-03-15, 2020-03-15 and 2021-03-15) of five bands (blue, green, red, nir, swir1) on 48 x 32 pixels,
 //! made of two smooth latent fields mixed into the bands, a gain and an offset a date, noise and, on the last date, a
@@ -6,7 +6,11 @@
 //! window drawn, three components and the denoised bands, which open as a series); 402 the change vector analysis (its
 //! change map, the sectors' classes); 403 the iMAD (its change map and variates); 404 the normalization (the series
 //! it writes opens, the gain undoes the date's); 405 the Python of the runs (and, with JANUS_PYTHON, Zeit's own result
-//! against Janus's); 406 puts everything back.
+//! against Janus's); 406 puts everything back. 407-409 are the omnibus change test of Sentinel-1, on a radar series of
+//! its own (14 dates of VV and VH in dB, a file each, with a block whose backscatter rose at one date): 407 writes and
+//! opens it and runs the test (the maps, the classes of the directions, the series of directions); 408 puts a pin in the
+//! block (its chart marks the change at the date the map gives) and runs the run's Python through Zeit (JANUS_PYTHON);
+//! 409 puts everything back.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -38,6 +42,8 @@ pub(crate) struct EnviTest {
     phase: u8,
     /// the runs: (tool, folder)
     runs: Vec<(String, String)>,
+    /// the pin of the omnibus stages: its number and place
+    pin: Option<(u32, usize, usize)>,
 }
 
 struct Lcg(u64);
@@ -597,6 +603,374 @@ impl State {
                 let _ = std::fs::remove_dir_all(&st.envi.dir);
                 st.envi = Default::default();
                 next(st, "MNF, CVA, iMAD and normalization: the windows closed, the layers, runs and files removed");
+                st.stage = 407; // the omnibus test (407-409), then 299
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The omnibus change test of Sentinel-1 (stages 407-409)
+// ---------------------------------------------------------------------------------------------------------------
+
+const S1_W: usize = 40;
+const S1_H: usize = 28;
+const S1_T: usize = 14;
+/// The date (index) the block's backscatter rose at, and the block.
+const S1_STEP: usize = 8;
+const S1_BLOCK: (std::ops::Range<usize>, std::ops::Range<usize>) = (12..24, 8..20);
+/// The number of looks of the test's speckle (an Erlang of 4 exponentials).
+const S1_ENL: f64 = 4.0;
+
+fn s1_day(t: usize) -> i64 {
+    18631 + 12 * t as i64
+}
+
+fn s1_in_block(i: usize) -> bool {
+    S1_BLOCK.0.contains(&(i % S1_W)) && S1_BLOCK.1.contains(&(i / S1_W))
+}
+
+/// The series' files in `dir`, a file a date of two bands (VV and VH) in dB: speckled backscatter of a land of 0.10
+/// (VV) and 0.02 (VH) in power, a block of which rose sixfold (VV) and fivefold (VH) from the step on.
+fn write_s1(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut rng = Lcg(77);
+    let mut uniform = move || ((rng.next() + 1.0) / 2.0).clamp(1e-12, 1.0);
+    let mut paths = vec![];
+    for t in 0..S1_T {
+        let (y, m, d) = janus_zeit::numeric::civil(s1_day(t));
+        let path = dir.join(format!("s1_{y:04}-{m:02}-{d:02}.tif"));
+        let e = |e: gdal::errors::GdalError| format!("{}: {e}", path.display());
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(e)?;
+        let mut ds = drv.create_with_band_type::<f32, _>(&path, S1_W, S1_H, 2).map_err(e)?;
+        ds.set_geo_transform(&[600000.0, 10.0, 0.0, 7500000.0, 0.0, -10.0]).map_err(e)?;
+        let wkt = gdal::spatial_ref::SpatialRef::from_epsg(32723).and_then(|s| s.to_wkt()).map_err(e)?;
+        ds.set_projection(&wkt).map_err(e)?;
+        for (b, (name, mean, up)) in [("VV", 0.10, 6.0), ("VH", 0.02, 5.0)].into_iter().enumerate() {
+            let v: Vec<f32> = (0..S1_W * S1_H)
+                .map(|i| {
+                    let m = if t >= S1_STEP && s1_in_block(i) { mean * up } else { mean };
+                    let speckle: f64 = (0..4).map(|_| -uniform().ln()).sum::<f64>() / S1_ENL;
+                    (10.0 * (m * speckle).log10()) as f32
+                })
+                .collect();
+            let mut band = ds.rasterband(b + 1).map_err(e)?;
+            band.set_description(name).map_err(e)?;
+            band.set_no_data_value(Some(-9999.0)).map_err(e)?;
+            band.write((0, 0), (S1_W, S1_H), &mut gdal::raster::Buffer::new((S1_W, S1_H), v)).map_err(e)?;
+        }
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
+impl State {
+    pub(super) fn test_omnibus(&mut self, st: &mut UiTest, t0: Instant, ctx: &egui::Context) -> Option<i32> {
+        let stage = st.stage;
+        let fail = |what: &str| {
+            println!("FAIL (stage {stage}): {what}");
+            Some(1)
+        };
+        let next = |st: &mut UiTest, done: &str| {
+            println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
+            st.stage += 1;
+            st.since = Some(Instant::now());
+            st.frames = 0;
+            st.envi.phase = 0;
+        };
+        let waited = st.since.map_or(0.0, |s| s.elapsed().as_secs_f64());
+        match stage {
+            407 => {
+                if st.envi.dir.as_os_str().is_empty() {
+                    let stamp =
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                    st.envi = EnviTest {
+                        dir: std::env::temp_dir().join(format!("janus-selftest-omnibus-{stamp}")),
+                        results_dir: self.zeit.results_dir.clone(),
+                        layers: self.layers.len(),
+                        active: self.active,
+                        ..Default::default()
+                    };
+                    let _ = std::fs::create_dir_all(&st.envi.dir);
+                }
+                if self.opening.is_some() || !self.layer_jobs.queue.is_empty() {
+                    return None;
+                }
+                if !st.envi.opened {
+                    let files = match write_s1(&st.envi.dir) {
+                        Ok(f) => f,
+                        Err(e) => return fail(&format!("the radar series could not be written: {e}")),
+                    };
+                    st.envi.opened = true;
+                    self.zeit.results_dir = Some(st.envi.dir.join("results"));
+                    self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), true, ctx);
+                    return None;
+                }
+                if self.layers.len() <= st.envi.layers
+                    || !crate::ui_test::loaded(self.layer_session(self.layers.len() - 1))
+                {
+                    return None;
+                }
+                let tool = manifest().tool("omnibus")?;
+                if st.envi.phase == 0 {
+                    let k = self.layers.len() - 1;
+                    self.set_active(k, ctx);
+                    let info = self.layer_session(k)?.info.clone();
+                    if info.t() != S1_T
+                        || info.bands_per_date != 2
+                        || info.width != S1_W
+                        || info.height != S1_H
+                        || !info.time_is_date
+                    {
+                        return fail(&format!(
+                            "the series should be {S1_T} dates of 2 bands on {S1_W} x {S1_H}: {} dates, {} bands",
+                            info.t(),
+                            info.bands_per_date
+                        ));
+                    }
+                    let roles = crate::zeit::guess_roles(&info);
+                    if roles.get("vv") != Some(&1) || roles.get("vh") != Some(&2) {
+                        return fail(&format!("vv and vh should be found by the bands' names: {roles:?}"));
+                    }
+                    if let Some(why) = crate::zeit::applicability(tool, &info) {
+                        return fail(&format!("the omnibus test should apply to the series: {why}"));
+                    }
+                    match self.envi_start(
+                        "omnibus",
+                        json!({ "enl": S1_ENL, "alpha": 0.01, "scale": "auto", "per_date": true }),
+                        ctx,
+                    ) {
+                        Ok(run) => st.envi.runs.push(("omnibus".into(), run)),
+                        Err(e) => return fail(&e),
+                    }
+                    st.envi.phase = 1;
+                    return None;
+                }
+                let run = st.envi.runs.iter().find(|r| r.0 == "omnibus")?.1.clone();
+                match self.envi_done(&run, waited) {
+                    Err(e) => return fail(&e),
+                    Ok(false) => return None,
+                    Ok(true) => {}
+                }
+                // the series of directions opens as a layer, hidden
+                if !self.zeit.series_to_open.is_empty() || self.opening.is_some() || !self.layer_jobs.queue.is_empty() {
+                    return if waited > 120.0 { fail("the series of directions should open") } else { None };
+                }
+                if self.layers.len() != st.envi.layers + 2 {
+                    return fail(&format!(
+                        "the direction at each date should open as a layer: {} layers",
+                        self.layers.len()
+                    ));
+                }
+                let k = self.layers.len() - 1;
+                if !crate::ui_test::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let info = self.layer_session(k)?.info.clone();
+                if info.t() != S1_T || info.bands_per_date != 1 {
+                    return fail(&format!(
+                        "the directions: {S1_T} dates of one band, got {} of {}",
+                        info.t(),
+                        info.bands_per_date
+                    ));
+                }
+                self.remove_layer(k, ctx);
+                self.set_active(st.envi.layers, ctx);
+                // a change is found at its own date in part of the pixels and a date or two later in the rest
+                let step_year = self.session.as_ref()?.info.decimal_year(S1_STEP) as f32;
+                let soon = self.session.as_ref()?.info.decimal_year(S1_STEP + 2) as f32;
+                let first = self.envi_map(&run, "omnibus_first_change.tif")?;
+                let dir = self.envi_map(&run, "omnibus_first_direction.tif")?;
+                let ndates = self.envi_map(&run, "omnibus_n_dates.tif")?;
+                let p = self.envi_map(&run, "omnibus_p_change.tif")?;
+                if first.unit != "year" || first.w != S1_W || first.h != S1_H {
+                    return fail("the first change should be a map of years of the series' size");
+                }
+                if dir.classes != ["None", "Brightening", "Darkening", "Indefinite"] {
+                    return fail(&format!("the direction's classes: {:?}", dir.classes));
+                }
+                let (mut inside, mut at_step, mut by_then, mut bright, mut outside, mut false_alarms) =
+                    (0, 0, 0, 0, 0, 0);
+                let (mut p_in, mut p_out) = (0.0f64, 0.0f64);
+                for (i, &f) in first.data.iter().enumerate() {
+                    if ndates.data[i] != S1_T as f32 {
+                        return fail(&format!("every pixel has {S1_T} valid dates: {} at {i}", ndates.data[i]));
+                    }
+                    if s1_in_block(i) {
+                        inside += 1;
+                        at_step += usize::from(f == step_year);
+                        by_then += usize::from(f >= step_year && f <= soon);
+                        bright += usize::from(dir.data[i] == 2.0);
+                        p_in += f64::from(p.data[i]);
+                    } else {
+                        outside += 1;
+                        false_alarms += usize::from(f.is_finite());
+                        p_out += f64::from(p.data[i]);
+                    }
+                }
+                println!(
+                    "    omnibus: {at_step} of {inside} block pixels changed at the step ({by_then} by two dates later, {bright} brightening), {false_alarms} of {outside} outside; the mean p-value {:.4} in the block, {:.3} outside",
+                    p_in / inside as f64,
+                    p_out / outside as f64
+                );
+                if at_step * 10 < inside * 6
+                    || by_then * 10 < inside * 8
+                    || bright * 10 < inside * 8
+                    || false_alarms * 10 > outside
+                {
+                    return fail("the block should change at the step, brightening, and little else");
+                }
+                let text = std::fs::read_to_string(Path::new(&run).join("omnibus.json")).unwrap_or_default();
+                let rec: Value = serde_json::from_str(&text).unwrap_or_default();
+                if rec["scale"] != "db" || rec["enl"].as_f64() != Some(S1_ENL) || rec["bands"] != json!(["vv", "vh"]) {
+                    return fail(&format!("omnibus.json should say the bands were read in dB: {rec}"));
+                }
+                let maps = self.zeit.results.iter().filter(|r| r.run == run).count();
+                if maps != 8 {
+                    return fail(&format!("the test should give 8 maps (and the series as a layer): {maps}"));
+                }
+                next(
+                    st,
+                    &format!(
+                        "omnibus: the block changed at the step in {at_step} of {inside} pixels, brightening in {bright}, {false_alarms} of {outside} outside; the dB series found by the automatic scale; 8 maps and the series of directions"
+                    ),
+                );
+                None
+            }
+            408 => {
+                // a pin in the block: its chart marks the change at the date the map gives
+                if st.envi.phase == 0 {
+                    self.clear_pins();
+                    let (x, y) = (18, 14);
+                    self.add_pin(x, y);
+                    let id = self.series.pins.last()?.id;
+                    st.envi.pin = Some((id, x, y));
+                    self.zeit.fit_only(Some("omnibus"));
+                    st.envi.phase = 1;
+                    return None;
+                }
+                let (id, x, y) = st.envi.pin?;
+                let cube = self.session.as_ref()?.info.id;
+                let run = st.envi.runs.iter().find(|r| r.0 == "omnibus")?.1.clone();
+                let fit = match self.zeit.fit_of("omnibus", cube, crate::zeit::Which::Pin(id), x, y) {
+                    Some(Ok(f)) => f.clone(),
+                    Some(Err(e)) => return fail(&format!("the pin's fit: {e}")),
+                    None => return if waited > 60.0 { fail("the pin's fit should arrive") } else { None },
+                };
+                let lines: Vec<f64> =
+                    fit.overlays.iter().filter(|o| o.kind == "vlines").flat_map(|o| o.x.clone()).collect();
+                let map_first = self.envi_map(&run, "omnibus_first_change.tif")?.data[y * S1_W + x];
+                let first_line = lines.iter().copied().fold(f64::INFINITY, f64::min);
+                println!(
+                    "    pin ({x}, {y}): {} line(s), the first at {first_line:.4}; the map's first change {map_first:.4}",
+                    lines.len()
+                );
+                if lines.is_empty() || first_line as f32 != map_first {
+                    return fail("the pin's first change line should be the date the map gives");
+                }
+                if !fit.overlays.iter().any(|o| o.label == "Omnibus change (brightening)") {
+                    return fail("the change should be marked as a brightening");
+                }
+                let row = |name: &str| fit.rows.iter().find(|r| r[0] == name).map(|r| r[1].clone()).unwrap_or_default();
+                if !row("Scale").starts_with("dB") || !row("First change").contains("brightening") {
+                    return fail(&format!("the pin's table: {:?}", fit.rows));
+                }
+                self.zeit.fit_only(None);
+                self.clear_pins();
+                // the run's Python, through Zeit
+                let code = std::fs::read_to_string(Path::new(&run).join("rerun.py")).unwrap_or_default();
+                if !code.contains("zeit.omnibus(")
+                    || !code.contains("bands=['b001', 'b002']")
+                    || !code.contains("10.0 ** (bands_all / 10.0)")
+                    || !code.contains("zeit-cdts>=3.9")
+                {
+                    return fail(&format!("omnibus's rerun.py should call zeit.omnibus on bands_all:\n{code}"));
+                }
+                let mut report = "the Python not run (no JANUS_PYTHON)".to_string();
+                if let Ok(python) = std::env::var("JANUS_PYTHON") {
+                    match std::process::Command::new(python).arg("-I").arg(Path::new(&run).join("rerun.py")).output() {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => {
+                            return fail(&format!("omnibus's rerun.py failed: {}", String::from_utf8_lossy(&o.stderr)));
+                        }
+                        Err(e) => return fail(&format!("python: {e}")),
+                    }
+                    // Zeit's eight planes against the run's maps: the dates, the counts and the p-values; the
+                    // directions are Zeit's codes, the run's classes (the code plus one)
+                    let from_zeit = Path::new(&run).join("python").join("result.tif");
+                    let planes = [
+                        ("first_change", false),
+                        ("last_change", false),
+                        ("n_changes", false),
+                        ("first_direction", true),
+                        ("last_direction", true),
+                        ("greatest_change", false),
+                        ("p_change", false),
+                        ("n_dates", false),
+                    ];
+                    let mut worst = 0.0f64;
+                    let mut differing = 0usize;
+                    for (b, (name, class)) in planes.iter().enumerate() {
+                        let theirs = match gdal::Dataset::open(&from_zeit)
+                            .and_then(|d| d.rasterband(b + 1)?.read_as::<f32>((0, 0), (S1_W, S1_H), (S1_W, S1_H), None))
+                        {
+                            Ok(v) => v.data().to_vec(),
+                            Err(e) => return fail(&format!("Zeit's result.tif, plane {name}: {e}")),
+                        };
+                        let ours = &self.envi_map(&run, &format!("omnibus_{name}.tif"))?.data;
+                        for (a, o) in theirs.iter().zip(ours.iter()) {
+                            let o = if *class { o - 1.0 } else { *o };
+                            if a.is_nan() && o.is_nan() {
+                                continue;
+                            }
+                            let d = f64::from((a - o).abs());
+                            // a pixel on the edge of the test (its p-value or statistic a rounding from the level) may
+                            // find a change a date earlier or later: that cell differs
+                            if *name != "p_change" && d > 1e-4 {
+                                differing += 1;
+                            } else {
+                                worst = worst.max(d);
+                            }
+                        }
+                    }
+                    println!(
+                        "    Zeit's zeit.omnibus against the run: {differing} cells differ (of {}), the largest difference of the equal ones {worst:.2e}",
+                        8 * S1_W * S1_H
+                    );
+                    if differing * 100 > 8 * S1_W * S1_H || worst > 1e-3 {
+                        return fail("Zeit's own omnibus test should be what the run wrote");
+                    }
+                    report = format!(
+                        "Zeit's own result: {differing} cells of {} differ, the rest within {worst:.1e}",
+                        8 * S1_W * S1_H
+                    );
+                }
+                next(
+                    st,
+                    &format!(
+                        "omnibus: a pin in the block marks the change at the map's date, brightening; rerun.py calls zeit.omnibus on the converted bands ({report})"
+                    ),
+                );
+                None
+            }
+            409 => {
+                if let Some(t) = manifest().tool("omnibus") {
+                    self.set_tool_open(t, false);
+                }
+                for k in (st.envi.layers..self.layers.len()).rev() {
+                    self.remove_layer(k, ctx);
+                }
+                let runs: Vec<String> = st.envi.runs.iter().map(|r| r.1.clone()).collect();
+                self.zeit.results.retain(|r| !runs.contains(&r.run));
+                self.zeit.jobs.retain(|j| !runs.contains(&j.output_dir));
+                self.zeit.results_dir = st.envi.results_dir.take();
+                if st.envi.active < self.layers.len() && st.envi.active != self.active {
+                    self.set_active(st.envi.active, ctx);
+                }
+                let _ = std::fs::remove_dir_all(&st.envi.dir);
+                st.envi = Default::default();
+                next(st, "omnibus: the layers, the pin, the run and the files removed");
                 st.stage = 299;
                 None
             }

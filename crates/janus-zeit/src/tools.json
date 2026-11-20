@@ -5977,6 +5977,165 @@
     }
    ],
    "chunk_cells": 200000
+  },
+  {
+   "id": "omnibus",
+   "name": "Omnibus change test (Sentinel-1)",
+   "category": "Change detection",
+   "description": "When the radar backscatter of each pixel changed, from a series of Sentinel-1 VV (and VH) (Zeit's zeit.omnibus; Conradsen, Nielsen and Skriver 2016, IEEE TGRS 54:3007-3024; Canty, Nielsen, Conradsen and Skriver 2020, Remote Sensing 12:46). The series of every pixel is tested for the equality of all its dates by the likelihood ratio of multilook (complex Wishart) observations; where it is rejected at the significance level, the statistic factorizes into one test for each date against the dates before it since the last change, and the first that rejects is a change, after which the series restarts at that date. Every change found has the false alarm probability of the level. The p-values use the improved approximations of Conradsen, Skriver and Nielsen (2024). The direction of a change is brightening (up in every band), darkening (down in every band) or indefinite (up in one, down in the other). The statistics do not change with a factor constant over the series, so sigma0 and gamma0 of one relative orbit give the same result. Use the scenes of one relative orbit and pass: the viewing geometry changes the backscatter and the test reads that as change. Dates that are not positive (layover, shadow) or without value are skipped for that pixel. Writes the dates of the first, last and strongest change, the number of changes, the direction of the first and the last, the p-value of the whole series and the valid dates, and the record of the run (omnibus.json).",
+   "requires": {
+    "time": "any",
+    "min_dates": 2,
+    "bands": [
+     "vv"
+    ],
+    "optional_bands": [
+     "vh"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "enl",
+     "label": "Equivalent number of looks",
+     "type": "float",
+     "default": 4.4,
+     "min": 0.5,
+     "max": 1000.0,
+     "help": "The equivalent number of looks of the speckle: 4.4 for Sentinel-1 IW GRDH (the usual value). Terrain-corrected (RTC) products are resampled and have another one: estimate it on a homogeneous area (zeit.estimate_enl)."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance (alpha)",
+     "type": "float",
+     "default": 0.01,
+     "min": 0.0001,
+     "max": 0.5,
+     "help": "The significance level of each test: a change is registered when its p-value is below it. A test of one new date against the mean of those before it has limited power: a change is found at its own date in a part of the pixels and a date or two later in the rest, and about (j - 1) x alpha of the pixels report a change too early."
+    },
+    {
+     "id": "approximation",
+     "label": "Approximation of the p-values",
+     "type": "enum",
+     "default": "improved",
+     "options": [
+      "improved",
+      "chi2"
+     ],
+     "labels": [
+      "Improved (Conradsen, Skriver and Nielsen 2024)",
+      "Chi-square of Wilks (Canty et al. 2020, Earth Engine)"
+     ],
+     "help": "Improved: the chi-square corrected for few looks, more accurate. Chi-square: Wilks' approximation of -2 ln Q, as the Earth Engine tutorial of Canty et al. uses it (more false alarms at few looks)."
+    },
+    {
+     "id": "scale",
+     "label": "Backscatter in",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "linear",
+      "db"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Linear power (sigma0 or gamma0)",
+      "dB"
+     ],
+     "help": "The test needs linear power. Automatic: the bands are taken as dB when the median of their finite values is negative (linear power is positive, dB backscatter of land and water is negative), decided once per run from its first strip of rows, and converted by 10^(x/10); otherwise as linear. Choose dB or linear when the series is all bright or all dark enough for the rule to fail. Values that are not positive after the conversion are skipped."
+    },
+    {
+     "id": "per_date",
+     "label": "Direction at each date (series)",
+     "type": "bool",
+     "default": false,
+     "help": "Also write the direction of the change at each date as a series: 1 brightening, 2 darkening, 3 indefinite at the dates of the changes, 0 at the other valid dates, empty where the date is not valid. It opens hidden under the maps."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "first_change",
+     "name": "First change",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "last_change",
+     "name": "Last change",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "greatest_change",
+     "name": "Strongest change",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "n_changes",
+     "name": "Number of changes",
+     "colormap": "Plasma",
+     "unit": "changes"
+    },
+    {
+     "id": "first_direction",
+     "name": "Direction of the first change",
+     "colormap": "Change direction",
+     "unit": "class",
+     "classes": [
+      "None",
+      "Brightening",
+      "Darkening",
+      "Indefinite"
+     ]
+    },
+    {
+     "id": "last_direction",
+     "name": "Direction of the last change",
+     "colormap": "Change direction",
+     "unit": "class",
+     "classes": [
+      "None",
+      "Brightening",
+      "Darkening",
+      "Indefinite"
+     ]
+    },
+    {
+     "id": "p_change",
+     "name": "P-value of the whole series",
+     "colormap": "Viridis",
+     "unit": "p",
+     "range": [
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "id": "n_dates",
+     "name": "Valid dates",
+     "colormap": "Viridis",
+     "unit": "dates"
+    },
+    {
+     "id": "per_date",
+     "name": "Change direction at each date",
+     "colormap": "Change direction",
+     "unit": "class",
+     "series": true,
+     "hidden": true,
+     "when": "per_date",
+     "range": [
+      -0.5,
+      3.5
+     ]
+    }
+   ],
+   "chunk_cells": 100000
   }
  ],
  "errors": []

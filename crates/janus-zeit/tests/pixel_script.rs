@@ -676,3 +676,38 @@ fn a_run_of_mnf_cva_imad_or_radcal_calls_zeit_on_every_band() {
         }
     }
 }
+
+#[test]
+fn a_run_of_omnibus_calls_zeit_on_the_vv_and_vh_bands() {
+    // a radar series: VV and VH of three dates, found by their names
+    let d = dir("omnibus-folder");
+    for (t, date) in DATES.iter().enumerate() {
+        let bands: Vec<Vec<u16>> =
+            (0..2).map(|b| (0..W * H).map(|i| (100 + 30 * b + 7 * t + i) as u16).collect()).collect();
+        write(&d.join(format!("s1_{date}.tif")), &bands, &["VV".to_string(), "VH".to_string()], 0.01, 0.0);
+    }
+    let info = open(&[d], &BandSelection::default());
+    assert_eq!((roles(&info)["vv"], roles(&info)["vh"]), (1, 2));
+    let out = dir("omnibus-maps");
+    let mut p = tool("omnibus");
+    p.1.0.insert("scale".into(), serde_json::json!("db"));
+    p.1.0.insert("per_date".into(), serde_json::json!(true));
+    let code = script(&info, run_target([0, 0, W, H], &out), &[p]);
+    println!("{code}");
+    let flat = code.replace("(\n    ", "(").replace("\n    ", " ");
+    assert!(code.contains("bands_all = 10.0 ** (bands_all / 10.0)"), "{code}");
+    assert!(flat.contains("zeit.omnibus(bands_all, bands=['b001', 'b002']"), "{code}");
+    assert!(code.contains("zeit-cdts>=3.9") && code.contains("per_date=True"), "{code}");
+    if let Ok(python) = std::env::var("JANUS_PYTHON") {
+        let file = dir("omnibus-py").join("rerun.py");
+        std::fs::write(&file, &code).unwrap();
+        let o = std::process::Command::new(python)
+            .arg("-I")
+            .arg("-c")
+            .arg("import ast, sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())")
+            .arg(&file)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    }
+}

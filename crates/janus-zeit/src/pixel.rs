@@ -191,6 +191,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "ar_trend" => crate::ar_trend::pixel(p, input),
         "recovery" => crate::recovery::pixel(p, input),
         "ewmacd" => crate::ewmacd::pixel(p, input),
+        "omnibus" => crate::omnibus::pixel(p, input),
         "postproc" => crate::postproc::pixel(p, input),
         "unmix" => crate::unmix::pixel(p, input),
         "unmix_spectrum" => crate::unmix::spectrum_pixel(p, input),
