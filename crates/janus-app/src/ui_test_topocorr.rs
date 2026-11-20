@@ -481,7 +481,7 @@ impl State {
                     st,
                     "topographic correction: the ? opens data-preparation.html#topographic-correction; the window closed, the layers, runs and files removed",
                 );
-                st.stage = 385; // the detached calculator (385-388, ui_test_calc_detach.rs), then 299
+                st.stage = 375; // the co-registration (375-379, ui_test_coregister.rs), then 385 and 299
                 None
             }
             _ => None,

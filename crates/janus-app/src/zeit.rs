@@ -367,7 +367,7 @@ pub(crate) fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, 
     if tool.requires.all_bands == Some(true) {
         // ImproPhe's fine series and the tools of change (MNF, CVA, iMAD, radiometric normalization): the quality band
         // is applied to the others, not one of them
-        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal" | "topocorr")
+        let qa = (matches!(tool.id.as_str(), "improphe" | "mnf" | "cva" | "imad" | "radcal" | "topocorr" | "coregister")
             && info.sel.qa_band > 0)
             .then_some(info.sel.qa_band);
         // the topographic correction reads the angle bands as the sun, and corrects none of them
@@ -1022,6 +1022,9 @@ impl State {
         if tool.id == "topocorr" && why.is_none() {
             self.sun_preview_ui(ui, tool);
         }
+        if tool.id == "coregister" && why.is_none() {
+            self.coregister_table_ui(ui);
+        }
         let mut tune = false;
         ui.horizontal_wrapped(|ui| {
             if ui.button("Reset to defaults").clicked() {
@@ -1101,6 +1104,10 @@ impl State {
         let values = self.zeit.params(tool);
         egui::Grid::new(("params", &tool.id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             for p in &tool.params {
+                // the parameters of the other shift and reference are not shown
+                if crate::coregister_ui::hidden(&tool.id, &p.id, values) {
+                    continue;
+                }
                 let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
                 let hover = crate::welcome::param_help(p);
                 let help = |r: egui::Response| if hover.is_empty() { r } else { r.on_hover_text(&hover) };
@@ -2294,8 +2301,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
             if tool.params.iter().any(|p| p.kind == "series") {
                 // a lagged correlation's driver may be a CSV file instead of a series
-                let by_file =
-                    tool.id == "lagged_correlation" && params.get("y_mode").and_then(Value::as_str) == Some("file");
+                let by_file = !crate::coregister_ui::needs_other_series(&tool.id, &params);
                 match self.picked_series(tool, &params)? {
                     Some((other_name, other)) if !by_file => {
                         let stem = work.join(format!("{name}_{}_other{}", info.id, other.id));
@@ -2304,6 +2310,8 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     None if !by_file => {
                         return Err(if tool.id == "lagged_correlation" {
                             "Choose the driver series (another open layer) in the tool's form first.".into()
+                        } else if tool.id == "coregister" {
+                            "Choose the reference layer (another open layer) in the tool's form first.".into()
                         } else {
                             "Choose the series to sharpen (another open layer) in the tool's form first.".to_string()
                         });
@@ -3305,9 +3313,11 @@ pub(crate) fn series_inputs(
                 .insert(role, info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}")));
         }
     }
-    if tool.id == "topocorr" {
+    if matches!(tool.id.as_str(), "topocorr" | "coregister") {
         // what each date's files say of its sun, and the quality band's name for the series it writes
-        spec.suns = janus_zeit::sun::of_series(info);
+        if tool.id == "topocorr" {
+            spec.suns = janus_zeit::sun::of_series(info);
+        }
         if info.sel.qa_band > 0 {
             spec.band_names.insert(
                 "qa".into(),
