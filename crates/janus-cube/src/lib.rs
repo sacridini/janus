@@ -82,6 +82,13 @@ impl QaRule {
         }
     }
 
+    /// The rule `id` names (a run's output says which rule its quality band keeps), if it names one.
+    pub fn from_id(id: &str) -> Option<QaRule> {
+        [QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero, QaRule::Scl, QaRule::HlsFmask, QaRule::None]
+            .into_iter()
+            .find(|r| r.id() == id)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             QaRule::Fmask => "Fmask codes (0 clear, 1 water)",

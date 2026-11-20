@@ -169,6 +169,10 @@ pub struct Item {
     /// a radar's pass: "ascending" or "descending" (sat:orbit_state), and its relative orbit (sat:relative_orbit)
     pub orbit_state: Option<String>,
     pub relative_orbit: Option<i64>,
+    /// the sun's zenith and azimuth at the scene in degrees (s2:mean_solar_*, or view:sun_elevation as 90 - elevation
+    /// and view:sun_azimuth), where the catalog gives them
+    pub sun_zenith: Option<f64>,
+    pub sun_azimuth: Option<f64>,
     /// the tile it belongs to (MGRS, WRS-2 path/row, a cube's tile; else its id): items of a tile share a grid
     pub tile: String,
     /// its CRS: "EPSG:n" or WKT2 (None: read from its files)
@@ -278,6 +282,14 @@ pub fn parse_item(f: &Value) -> Option<Item> {
         platform: s("platform").unwrap_or_default(),
         orbit_state: s("sat:orbit_state"),
         relative_orbit: p.get("sat:relative_orbit").and_then(Value::as_i64),
+        sun_zenith: p
+            .get("s2:mean_solar_zenith")
+            .and_then(Value::as_f64)
+            .or_else(|| p.get("view:sun_elevation").and_then(Value::as_f64).map(|e| 90.0 - e)),
+        sun_azimuth: p
+            .get("s2:mean_solar_azimuth")
+            .and_then(Value::as_f64)
+            .or_else(|| p.get("view:sun_azimuth").and_then(Value::as_f64)),
         tile,
         crs: crs(p),
         shape: p.get("proj:shape").and_then(shape),
@@ -763,6 +775,43 @@ pub fn asset_path(href: &str, planetary: bool) -> String {
         return format!("/vsiaz/{container}/{key}");
     }
     crate::gdal_path(href)
+}
+
+/// The metadata items of a date's VRT with the sun the items give: the zenith (mean over the date's items) and the
+/// azimuth (circular mean), in degrees, and the UTC time of its first item in mosaic order (ISO 8601).
+pub const SUN_ZENITH_METADATA: &str = "STAC_SUN_ZENITH";
+pub const SUN_AZIMUTH_METADATA: &str = "STAC_SUN_AZIMUTH";
+pub const DATETIME_METADATA: &str = "STAC_DATETIME";
+
+/// The mean of angles in degrees on the circle, in [0, 360) (the mean of 359 and 1 is 0).
+pub fn circular_mean_deg(angles: &[f64]) -> Option<f64> {
+    if angles.is_empty() {
+        return None;
+    }
+    let (s, c) = angles.iter().fold((0.0, 0.0), |(s, c), a| (s + a.to_radians().sin(), c + a.to_radians().cos()));
+    let m = s.atan2(c).to_degrees();
+    Some(if m < 0.0 { m + 360.0 } else { m })
+}
+
+/// An ISO 8601 UTC time of Unix seconds ("2023-07-23T13:22:29Z").
+pub fn iso_time(unix: f64) -> String {
+    let secs = unix.floor() as i64;
+    let (day, rest) = (secs.div_euclid(86400), secs.rem_euclid(86400));
+    let (y, m, d) = civil_from_days(day);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// The metadata item of a date's VRT that holds the hrefs of its items' Sentinel-2 granule metadata (MTD_TL.xml),

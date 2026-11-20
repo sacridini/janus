@@ -17,7 +17,8 @@ use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
 
 use crate::QaRule;
 use crate::stac::{
-    Asset, BandChoice, GRANULE_METADATA, Item, SAS_METADATA, asset_path, azure_blob, granule_href, group_by_day,
+    Asset, BandChoice, DATETIME_METADATA, GRANULE_METADATA, Item, SAS_METADATA, SUN_AZIMUTH_METADATA,
+    SUN_ZENITH_METADATA, asset_path, azure_blob, circular_mean_deg, granule_href, group_by_day, iso_time,
 };
 
 /// The grid of one asset: its CRS ("EPSG:n" or WKT), geotransform, size, data type, nodata.
@@ -396,6 +397,22 @@ pub fn build(spec: &BuildSpec, progress: &dyn Fn(f64, &str), cancel: &AtomicBool
             xml_escape(&spec.items[g.items[0]].collection),
             xml_escape(&ids.join(" "))
         );
+        // the sun the items give, for the tools that need it (the topographic correction): the mean zenith, the
+        // circular mean azimuth, and the time of the first item
+        let zeniths: Vec<f64> = order.iter().filter_map(|&i| spec.items[i].sun_zenith).collect();
+        let azimuths: Vec<f64> = order.iter().filter_map(|&i| spec.items[i].sun_azimuth).collect();
+        if !zeniths.is_empty() && !azimuths.is_empty() {
+            let _ = writeln!(
+                x,
+                "    <MDI key=\"{SUN_ZENITH_METADATA}\">{}</MDI>
+    <MDI key=\"{SUN_AZIMUTH_METADATA}\">{}</MDI>",
+                num(zeniths.iter().sum::<f64>() / zeniths.len() as f64),
+                num(circular_mean_deg(&azimuths).unwrap_or(0.0))
+            );
+        }
+        if let Some(&i) = order.first() {
+            let _ = writeln!(x, "    <MDI key=\"{DATETIME_METADATA}\">{}</MDI>", iso_time(spec.items[i].time));
+        }
         // Sentinel-2's angles come from the granules' metadata: their hrefs, as the items give them
         let granules: Vec<&str> = order.iter().filter_map(|&i| granule_href(&spec.items[i])).collect();
         if !granules.is_empty() {
@@ -798,6 +815,40 @@ mod tests {
         assert_eq!(first.metadata_item(GRANULE_METADATA, "").as_deref(), Some(format!("{b} {a}").as_str()));
         // a date whose item has no granule metadata records none
         assert_eq!(second.metadata_item(GRANULE_METADATA, ""), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// A date's VRT records the sun its items give (the mean zenith, the circular mean azimuth) and the time of its
+    /// first item; a date whose items give no sun records only the time.
+    #[test]
+    fn a_date_records_the_sun_of_its_items() {
+        let dir = std::env::temp_dir().join("janus-cube-test-sun-vrt");
+        let _ = std::fs::remove_dir_all(&dir);
+        let day = 19561;
+        let mut a = s2_item("S2A_23LKC_20230723_0_L2A", day, 5.0, None);
+        (a.sun_zenith, a.sun_azimuth) = (Some(40.0), Some(359.0));
+        let mut b = s2_item("S2B_23LKC_20230723_0_L2A", day, 40.0, None);
+        (b.sun_zenith, b.sun_azimuth) = (Some(42.0), Some(1.0));
+        let c = s2_item("S2A_23LKC_20230728_0_L2A", day + 5, 1.0, None);
+        let band =
+            BandChoice { key: "red".into(), label: "Red (B04)".into(), wavelength_nm: None, quality: QaRule::None };
+        let spec = BuildSpec {
+            items: vec![a, b, c],
+            bands: vec![band],
+            bbox: [-46.4, -21.9, -46.3, -21.8],
+            res: None,
+            dir: dir.clone(),
+            planetary: false,
+        };
+        let built = build(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        let (first, second) =
+            (gdal::Dataset::open(&built.files[0]).unwrap(), gdal::Dataset::open(&built.files[1]).unwrap());
+        let get = |ds: &gdal::Dataset, k: &str| ds.metadata_item(k, "").and_then(|v| v.parse::<f64>().ok());
+        assert_eq!(get(&first, SUN_ZENITH_METADATA), Some(41.0));
+        let azimuth = get(&first, SUN_AZIMUTH_METADATA).unwrap();
+        assert!(azimuth < 1e-9 || (360.0 - azimuth) < 1e-9, "the mean of 359 and 1 is 0: {azimuth}");
+        assert!(first.metadata_item(DATETIME_METADATA, "").unwrap().starts_with("2023-07-23T13:53:20"));
+        assert_eq!(second.metadata_item(SUN_ZENITH_METADATA, ""), None);
+        assert!(second.metadata_item(DATETIME_METADATA, "").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
