@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Data preparation: topographic correction, co-registration and cloud detection · Janus</title>
-<meta name="description" content="A guide to the data-preparation tools of Janus: the topographic correction of reflectance (the C-correction and SCS+C) with the Copernicus DEM, with its parameters, outputs, Python equivalent and the licence of the elevation model; the co-registration of dates and cloud detection are coming.">
+<meta name="description" content="A guide to the data-preparation tools of Janus: the topographic correction of reflectance (the C-correction and SCS+C) with the Copernicus DEM, with its parameters, outputs, Python equivalent and the licence of the elevation model; the co-registration of the dates of a series to a reference, global or by a grid of tie points (AROSICS), with the shifts, the arrows on the map and the corrected series; cloud detection is coming.">
 <meta name="theme-color" content="#0F0F0F">
 <link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
 <link rel="icon" href="favicon.ico?v=4" sizes="any">
@@ -49,7 +49,7 @@
     <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Data preparation</p>
     <p class="eyebrow">Data preparation · surface reflectance</p>
     <h1>Data preparation.</h1>
-    <p class="lede">Three tools put a series in order before it is analysed. The first is here: the <span class="ui">topographic correction</span> takes the relief's illumination out of surface reflectance, so that two slopes of the same forest, one facing the sun and one facing away, look alike. The co-registration of dates and the detection of clouds without a quality band are coming and have their places below. This guide says what the correction does, where it is, what its parameters mean, where its elevation model comes from and how to read what it writes.</p>
+    <p class="lede">Three tools put a series in order before it is analysed. The first two are here: the <span class="ui">topographic correction</span> takes the relief's illumination out of surface reflectance, so that two slopes of the same forest, one facing the sun and one facing away, look alike, and the <span class="ui">co-registration</span> moves each date onto a reference, so that a field edge is on the same pixels on every date. The detection of clouds without a quality band is coming and has its place below. This guide says what each tool does, where it is, what its parameters mean and how to read what it writes.</p>
   </div>
 </section>
 
@@ -150,7 +150,69 @@ corrected.coords["topo_c"].to_pandas()                          # c of each date
 
     <section id="co-registration">
       <h2><span class="n">02</span>Co-registration of dates</h2>
-      <p>Coming: the shift of each date to a reference, global or by a grid of points (AROSICS), with the corrected series.</p>
+      <p>Two images of the same place are rarely on the same pixels. The dates of a Landsat series are registered to within a fraction of a pixel and the dates of a Sentinel-2 series to a tenth of one, but a series that mixes the two, an older scene, a different orbit or a product of another processing can be a pixel or more away from its neighbours. A shift of half a pixel does not show when you look at two dates, and does show in a change detector: along every field edge, road and river the pixel is one cover on one date and the other on the next, and LandTrendr, CCDC and BFAST take it for a break. The tool finds, for each date, how far its pixels are from a reference and moves them there.</p>
+      <p><strong>How it works.</strong> It is AROSICS (Scheffler et al. 2017), as ported in Zeit (<code>zeit.coregister</code> and <code>zeit.coregister_local</code>). In <strong>global</strong> mode a window of the date's matching band and the same window of the reference are compared by <em>phase correlation</em> (Kuglin and Hines's method: the cross power spectrum of the two windows, whose inverse transform peaks at their shift); the side maxima of the peak give the part of a pixel (Foroosh, Zerubia and Berthod 2002). The whole-pixel shift is then checked by moving the reference's window by it and correlating again, up to <code>max_iter</code> times, and the window is compared before and after by the structural similarity (SSIM). A shift above <code>max_shift</code>, or without a clear peak, is not accepted. In <strong>local</strong> mode the same is done at the points of a grid, for a scene whose misplacement varies (an old orthorectification, relief), and the points that cannot be trusted are dropped by three filters: reliability under 60, a window that is not more similar to the reference after the shift, and RANSAC (Fischler and Bolles 1981) on an affine model of the shifts.</p>
+      <p>The shift is in pixels of the series, <em>x</em> to the right and <em>y</em> down, the amount the date has to be moved to fit the reference: a date with a shift of (3, &minus;2) has its content three pixels to the left and two below where the reference has it. The part of a pixel is read from the side maxima of the correlation peak and is the less certain half of the answer (on a synthetic scene of noise it was off by up to half a pixel, in AROSICS too); a whole-pixel shift is found exactly. Look at the reliability and at the similarity before and after.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Co-register dates (AROSICS)</span>. The series needs a <strong>projected CRS</strong> (the shifts are in pixels and map units of a metric grid; reproject a series in degrees first), its dates, and, for the band to match, the roles <code>nir</code> or <code>red</code> mapped (or the first band is used). It runs on the whole window (the image, the ROI or the visible area), not on a pin. The <span class="ui">?</span> button of its window opens this page. After a run the window lists the shifts of the dates (a click on a date shows it on the map).</p>
+
+      <h3>The reference</h3>
+      <ul>
+        <li><strong>A date of the series</strong> (the default): <code>ref_date</code> is its number (1 is the first date), or 0 for the date with the most clear pixels in the window by the quality band. That date is not moved.</li>
+        <li><strong>The median of dates</strong>: at each pixel the median of the clear observations of the dates of the most frequent sensor (or of every date), for a pixel with at least three. Every date is then moved to it, the reference's own dates included. A composite from several sensors is blurred by their own misplacement, so the sensor is the default.</li>
+        <li><strong>Another layer</strong>: another open series or map in the same CRS, its date or the median of its dates, put on this series' grid by cubic convolution (said in the report) when its grid differs. Use it to bring a series to a reference of another sensor, as Sentinel-2 for a Landsat series.</li>
+      </ul>
+      <p><strong>Mixed sensors.</strong> The dates are matched as they are: there is no step that harmonizes the bands of the sensors first. Phase correlation compares texture, the edges and patterns of the band, and a gain or an offset between sensors changes little of it, so the NIR band of Landsat against the NIR of Sentinel-2 matches well. Bands of very different wavelengths, or an optical image against radar, do not: choose the same band on both sides (<code>band</code>), and the NIR where you have it.</p>
+      <p>The pixels the quality band refuses (cloud, shadow, snow) and those without a value stay out of the windows, with a margin of <code>mask_buffer</code> pixels around them (2 by default), so the edge of a cloud does not pull the shift. When a cloud is in the middle of what the dates share, where AROSICS puts its window, the window is moved to the largest clear square and the report says so. A date with under 5% of clear pixels is not matched.</p>
+
+      <h3>Parameters</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>mode</code></td><td>global</td><td><code>global</code> (one shift a date: a scene misplaced as a block) or <code>local</code> (a grid of tie points a date: a misplacement that varies).</td></tr>
+            <tr><td><code>reference</code></td><td>date</td><td><code>date</code>, <code>composite</code> or <code>layer</code>, with <code>ref_date</code>, <code>ref_dates</code> (<code>sensor</code> or <code>all</code>), <code>ref_layer</code>, <code>ref_band</code> and <code>ref_layer_date</code>.</td></tr>
+            <tr><td><code>band</code></td><td>auto</td><td>The band whose texture is matched: <code>auto</code> (NIR if mapped, else red, else the first band), <code>nir</code>, <code>red</code>, <code>green</code> or <code>swir1</code>.</td></tr>
+            <tr><td><code>mask_buffer</code></td><td>2</td><td>Pixels around what the quality band refuses (or has no value) kept out of the windows.</td></tr>
+            <tr><td><code>window_size</code></td><td>256</td><td>The side of the matching window in pixels (AROSICS' <code>ws</code>); the FFT takes the largest power of 2 inside it, cut down to what the dates share. In local mode, each point's window.</td></tr>
+            <tr><td><code>max_shift</code>, <code>max_iter</code></td><td>5, 5</td><td>The largest shift accepted (pixels), and the tries to validate the whole-pixel shift.</td></tr>
+            <tr><td><code>min_reliability</code></td><td>0</td><td>Global: a shift below it is treated as not found (0: any shift AROSICS' checks accept). Local: the points below it are dropped (a local run uses 60 when this is 0).</td></tr>
+            <tr><td><code>grid_res</code></td><td>200</td><td>Local: the distance between tie points, in pixels.</td></tr>
+            <tr><td><code>filter_level</code></td><td>3</td><td>Local: 0 none, 1 reliability, 2 and SSIM, 3 and RANSAC. <code>rs_max_outlier</code> (10%) and <code>rs_tolerance</code> (2.5%) tune RANSAC.</td></tr>
+            <tr><td><code>min_points</code></td><td>5</td><td>Local: a date with fewer tie points left is not moved and says why.</td></tr>
+            <tr><td><code>warp</code></td><td>tps</td><td>Local: <code>tps</code> (a thin plate spline, as AROSICS) or <code>poly1</code> to <code>poly3</code> (polynomials of GDAL).</td></tr>
+            <tr><td><code>arosics_compat</code></td><td>off</td><td>Reproduces a bug of AROSICS 1.14.0 in which RANSAC's flags land on other points when the reliability or SSIM filter has flagged some. Off, each flag is on its point.</td></tr>
+            <tr><td><code>resampling</code></td><td>cubic</td><td>Of the bands: <code>cubic</code>, <code>bilinear</code>, <code>lanczos</code> or <code>near</code>. The quality band always moves by nearest neighbour. A shift of whole pixels copies the cells.</td></tr>
+            <tr><td><code>format</code></td><td>auto</td><td>The corrected series as <code>vrt</code> (warped VRTs: nothing written), <code>cog</code>, <code>none</code> (only the shifts), or <code>auto</code>: VRTs, and COGs above 4000 x 4000 pixels.</td></tr>
+            <tr><td><code>arrow_scale</code></td><td>100</td><td>The arrows of the map are the shift times this.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Outputs</h3>
+      <ul>
+        <li>The <strong>co-registered series</strong> opens as a new layer, a file a date in the run's <code>series</code> folder: the bands moved, then the quality band as it was, moved by nearest neighbour, last. What the shift brings in from outside the date has no value and is refused in the quality band. A date that was not moved is in the series as it was. The files are <strong>warped VRTs</strong> by default: the warp is computed as the series is read, so a run is quick and a large series costs nothing until you look at it, and a map that is read often is faster from COGs (the choice of <code>auto</code> above 4000 x 4000 pixels). The VRTs read the run's folder (<code>parts</code> and <code>sources</code>), so write COGs for a series you will move or share.</li>
+        <li><code>shifts.csv</code>: a row a date with the shift in pixels (<code>x_shift_px</code>, <code>y_shift_px</code>) and map units, its <code>reliability</code> (0 to 100, AROSICS'), the structural similarity of the window to the reference before and after (<code>ssim_before</code>, <code>ssim_after</code>), whether the date was <code>applied</code> and the <code>reason</code> it was not, the matching window, and the share of the window that was clear. In local mode, the mean over the used points, and the points placed, matched and used.</li>
+        <li><code>tie_points.csv</code> (local): every point of every date with its shift, reliability, SSIM, the flags of the three filters (<code>outlier_reliability</code>, <code>outlier_ssim</code>, <code>outlier_ransac</code>) and whether it was <code>used</code>.</li>
+        <li><code>shifts.gpkg</code>: the shifts as arrows on the map, a layer of lines in the series' CRS that opens with the series: global, one arrow a date from the centre of its matching window; local, one for each matched tie point (those the filters dropped are marked <code>used</code> 0 and say which filter). The arrow is the shift times <code>arrow_scale</code>, because a third of a pixel does not show.</li>
+        <li><code>report.txt</code> and <code>coregister.json</code>: the reference, the shift of each date, the dates left alone and why, the shifts near the largest allowed.</li>
+      </ul>
+      <h3>How to read them</h3>
+      <p>Look at the arrows first. Shifts of one direction on every date point to a series that is offset from its reference, which the tool corrects; arrows that wander by date point to a reference that is not good (a cloudy date, a different sensor) or to a band that has no texture. A <strong>reliability</strong> under 60, or an SSIM that does not rise after the shift (<code>ssim_after</code> under <code>ssim_before</code>), says the shift is not well supported: the window is a field of one cover, water or cloud shadow, and has nothing to correlate. A shift near <code>max_shift</code> may be a larger one that was cut off: raise it, or put the reference nearer. The window of the tool lists the reasons a date was left alone (<em>no match found in the window</em>, <em>shift above max_shift</em>, <em>too cloudy</em>) and marks in red the dates that were not moved.</p>
+      <p>In local mode the tie points tell where the scene is misplaced: a smooth change of the arrows across the scene is a real distortion, and a point whose arrow points against its neighbours is an outlier the filters should have dropped (<code>outlier_ransac</code>). A date with few points left stays as it is (<code>min_points</code>).</p>
+
+      <h3>In Python</h3>
+      <p>Copy Python writes the script of the run. It needs <code>pip install "zeit-cdts&gt;=3.2"</code> (and <code>scipy</code>, which Zeit needs, for the margin around the clouds). Zeit moves every band it is given with the resampling, quality band included, where Janus moves the quality band by nearest neighbour and keeps the clouds in the files it writes, so the script gives Zeit the bands with the pixels the quality band refuses as NaN and leaves the quality band out.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+cube = zeit.load_raster("series.tif", masked=True)             # (time, band, y, x), clouds as NaN
+ref = cube.sel(band="nir").isel(time=0)                         # the reference: the first date
+aligned, shifts = zeit.coregister(cube, ref, window_size=256, max_shift=5, band="nir")
+shifts[["x_shift_px", "y_shift_px", "reliability", "applied"]]
+
+# local: a grid of tie points a date, the thin plate spline
+aligned, points = zeit.coregister_local(cube, ref, grid_res=200, window_size=256, band="nir")
+points.groupby("time")["used"].sum()</code></pre></div>
+      <p><strong>Time.</strong> On a synthetic series of 8 dates of 2048 x 2048 pixels and four bands (a scene of noise moved by whole and fractional shifts), on 4 threads, Janus finds the shifts of the seven dates to the first in 0.7 s and writes the series as warped VRTs in the same time, since nothing is computed until it is read; written as COGs it takes 12.7 s, which is the warp and the writing of 134 million pixels. Zeit's own call (<code>zeit.coregister</code>, the shifts and the warp of the four bands in memory) takes 1.1 s, and 12.9 s with its file saved. AROSICS (one band of one date at a time: its shifts 0.6 s for the seven dates on one CPU, 0.5 s on four, and 0.9 s to correct that one band) finds the same shifts as Janus to 4e-7 pixel, and Zeit's call writes the same pixels as Janus's COGs. Local mode, with a tie point every 256 pixels (81 a date): Janus 2.7 s for the tie points of the seven dates, 17.3 s with the COGs written; Zeit 5.0 s and 20.2 s; AROSICS' <code>COREG_LOCAL</code> 3.2 s and 1.6 s for the tie points of each of two dates on four CPUs. Janus and Zeit use the same 386 tie points. The part of a pixel is the less certain of the shift: on this noise it was off by up to half a pixel for the fractional shifts, in Janus, Zeit and AROSICS alike, and a whole-pixel shift was found exactly. The machine was not idle: the figures show the order, not the last second (<code>tools/bench_coreg_vs_zeit.py</code>, <code>bench/coregister-vs-zeit.json</code>).</p>
     </section>
 
     <section id="cloud-mask">
@@ -162,10 +224,14 @@ corrected.coords["topo_c"].to_pandas()                          # c of each date
       <h2><span class="n">04</span>References</h2>
       <ul class="refs">
         <li>Copernicus DEM: European Space Agency, Sinergise (2021). <em>Copernicus Global Digital Elevation Model</em> (GLO-30 and GLO-90). <a href="https://doi.org/10.5270/ESA-c5d3d65">doi:10.5270/ESA-c5d3d65</a>. Licence: <a href="https://dataspace.copernicus.eu/">Licence for the use of the Copernicus WorldDEM-30</a>.</li>
+        <li>Fischler, M. A., Bolles, R. C. (1981). Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. <em>Communications of the ACM</em>, 24(6), 381&ndash;395. <a href="https://doi.org/10.1145/358669.358692">doi:10.1145/358669.358692</a></li>
+        <li>Foroosh, H., Zerubia, J. B., Berthod, M. (2002). Extension of phase correlation to subpixel registration. <em>IEEE Transactions on Image Processing</em>, 11(3), 188&ndash;200. <a href="https://doi.org/10.1109/83.988953">doi:10.1109/83.988953</a></li>
         <li>Horn, B. K. P. (1981). Hill shading and the reflectance map. <em>Proceedings of the IEEE</em>, 69(1), 14&ndash;47. <a href="https://doi.org/10.1109/PROC.1981.11918">doi:10.1109/PROC.1981.11918</a></li>
+        <li>Kuglin, C. D., Hines, D. C. (1975). The phase correlation image alignment method. <em>Proceedings of the IEEE International Conference on Cybernetics and Society</em>, 163&ndash;165.</li>
+        <li>Scheffler, D., Hollstein, A., Diedrich, H., Segl, K., Hostert, P. (2017). AROSICS: an automated and robust open-source image co-registration software for multi-sensor satellite data. <em>Remote Sensing</em>, 9(7), 676. <a href="https://doi.org/10.3390/rs9070676">doi:10.3390/rs9070676</a>. <a href="https://git.gfz-potsdam.de/danschef/arosics">AROSICS</a> (Apache-2.0, GFZ Potsdam), which Zeit ports.</li>
         <li>Soenen, S. A., Peddle, D. R., Coburn, C. A. (2005). SCS+C: a modified sun-canopy-sensor topographic correction in forested terrain. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 43(9), 2148&ndash;2159. <a href="https://doi.org/10.1109/TGRS.2005.852480">doi:10.1109/TGRS.2005.852480</a></li>
         <li>Teillet, P. M., Guindon, B., Goodenough, D. G. (1982). On the slope-aspect correction of multispectral scanner data. <em>Canadian Journal of Remote Sensing</em>, 8(2), 84&ndash;106. <a href="https://doi.org/10.1080/07038992.1982.10855028">doi:10.1080/07038992.1982.10855028</a></li>
-        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.topographic_correction</code>).</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.topographic_correction</code>, <code>zeit.coregister</code>, <code>zeit.coregister_local</code>).</li>
       </ul>
     </section>
 
