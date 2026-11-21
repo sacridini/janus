@@ -1,0 +1,484 @@
+{
+ "side": 2048,
+ "dates": 8,
+ "bands": 4,
+ "threads": 4,
+ "truth": [
+  [
+   0.0,
+   0.0
+  ],
+  [
+   3.0,
+   -2.0
+  ],
+  [
+   0.4,
+   1.7
+  ],
+  [
+   -2.25,
+   1.1
+  ],
+  [
+   1.0,
+   0.0
+  ],
+  [
+   -0.5,
+   -3.0
+  ],
+  [
+   2.0,
+   2.0
+  ],
+  [
+   0.0,
+   -1.0
+  ]
+ ],
+ "global": {
+  "janus_shifts_only_seconds": 0.6875944,
+  "janus_vrt_seconds": 0.6813379,
+  "janus_cog_seconds": 12.6560339,
+  "zeit_call_seconds": 1.0583063000012771,
+  "zeit_call_and_save_seconds": 12.877576400001999,
+  "max_shift_difference_to_zeit": 2.505123219975758e-09,
+  "max_aligned_difference_to_zeit": 0.0,
+  "shifts_janus": [
+   [
+    0.0,
+    3.000000001972802,
+    -0.18127131462097168,
+    -1.8990260511636734,
+    0.9999999992571502,
+    -0.24526526033878326,
+    2.000000004899546,
+    9.233928621732446e-10
+   ],
+   [
+    0.0,
+    -1.9999999992036166,
+    1.8535004556179047,
+    1.0504645071923733,
+    0.0,
+    -2.9699370563030243,
+    2.0000000070464306,
+    -1.0
+   ]
+  ]
+ },
+ "arosics_global": {
+  "cpus1": {
+   "wall_seconds": 3.0681106000047293,
+   "pairs": [
+    {
+     "name": "date1",
+     "t_estimate": 0.12937780000356724,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 2.999999998142703,
+     "y_shift_px": -1.9999999991892046,
+     "x_shift_map": 89.99999994429527,
+     "y_shift_map": 59.99999997578561,
+     "reliability": 99.99999804598659,
+     "ssim_before": 0.4460502738082451,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.058976399996026885
+    },
+    {
+     "name": "date2",
+     "t_estimate": 0.07222139999794308,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -0.1812712550163269,
+     "y_shift_px": 1.853500485420227,
+     "x_shift_map": -5.438137650489807,
+     "y_shift_map": -55.60501456260681,
+     "reliability": 96.8956466824118,
+     "ssim_before": 0.7176783140964514,
+     "ssim_after": 0.9578411700108147,
+     "ssim_improved": true,
+     "t_correct": 0.19796169999608537
+    },
+    {
+     "name": "date3",
+     "t_estimate": 0.07143860000360291,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -1.8990259915590286,
+     "y_shift_px": 1.0504644736647606,
+     "x_shift_map": -56.97077974677086,
+     "y_shift_map": -31.513934209942818,
+     "reliability": 97.4195738048921,
+     "ssim_before": 0.5709539710049658,
+     "ssim_after": 0.9852169830382852,
+     "ssim_improved": true,
+     "t_correct": 0.21304270000109682
+    },
+    {
+     "name": "date4",
+     "t_estimate": 0.07817870000144467,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 0.9999999990655984,
+     "y_shift_px": 2.7843609362587785e-11,
+     "x_shift_map": 29.999999971943907,
+     "y_shift_map": -9.313225746154785e-10,
+     "reliability": 99.99999872490548,
+     "ssim_before": 0.8868140421738075,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.0593142999932752
+    },
+    {
+     "name": "date5",
+     "t_estimate": 0.07364199999574339,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -0.24526488780975342,
+     "y_shift_px": -2.9699370358139277,
+     "x_shift_map": -7.3579466342926025,
+     "y_shift_map": 89.09811107441783,
+     "reliability": 96.2326721763998,
+     "ssim_before": 0.47459360137621875,
+     "ssim_after": 0.9907404217819171,
+     "ssim_improved": true,
+     "t_correct": 0.21303009999974165
+    },
+    {
+     "name": "date6",
+     "t_estimate": 0.07286719999683555,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 2.000000004886532,
+     "y_shift_px": 1.9999999929763792,
+     "x_shift_map": 60.00000014656689,
+     "y_shift_map": -59.9999997895211,
+     "reliability": 99.99999686453619,
+     "ssim_before": 0.5458361962827504,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.05918129999918165
+    },
+    {
+     "name": "date7",
+     "t_estimate": 0.07501780000166036,
+     "cpus": 1,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 1.0741397771241168e-09,
+     "y_shift_px": -0.9999999999097946,
+     "x_shift_map": 3.2247044146060944e-08,
+     "y_shift_map": 29.999999997206032,
+     "reliability": 99.99999871036506,
+     "ssim_before": 0.886683417669076,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.060347999999066815
+    }
+   ]
+  },
+  "cpus4": {
+   "wall_seconds": 2.5956485999995493,
+   "pairs": [
+    {
+     "name": "date1",
+     "t_estimate": 0.12354420000337996,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 2.999999998142703,
+     "y_shift_px": -1.9999999991892046,
+     "x_shift_map": 89.99999994429527,
+     "y_shift_map": 59.99999997578561,
+     "reliability": 99.99999804598659,
+     "ssim_before": 0.4460502738082451,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.04020659999514464
+    },
+    {
+     "name": "date2",
+     "t_estimate": 0.06687930000043707,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -0.1812712550163269,
+     "y_shift_px": 1.853500485420227,
+     "x_shift_map": -5.438137650489807,
+     "y_shift_map": -55.60501456260681,
+     "reliability": 96.8956466824118,
+     "ssim_before": 0.7176783140964514,
+     "ssim_after": 0.9578411700108147,
+     "ssim_improved": true,
+     "t_correct": 0.1087861999985762
+    },
+    {
+     "name": "date3",
+     "t_estimate": 0.06414110000332585,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -1.8990259915590286,
+     "y_shift_px": 1.0504644736647606,
+     "x_shift_map": -56.97077974677086,
+     "y_shift_map": -31.513934209942818,
+     "reliability": 97.4195738048921,
+     "ssim_before": 0.5709539710049658,
+     "ssim_after": 0.9852169830382852,
+     "ssim_improved": true,
+     "t_correct": 0.11112539999885485
+    },
+    {
+     "name": "date4",
+     "t_estimate": 0.06214919999911217,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 0.9999999990655984,
+     "y_shift_px": 2.7843609362587785e-11,
+     "x_shift_map": 29.999999971943907,
+     "y_shift_map": -9.313225746154785e-10,
+     "reliability": 99.99999872490548,
+     "ssim_before": 0.8868140421738075,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.04844290000619367
+    },
+    {
+     "name": "date5",
+     "t_estimate": 0.06463999999687076,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": -0.24526488780975342,
+     "y_shift_px": -2.9699370358139277,
+     "x_shift_map": -7.3579466342926025,
+     "y_shift_map": 89.09811107441783,
+     "reliability": 96.2326721763998,
+     "ssim_before": 0.47459360137621875,
+     "ssim_after": 0.9907404217819171,
+     "ssim_improved": true,
+     "t_correct": 0.11233760000322945
+    },
+    {
+     "name": "date6",
+     "t_estimate": 0.06436440000106813,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 2.000000004886532,
+     "y_shift_px": 1.9999999929763792,
+     "x_shift_map": 60.00000014656689,
+     "y_shift_map": -59.9999997895211,
+     "reliability": 99.99999686453619,
+     "ssim_before": 0.5458361962827504,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.03968129999702796
+    },
+    {
+     "name": "date7",
+     "t_estimate": 0.06461390000185929,
+     "cpus": 4,
+     "success": true,
+     "error": null,
+     "window": [
+      896,
+      896,
+      1152,
+      1152
+     ],
+     "fft_win_size_YX": [
+      128,
+      128
+     ],
+     "x_shift_px": 1.0741397771241168e-09,
+     "y_shift_px": -0.9999999999097946,
+     "x_shift_map": 3.2247044146060944e-08,
+     "y_shift_map": 29.999999997206032,
+     "reliability": 99.99999871036506,
+     "ssim_before": 0.886683417669076,
+     "ssim_after": 1.0,
+     "ssim_improved": true,
+     "t_correct": 0.040334299999813084
+    }
+   ]
+  }
+ },
+ "local": {
+  "janus_shifts_only_seconds": 2.6971577,
+  "janus_cog_seconds": 17.3484227,
+  "zeit_call_seconds": 5.01218279999739,
+  "zeit_call_and_save_seconds": 20.15770270000212,
+  "tie_points_used_janus": 386,
+  "tie_points_used_zeit": 386
+ },
+ "arosics_local": {
+  "wall_seconds": 7.113204599998426,
+  "pairs": [
+   {
+    "name": "date1",
+    "t_estimate": 3.20632040000055,
+    "t_all": [
+     3.20632040000055
+    ],
+    "cpus": 4,
+    "success": true,
+    "n_gcps": 47,
+    "t_correct": 0.15056170000025304,
+    "warped": true
+   },
+   {
+    "name": "date2",
+    "t_estimate": 1.566744400006428,
+    "t_all": [
+     1.566744400006428
+    ],
+    "cpus": 4,
+    "success": true,
+    "n_gcps": 56,
+    "t_correct": 0.15591529999801423,
+    "warped": true
+   }
+  ]
+ }
+}
