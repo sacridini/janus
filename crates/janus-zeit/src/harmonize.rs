@@ -290,31 +290,51 @@ pub fn source(info: &Arc<CubeInfo>, given: Option<Sensor>) -> Result<Source, Str
 }
 
 /// What a series' values are reflectance times, as Zeit's scale="auto": 10000 if they go above 2 (the 99th
-/// percentile of a window of 64 x 64 pixels in the middle of three dates, its reflectance bands), else 1.
+/// percentile of a window of 64 x 64 pixels in the middle of three dates, its reflectance bands, as they are read:
+/// with the files' scale and offset, without the quality mask, since a cloud does not take reflectance above 2 and a
+/// mask that refuses the whole window left nothing to guess from), else 1. With no value in the window: 1 if the
+/// bands have a scale (they are read as reflectance), else 10000 for integers.
 pub fn guess_factor(info: &Arc<CubeInfo>) -> f64 {
     let (roles, _) = band_roles(info);
     let (w, h) = (info.width.min(64), info.height.min(64));
     let (x0, y0) = ((info.width - w) / 2, (info.height - h) / 2);
     let n = w * h;
-    let bands = info.bands_per_date.max(1);
     let t_n = info.t();
     let mut values: Vec<f32> = Vec::new();
     let mut dates: Vec<usize> = [0, t_n / 2, t_n.saturating_sub(1)].into_iter().filter(|&t| t < t_n).collect();
     dates.dedup();
+    let mut buf = vec![f32::NAN; n];
     for t in dates {
-        let mut buf = vec![f32::NAN; bands * n];
-        if read_date(info, t, true, (x0, y0, w, h), &mut buf) {
-            for &(_, b) in &roles {
-                values.extend(buf[b * n..(b + 1) * n].iter().filter(|v| v.is_finite()).map(|v| v.abs()));
+        for &(_, b) in &roles {
+            let ok = janus_cube::with_thread_reader(info, |r| {
+                r.read_band_window(t, b as i32 + 1, (x0, y0, w, h), &mut buf, (w, h))
+            });
+            if ok {
+                values.extend(buf.iter().filter(|v| v.is_finite()).map(|v| v.abs()));
             }
         }
     }
     if values.is_empty() {
+        if bands_scaled(info, &roles) {
+            return 1.0;
+        }
         return if info.data_type.contains("Int") || info.data_type.contains("Byte") { 10000.0 } else { 1.0 };
     }
     let k = ((values.len() - 1) as f64 * 0.99).round() as usize;
     let (_, &mut p99, _) = values.select_nth_unstable_by(k, f32::total_cmp);
     if p99 > 2.0 { 10000.0 } else { 1.0 }
+}
+
+/// Whether the first date's reflectance bands carry a scale other than 1 (the reader applies it).
+fn bands_scaled(info: &CubeInfo, roles: &[(Role, usize)]) -> bool {
+    let Some(l) = info.layers.first() else { return false };
+    let Ok(ds) = gdal::Dataset::open(&l.path) else { return false };
+    roles.iter().any(|&(_, b)| {
+        ds.rasterband((b as i32 + 1 + l.band_base).max(1) as usize)
+            .ok()
+            .and_then(|rb| rb.scale())
+            .is_some_and(|s| s != 1.0)
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -695,6 +715,60 @@ mod tests {
         assert!(!broad);
         assert_eq!(r[0], (Role::Coastal, 0));
         assert_eq!(r.len(), 7);
+    }
+
+    /// UInt16 Sentinel-2 files whose bands carry a scale of 1e-4 and an offset of -0.1 are read as reflectance: the
+    /// factor is 1, even when the quality band refuses every pixel of the window (an SCL of 0), and, with no value at
+    /// all, by the bands' scale; without a scale an empty integer series stays reflectance x 10000.
+    #[test]
+    fn factor_of_scaled_integers() {
+        let dir = std::env::temp_dir().join(format!("janus_harmonize_factor_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let wkt = gdal::spatial_ref::SpatialRef::from_epsg(32723).unwrap().to_wkt().unwrap();
+        let (w, h) = (40usize, 30usize);
+        let mk = |sub: &str, name: &str, dn: u16, scaled: bool| -> String {
+            let d = dir.join(sub);
+            std::fs::create_dir_all(&d).unwrap();
+            let p = d.join(name);
+            let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+            let mut ds = drv.create_with_band_type::<u16, _>(&p, w, h, 4).unwrap();
+            ds.set_geo_transform(&[400000.0, 30.0, 0.0, 8600000.0, 0.0, -30.0]).unwrap();
+            ds.set_projection(&wkt).unwrap();
+            for (b, n) in ["Blue (B02)", "Red (B04)", "NIR (narrow) (B8A)", "SCL"].iter().enumerate() {
+                let mut rb = ds.rasterband(b + 1).unwrap();
+                rb.set_description(n).unwrap();
+                rb.set_no_data_value(Some(0.0)).unwrap();
+                let v = if b == 3 { 0 } else { dn };
+                if b < 3 && scaled {
+                    rb.set_scale(1e-4).unwrap();
+                    rb.set_offset(-0.1).unwrap();
+                }
+                let mut buf = gdal::raster::Buffer::new((w, h), vec![v; w * h]);
+                rb.write((0, 0), (w, h), &mut buf).unwrap();
+            }
+            p.to_string_lossy().into_owned()
+        };
+        let open = |files: &[String], qa: bool| {
+            let mut info = janus_cube::open_cube(files, &Default::default()).unwrap();
+            if qa {
+                info.sel.qa_band = 4;
+                info.sel.qa_rule = janus_cube::QaRule::Scl;
+            }
+            Arc::new(info)
+        };
+        let names = ["S2A_MSIL2A_20230110.tif", "S2A_MSIL2A_20230130.tif"];
+        let scaled: Vec<String> = names.iter().map(|n| mk("scaled", n, 1138, true)).collect();
+        assert_eq!(guess_factor(&open(&scaled, false)), 1.0);
+        assert_eq!(guess_factor(&open(&scaled, true)), 1.0);
+        let raw: Vec<String> = names.iter().map(|n| mk("raw", n, 1138, false)).collect();
+        assert_eq!(guess_factor(&open(&raw, true)), 10000.0);
+        // nothing but no data in the window
+        let empty: Vec<String> = names.iter().map(|n| mk("empty", n, 0, true)).collect();
+        assert_eq!(guess_factor(&open(&empty, false)), 1.0);
+        let empty_raw: Vec<String> = names.iter().map(|n| mk("empty_raw", n, 0, false)).collect();
+        assert_eq!(guess_factor(&open(&empty_raw, false)), 10000.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A Sentinel-2A series (reflectance x 10000) joined with a Landsat 8 one: the Sentinel-2 dates through HLS's
