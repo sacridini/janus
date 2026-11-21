@@ -340,7 +340,10 @@ fn layer_reference(
         }
         let id = SCRATCH.fetch_add(1, Ordering::Relaxed);
         let tag = format!("{}_{id}", std::process::id());
-        let one = format!("/vsimem/janus_coreg_ref_{tag}.vrt");
+        // the VRT on disk: a /vsimem/ file made from a Rust buffer would be freed by GDAL with the C runtime's free,
+        // which corrupts the heap of janus.exe (mimalloc)
+        let one_file = std::env::temp_dir().join(format!("janus_coreg_ref_{tag}.vrt"));
+        let one = one_file.to_string_lossy().into_owned();
         let out = format!("/vsimem/janus_coreg_ref_{tag}.tif");
         let band_in = VBand { file: path, band: d, name: String::new(), nodata_nan: true };
         write_vrt(&one, &VrtGrid { w: sw, h: sh, wkt: &wkt, gt: Some(gt), gcps: &[] }, &[band_in], [0, 0, sw, sh])?;
@@ -354,7 +357,7 @@ fn layer_reference(
             ..Default::default()
         };
         let done = warp::warp(&one, &out, &opts, &|_| !cancel.load(Ordering::Relaxed));
-        let _ = gdal::vsi::unlink_mem_file(&one);
+        let _ = std::fs::remove_file(&one_file);
         done.map_err(|e| format!("the reference layer: {e}"))?;
         let ds = Dataset::open(&out).map_err(|e| format!("{out}: {e}"))?;
         let v = crate::job::read(&ds, 1..=1, 0, 0, w, h, false)?;
@@ -451,8 +454,9 @@ fn num(v: f64) -> String {
     format!("{v:?}")
 }
 
-/// Writes (or, under /vsimem/, makes) a VRT of Float32 bands, each a SimpleSource over `rect` (x, y, w, h) of its
-/// file, laid on the whole VRT.
+/// Writes a VRT of Float32 bands, each a SimpleSource over `rect` (x, y, w, h) of its file, laid on the whole VRT.
+/// Never under /vsimem/ from a Rust buffer (GDAL would free it with the C runtime's free: heap corruption under
+/// mimalloc).
 fn write_vrt(path: &str, grid: &VrtGrid, bands: &[VBand], rect: [usize; 4]) -> Result<(), String> {
     let mut x = format!("<VRTDataset rasterXSize=\"{}\" rasterYSize=\"{}\">\n", grid.w, grid.h);
     if let Some(g) = grid.gt {
@@ -495,11 +499,7 @@ fn write_vrt(path: &str, grid: &VrtGrid, bands: &[VBand], rect: [usize; 4]) -> R
         x += "  </VRTRasterBand>\n";
     }
     x += "</VRTDataset>\n";
-    if path.starts_with("/vsimem/") {
-        gdal::vsi::create_mem_file(path, x.into_bytes()).map_err(|e| format!("{path}: {e}"))
-    } else {
-        std::fs::write(path, x).map_err(|e| format!("{path}: {e}"))
-    }
+    std::fs::write(path, x).map_err(|e| format!("{path}: {e}"))
 }
 
 /// (file, band) of each band of a file.
