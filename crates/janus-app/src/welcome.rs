@@ -70,8 +70,8 @@ const TOOL_METHODS: &[(&str, &str)] = &[
     ("polar_metrics", "polar-phenology"),
 ];
 
-/// The page (and the section) of the tools of Janus itself, and of the Zeit tools that are not methods of the list
-/// (the Analysis-ready data steps).
+/// The page (and the section) of the tools of Janus itself, and of the Zeit tools whose guide is not the one of their
+/// method (the data-preparation tools: their sections of the Data preparation guide).
 pub const NATIVE_PAGES: &[(&str, &str)] = &[
     ("calculator", "calculator.html"),
     ("validation", "validation.html"),
@@ -92,10 +92,19 @@ pub const NATIVE_PAGES: &[(&str, &str)] = &[
     ("unmixing", "unmixing.html"),
     ("tsa", "docs-usage.html#time-series-analysis-force"),
     ("ard", "docs-usage.html#analysis-ready-data-force"),
-    ("regularize", "series.html"),
-    ("speckle", "series.html"),
-    ("harmonize", "stac.html"),
-    ("warp", "series.html"),
+    ("level2", "data-preparation.html#level2"),
+    ("tmask", "data-preparation.html#tmask"),
+    ("clear_observations", "data-preparation.html#clear-observations"),
+    ("nbar", "data-preparation.html#nbar"),
+    ("spectral_adjust", "data-preparation.html#spectral-adjust"),
+    ("harmonize", "data-preparation.html#harmonize"),
+    ("improphe", "data-preparation.html#improphe"),
+    ("interpolate", "data-preparation.html#interpolate"),
+    ("smooth", "data-preparation.html#smoothing"),
+    ("standardize", "data-preparation.html#standardize"),
+    ("regularize", "data-preparation.html#regularize"),
+    ("speckle", "data-preparation.html#speckle"),
+    ("warp", "data-preparation.html#warp"),
     ("build", "series.html"),
     ("save", "series.html"),
     ("rasterize", "maps-to-numbers.html"),
@@ -103,10 +112,6 @@ pub const NATIVE_PAGES: &[(&str, &str)] = &[
     ("zonal", "maps-to-numbers.html"),
     ("profiles", "maps-to-numbers.html"),
     ("tasseled_cap", "docs-usage.html#analysis-ready-data-force"),
-    ("spectral_adjust", "docs-usage.html#analysis-ready-data-force"),
-    ("nbar", "docs-usage.html#analysis-ready-data-force"),
-    ("improphe", "docs-usage.html#analysis-ready-data-force"),
-    ("level2", "docs-usage.html#analysis-ready-data-force"),
 ];
 
 #[derive(Deserialize)]
@@ -1004,7 +1009,31 @@ mod tests {
         // BFAST Lite shares the BFAST page
         assert_eq!(guide_url("bfast_lite").unwrap(), "https://sacridini.github.io/janus/bfast.html");
         // a method with no page of its own: its place in the list of methods
-        assert_eq!(guide_url("tmask").unwrap(), "https://sacridini.github.io/janus/methods.html#tmask");
+        assert_eq!(guide_url("texture").unwrap(), "https://sacridini.github.io/janus/methods.html#texture");
+        // the data-preparation tools: their sections of the Data preparation guide
+        for (tool, section) in [
+            ("level2", "level2"),
+            ("tmask", "tmask"),
+            ("clear_observations", "clear-observations"),
+            ("nbar", "nbar"),
+            ("spectral_adjust", "spectral-adjust"),
+            ("harmonize", "harmonize"),
+            ("topocorr", "topographic-correction"),
+            ("coregister", "co-registration"),
+            ("improphe", "improphe"),
+            ("interpolate", "interpolate"),
+            ("smooth", "smoothing"),
+            ("standardize", "standardize"),
+            ("regularize", "regularize"),
+            ("speckle", "speckle"),
+            ("warp", "warp"),
+        ] {
+            assert_eq!(
+                guide_url(tool).unwrap(),
+                format!("https://sacridini.github.io/janus/data-preparation.html#{section}"),
+                "{tool}"
+            );
+        }
         assert_eq!(guide_url("calculator").unwrap(), "https://sacridini.github.io/janus/calculator.html");
         assert_eq!(
             guide_url("ard").unwrap(),

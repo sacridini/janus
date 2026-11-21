@@ -31,7 +31,7 @@ pub const BOA_NODATA: i16 = -9999;
 /// The no-data value of the TOA reflectance the merge writes.
 pub const TOA_NODATA: i16 = -9999;
 /// The `provenance` attribute (`_PROVENANCE`).
-pub const PROVENANCE: &str = "Sentinel-2 L1C to Level 2: the atmospheric correction of FORCE's force-l2ps (Frantz 2019, Remote Sensing 11:1124; FORCE 3.11.00, David Frantz, GPL-3.0-or-later) ported to the Zeit core, with the cloud, shadow, snow and water flags of Zeit's Fmask 4.7 port (Qiu, Zhu and Woodcock 2019, Remote Sensing of Environment 231:111205) unless flags were given or the Fmask was switched off";
+pub const PROVENANCE: &str = "Sentinel-2 L1C to Level 2: the atmospheric correction of FORCE's force-l2ps (Frantz 2019, Remote Sensing 11:1124; FORCE 3.11.00, David Frantz, GPL-3.0-or-later) ported to the Zeit core, with the cloud, shadow, snow and water flags of Zeit's Fmask 4.7 port (Qiu, Zhu and He 2019, Remote Sensing of Environment 231:111205) unless flags were given or the Fmask was switched off";
 
 /// The names of the domains of the nine bands of the merge: the ones that predict (green, red, broad NIR) and the six
 /// predicted (`_MERGE_ROLES`).

@@ -33,6 +33,8 @@ pub enum Target {
     Area(&'static str),
     /// two panels' places and what is between them
     Union(Tab, Tab),
+    /// a menu open with its submenus: its title and every popup shown
+    Menus(Rect),
 }
 
 /// A file of a screenshot: the whole window, a rectangle of it (pixels), or a panel that was not there.
@@ -94,6 +96,8 @@ pub struct Shots {
     pub(crate) val: crate::shots_validation::ValShots,
     pub(crate) tune: crate::shots_tune::TuneShots,
     pub(crate) eof: crate::shots_eof::EofShots,
+    pub(crate) envi: crate::shots_envi::EnviShots,
+    pub(crate) dataprep: crate::shots_dataprep::DataprepShots,
     /// the chart shows these years only (decimal years)
     pub(crate) chart_years: Option<(f64, f64)>,
     /// the stage whose summary was printed (shots_ml.rs)
@@ -302,6 +306,8 @@ impl State {
             "alerts" => self.shots_alerts(sh, ctx),
             "tune" => self.shots_tune(sh, ctx),
             "eof" => self.shots_eof(sh, ctx),
+            "envi" => self.shots_envi(sh, ctx),
+            "dataprep" => self.shots_dataprep(sh, ctx),
             "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
             "clip-explore" | "clip-detect" => self.shots_clips(sh, ctx),
@@ -1370,6 +1376,15 @@ impl JanusApp {
                 .filter_map(|l| m.area_rect(l.id))
                 .collect()
         });
+        // the menus and submenus open: popups, which are drawn above the windows
+        let popups: Vec<Rect> = ctx.memory(|m| {
+            m.areas()
+                .visible_layer_ids()
+                .into_iter()
+                .filter(|l| l.order == Order::Foreground)
+                .filter_map(|l| m.area_rect(l.id))
+                .collect()
+        });
         for (suffix, t) in crops {
             let file = if name == "-" { format!("{suffix}.png") } else { format!("{name}-{suffix}.png") };
             let r = match t {
@@ -1383,6 +1398,16 @@ impl JanusApp {
                     (Some(a), Some(b)) => Some(a.union(*b)),
                     _ => None,
                 },
+                Target::Menus(title) => sh.popup.map(|p| {
+                    let mut r = title.union(p.expand(6.0));
+                    for l in &popups {
+                        r = r.union(*l);
+                    }
+                    for t in &tooltips {
+                        r = r.union(*t);
+                    }
+                    r.expand(12.0)
+                }),
                 Target::Menu(title) => sh.popup.map(|p| {
                     let mut r = title.union(p.expand(6.0));
                     for t in &tooltips {

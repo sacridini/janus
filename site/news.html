@@ -50,14 +50,34 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.21.1; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.23.0; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.23.0">
+      <h2><a href="#v1.23.0">1.23.0</a><time datetime="2026-11-21">2026-11-21</time> <span class="rel-new">Latest</span></h2>
+      <ul>
+        <li>Save figure as on screen by default (the panel at its size on screen, drawn by the GPU at 1x to 4x, the SVG of the same shapes; the publication look in mm kept as an option)</li>
+        <li>the menu bar's menus switch on hover once one is open</li>
+        <li>detached windows remember their place and size between runs</li>
+        <li>the lagged correlation's driver CSV names its column (the EOF tool's pcs.csv gave the year column)</li>
+      </ul>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.23.0">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.22.1">
+      <h2><a href="#v1.22.1">1.22.1</a><time datetime="2026-11-21">2026-11-21</time></h2>
+      <p>the binaries of 1.22.0, whose build stopped at the Zeit tools' self-test on the three systems: the topographic correction and the radiometric normalization left out of it (each date's sun from the scenes' metadata and a downloaded elevation model; invariant pixels between two dates), the outputs the MNF, CVA, iMAD and omnibus decide from the data accepted as the manifest declares them</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.22.1">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.22.0">
+      <h2><a href="#v1.22.0">1.22.0</a><time datetime="2026-11-21">2026-11-21</time></h2>
+      <p>the ENVI tools of change (MNF, CVA, iMAD, the radiometric normalization, Sentinel-1's omnibus change test, guide envi.html), and in Tools &gt; Data preparation the topographic correction (each date's sun, the Copernicus DEM) and the co-registration of dates (AROSICS, global or by tie points; a date, the median or another layer as the reference), guide data-preparation.html</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.22.0">Release page on GitHub</a></p>
+    </section>
     <section id="v1.21.1">
-      <h2><a href="#v1.21.1">1.21.1</a><time datetime="2026-11-20">2026-11-20</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.21.1">1.21.1</a><time datetime="2026-11-20">2026-11-20</time></h2>
       <p>every window can leave the main one for a window of its own (another screen): Detach / Back to main window at the top of its content, closing the OS window brings it back (31 windows and 7 dialogs, the Raster calculator included; short prompts stay in the main window); the clippy fix that kept 1.21.0's binaries from being built</p>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.21.1">Release page on GitHub</a></p>
     </section>
@@ -145,39 +165,42 @@
       <p>the deep learning guide's screenshots taken again with the networks written from their authors (TempCNN: Adam 1e-3, batches of 32; L-TAE: 100 epochs, the best kept), on the whole Landsat stack of Rondonia (1690 x 1675, 125 dates) with MapBiomas 2022's samples; the U-TAE paragraph with this run's figures (95.7% of the labelled pixels after 20 epochs, about 50 minutes, water's user's accuracy 36%)</p>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.15.2">Release page on GitHub</a></p>
     </section>
-    <section id="v1.15.1">
-      <h2><a href="#v1.15.1">1.15.1</a><time datetime="2026-11-06">2026-11-06</time></h2>
-      <p>1.15.0 (GPL-3.0-or-later with Zeit 3.0.0; the parts from GPL-2.0-only code rewritten from the papers; TempCNN and L-TAE as their authors built them) with janus-ml's new networks formatted and clippy's two findings fixed (its tag failed on cargo fmt --check)</p>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.15.1">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.15.0">
-      <h2><a href="#v1.15.0">1.15.0</a><time datetime="2026-11-06">2026-11-06</time></h2>
-      <ul>
-        <li>GPL-3.0-or-later, with Zeit 3.0.0. What came from GPL-2.0-only code was rewritten from the papers without reading it: zeit-core's CCDC lasso (GLMnet), phenology (phenofit), Bayesian smoothing of probabilities (sits) and QA weights</li>
-        <li>janus-ml's TempCNN and L-TAE (sits' layers) now as their authors built them (Pelletier et al. 2019, GPL-3 code; Garnot &amp; Landrieu 2020, MIT code), trained with the authors' optimizer (Adam 1e-3) and batch sizes</li>
-        <li>against sits' samples (3 seeds) TempCNN 0.877 / 0.823 and L-TAE 0.888 / 0.833 (MODIS NDVI / Rondonia) against sits' 0.870 / 0.698 and 0.873 / 0.229. TempCNN and L-TAE models of earlier versions are refused ("train it again")</li>
-        <li>Random Forest, U-TAE and Presto models open as before. The phenology more accurate against the truth (start of season p90 10.7 -&gt; 4.1 days, Beck) and 2-5x faster for Gu and Klosterman</li>
-        <li>CCDC's break dates exact against the MATLAB, its coefficients within tolerances. The bridge fixtures of CCDC and phenology written again with Zeit 3.0.0</li>
-        <li>LICENSE, About, notices, README, docs and the website updated</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.15.0">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.14.0">
-      <h2><a href="#v1.14.0">1.14.0</a><time datetime="2026-11-04">2026-11-04</time></h2>
-      <ul>
-        <li>real Python scripts for polygonize, zonal statistics, regularize, the calculator and building a series</li>
-        <li>alerts against maps of dates from disk</li>
-        <li>ROI and profiles as shapefiles</li>
-        <li>features found by their labels in the palette</li>
-        <li>large vector layers with 43% less memory</li>
-        <li>web layers: WFS read with the window's capabilities (IBGE 3.7 -&gt; 1.4 s), WMTS checked live (vector tiles and undeclared dimensions fixed), GetFeatureInfo (Map info) and projects with web layers opened again</li>
-        <li>the full-resolution cache of pixel-interleaved stacks built block by block (CCDC: 125 dates in 7 s instead of hours)</li>
-        <li>a release no longer waits for macOS</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.14.0">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.15.1"><summary><span class="rv">1.15.1</span><time datetime="2026-11-06">2026-11-06</time><span class="rs">1.15.0 (GPL-3.0-or-later with Zeit 3.0.0; the parts from GPL-2.0-only code rewritten from the papers…</span></summary>
+        <div class="rel-body">
+          <p>1.15.0 (GPL-3.0-or-later with Zeit 3.0.0; the parts from GPL-2.0-only code rewritten from the papers; TempCNN and L-TAE as their authors built them) with janus-ml's new networks formatted and clippy's two findings fixed (its tag failed on cargo fmt --check)</p>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.15.1">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.15.0"><summary><span class="rv">1.15.0</span><time datetime="2026-11-06">2026-11-06</time><span class="rs">GPL-3.0-or-later, with Zeit 3.0.0. What came from GPL-2.0-only code was rewritten from the papers without…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>GPL-3.0-or-later, with Zeit 3.0.0. What came from GPL-2.0-only code was rewritten from the papers without reading it: zeit-core's CCDC lasso (GLMnet), phenology (phenofit), Bayesian smoothing of probabilities (sits) and QA weights</li>
+            <li>janus-ml's TempCNN and L-TAE (sits' layers) now as their authors built them (Pelletier et al. 2019, GPL-3 code; Garnot &amp; Landrieu 2020, MIT code), trained with the authors' optimizer (Adam 1e-3) and batch sizes</li>
+            <li>against sits' samples (3 seeds) TempCNN 0.877 / 0.823 and L-TAE 0.888 / 0.833 (MODIS NDVI / Rondonia) against sits' 0.870 / 0.698 and 0.873 / 0.229. TempCNN and L-TAE models of earlier versions are refused ("train it again")</li>
+            <li>Random Forest, U-TAE and Presto models open as before. The phenology more accurate against the truth (start of season p90 10.7 -&gt; 4.1 days, Beck) and 2-5x faster for Gu and Klosterman</li>
+            <li>CCDC's break dates exact against the MATLAB, its coefficients within tolerances. The bridge fixtures of CCDC and phenology written again with Zeit 3.0.0</li>
+            <li>LICENSE, About, notices, README, docs and the website updated</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.15.0">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.14.0"><summary><span class="rv">1.14.0</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">real Python scripts for polygonize, zonal statistics, regularize, the calculator and building a series</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>real Python scripts for polygonize, zonal statistics, regularize, the calculator and building a series</li>
+            <li>alerts against maps of dates from disk</li>
+            <li>ROI and profiles as shapefiles</li>
+            <li>features found by their labels in the palette</li>
+            <li>large vector layers with 43% less memory</li>
+            <li>web layers: WFS read with the window's capabilities (IBGE 3.7 -&gt; 1.4 s), WMTS checked live (vector tiles and undeclared dimensions fixed), GetFeatureInfo (Map info) and projects with web layers opened again</li>
+            <li>the full-resolution cache of pixel-interleaved stacks built block by block (CCDC: 125 dates in 7 s instead of hours)</li>
+            <li>a release no longer waits for macOS</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.14.0">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.13.0"><summary><span class="rv">1.13.0</span><time datetime="2026-11-04">2026-11-04</time><span class="rs">official alerts (DETER, GLAD-L, GLAD-S2, RADD and GFW's integrated alerts against a run's map of change…</span></summary>
         <div class="rel-body">
           <ul>

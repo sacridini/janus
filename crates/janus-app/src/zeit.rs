@@ -800,7 +800,7 @@ impl State {
                 || classification && (self.ml.open || self.fields.show)
                 || preparation && (self.reg.show || self.speckle.show || self.harmonize.show || self.warp.show);
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
-            ui.menu_button(label, |ui| {
+            let sub = ui.menu_button(label, |ui| {
                 for t in tools {
                     // TWDTW, SOM and k-means: methods of the Classification window
                     let method = crate::methods::Kind::of_tool(&t.id);
@@ -832,6 +832,9 @@ impl State {
                     self.fields_menu(ui);
                 }
             });
+            if preparation {
+                self.shots_menu("Data preparation", sub.response.rect, None);
+            }
         }
         ui.separator();
         self.ard_menu(ui);

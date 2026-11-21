@@ -176,7 +176,7 @@
     "label": "Multiband images, radar series",
     "summary": "The minimum noise fraction transform to denoise and reduce a multiband image, change vector analysis and iMAD to map the change between two dates, the radiometric normalization by invariant pixels that puts one date on the scale of another, and the omnibus test that dates the changes of a Sentinel-1 series.",
     "track": "change",
-    "minutes": 26,
+    "minutes": 33,
     "data": null,
     "learn": [
       "The five tools",
@@ -184,24 +184,25 @@
       "Change vector analysis",
       "iMAD"
     ],
-    "figures": 0,
-    "thumb": null
+    "figures": 19,
+    "thumb": "assets/img/envi/01-landsat-series.jpg"
   },
   {
     "slug": "data-preparation",
-    "title": "Data preparation: topographic correction and co-registration",
-    "label": "Surface reflectance, relief, dates",
-    "summary": "Take the relief's illumination out of surface reflectance with the C-correction or SCS+C: the Copernicus DEM for the series' extent, the sun of each date from its files, and a check of the correlation with the illumination before and after; and move every date of a series onto a reference, whole or by a grid of tie points (AROSICS), with the shifts, the arrows on the map and the corrected series.",
+    "title": "Data preparation: every tool of the menu",
+    "label": "Reflectance, clouds, dates, grid",
+    "summary": "The sixteen tools of the Data preparation menu in the order one prepares a series: Level 1C to surface reflectance, Tmask and clear-sky observations, NBAR, the spectral adjustment, harmonizing sensors, the topographic correction, the radiometric normalization, the co-registration of dates, reprojection, interpolation, regularizing, smoothing, standardizing, the radar speckle filter and ImproPhe, each with its method, parameters, outputs and Python.",
     "track": "data",
-    "minutes": 23,
+    "minutes": 86,
     "data": null,
     "learn": [
-      "Topographic correction",
-      "Co-registration of dates",
-      "Cloud detection"
+      "From Level 1 to surface reflectance",
+      "Clouds",
+      "Radiometric consistency",
+      "Geometry"
     ],
-    "figures": 0,
-    "thumb": null
+    "figures": 11,
+    "thumb": "assets/img/data-preparation/dp-14-topocorr-ridge.jpg"
   },
   {
     "slug": "unmixing",

@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Data preparation: topographic correction, co-registration and cloud detection · Janus</title>
-<meta name="description" content="A guide to the data-preparation tools of Janus: the topographic correction of reflectance (the C-correction and SCS+C) with the Copernicus DEM, with its parameters, outputs, Python equivalent and the licence of the elevation model; the co-registration of the dates of a series to a reference, global or by a grid of tie points (AROSICS), with the shifts, the arrows on the map and the corrected series; cloud detection is coming.">
+<title>Data preparation: every tool of the menu, from Level 1C to a regular series · Janus</title>
+<meta name="description" content="A guide to the sixteen tools of Janus' Tools → Data preparation menu, in the order one prepares a series: Level 1C to surface reflectance (FORCE), Tmask and clear-sky observations, NBAR, the spectral adjustment, harmonizing sensors, the topographic correction, the radiometric normalization, the co-registration of dates, reprojection, interpolation, regularizing, smoothing, standardizing, the radar speckle filter and ImproPhe, each with its method, parameters, outputs, how to read them and its Python equivalent.">
 <meta name="theme-color" content="#0F0F0F">
 <link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
 <link rel="icon" href="favicon.ico?v=4" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Data preparation: topographic correction, co-registration and cloud detection · Janus">
-<meta property="og:description" content="Take the relief's illumination out of surface reflectance with the C-correction or SCS+C, with the Copernicus DEM read for the series' extent and the sun of each date found from its files.">
+<meta property="og:title" content="Data preparation: every tool of the menu, from Level 1C to a regular series · Janus">
+<meta property="og:description" content="Sixteen tools to put a series in order before it is analysed: surface reflectance, clouds, the sun and the sensor taken out of the numbers, the relief, the grid, the dates, radar speckle and resolution, with what each does, its parameters and how to read what it writes.">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
@@ -47,9 +47,9 @@
 <section class="guide-hero">
   <div class="wrap">
     <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Data preparation</p>
-    <p class="eyebrow">Data preparation · surface reflectance</p>
+    <p class="eyebrow">Data preparation · from Level 1C to a regular series</p>
     <h1>Data preparation.</h1>
-    <p class="lede">Three tools put a series in order before it is analysed. The first two are here: the <span class="ui">topographic correction</span> takes the relief's illumination out of surface reflectance, so that two slopes of the same forest, one facing the sun and one facing away, look alike, and the <span class="ui">co-registration</span> moves each date onto a reference, so that a field edge is on the same pixels on every date. The detection of clouds without a quality band is coming and has its place below. This guide says what each tool does, where it is, what its parameters mean and how to read what it writes.</p>
+    <p class="lede">A series is rarely ready to analyse: the clouds the quality band missed, the sun and the sensor in the numbers, the relief's light, a scene a pixel off, dates where the sky was clear and not on a step, a radar image full of grain. <span class="ui">Tools → Data preparation</span> has sixteen tools for these, and this guide covers every one in the order one uses them: from Level 1C to surface reflectance, the clouds, the radiometric consistency of the dates (NBAR, the spectral adjustment, harmonizing sensors, the topographic correction, the radiometric normalization), the geometry, the time, radar and resolution. For each it says what problem it solves, how it works, where it is, what its parameters mean, what it writes and how to read it, and the Python that does the same.</p>
   </div>
 </section>
 
@@ -58,28 +58,340 @@
   <nav class="toc" aria-label="On this page">
     <p>On this page</p>
     <ol>
-      <li><a href="#topographic-correction">Topographic correction</a></li>
-      <li><a href="#co-registration">Co-registration of dates</a></li>
-      <li><a href="#cloud-mask">Cloud detection</a></li>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#level-1">From Level 1 to surface reflectance</a></li>
+      <li><a href="#clouds">Clouds</a></li>
+      <li><a href="#radiometry">Radiometric consistency</a></li>
+      <li><a href="#geometry">Geometry</a></li>
+      <li><a href="#time">Time</a></li>
+      <li><a href="#radar">Radar</a></li>
+      <li><a href="#resolution">Resolution</a></li>
+      <li><a href="#next">What next</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
   </nav>
 
   <article class="article">
 
-    <section id="topographic-correction">
-      <h2><span class="n">01</span>Topographic correction</h2>
-      <p>In rough terrain the same cover does not give the same reflectance everywhere. A slope that faces the sun receives more light than the flat ground, and a slope that faces away receives less, so a forest looks bright on one side of a ridge and dark on the other, and a classifier or a change detector reads the shadow of the relief as a difference in the land. The correction here estimates, for each band of each date, how much of the reflectance follows the illumination, and divides it out. It is the one a user of Landsat, Sentinel-2 or HLS reflectance needs when the area has relief and the dates differ in sun, as dates of different seasons do.</p>
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>Surface reflectance from an archive is not yet a series ready to analyse. A date can still hold haze or a cloud the quality band missed. The same forest looks different under another sun or from the other side of the orbit. A Landsat date and a Sentinel-2 date of one field do not measure the same bands, and one scene can sit a pixel away from its neighbours. The dates come where the sky was clear and not every 16 days, and a radar image is grainy. Each of these makes a change detector or a classifier report something that is in the data and not on the ground. <span class="ui">Tools &rarr; Data preparation</span> has a tool for each, sixteen in all. This page puts them in the order someone prepares a series, and says what each one does, where it is, what its parameters mean and how to read what it writes.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-01-menu.png"><img src="assets/img/data-preparation/dp-01-menu.png" alt="The Tools menu open on Data preparation: its submenu lists Smoothing, Tmask (cloud screening), Interpolate (regular grid), Standardize (FORCE), Clear-sky observations (FORCE CSO), Spectral adjustment to Sentinel-2A (FORCE), NBAR (c-factor), Topographic correction (C, SCS+C), Co-register dates (AROSICS), ImproPhe (FORCE), Level 1C to surface reflectance (FORCE) and Radiometric normalization (iMAD invariant pixels), a separator, then Regularize series, Speckle filter, Harmonize sensors and Reproject, resample, clip; the other entries of the Tools menu are on its left." width="599" height="498" loading="lazy"></a>
+        <figcaption><b>The menu.</b> <span class="ui">Tools &rarr; Data preparation</span> with its sixteen entries: the twelve of Zeit in the order of the menu, then, after the separator, the four of Janus itself.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Group</th><th>Menu entry</th><th>What it fixes</th></tr></thead>
+          <tbody>
+            <tr><td>Level 1</td><td><a href="#level2">Level 1C to surface reflectance (FORCE)</a></td><td>Sentinel-2 top-of-atmosphere reflectance taken to surface reflectance, with the cloud, shadow, snow and water flags.</td></tr>
+            <tr><td rowspan="3">Clouds</td><td><a href="#tmask">Tmask (cloud screening)</a></td><td>Clouds and shadows the quality band missed, found from each pixel's own series.</td></tr>
+            <tr><td><a href="#clear-observations">Clear-sky observations (FORCE CSO)</a></td><td>How many valid observations each pixel has in each window of months, and the gaps between them.</td></tr>
+            <tr><td><a href="#cloud-mask">Cloud detection</a></td><td>Coming: clouds, shadows and snow for a series without a quality band.</td></tr>
+            <tr><td rowspan="5">Radiometric consistency</td><td><a href="#nbar">NBAR (c-factor)</a></td><td>The sun and view angles of each date taken out of the reflectance.</td></tr>
+            <tr><td><a href="#spectral-adjust">Spectral adjustment to Sentinel-2A (FORCE)</a></td><td>Landsat and MODIS bands taken to Sentinel-2A's, red edge included.</td></tr>
+            <tr><td><a href="#harmonize">Harmonize sensors</a></td><td>Sentinel-2 taken to Landsat 8's bands, so that a mixed series has no step where the sensor changes.</td></tr>
+            <tr><td><a href="#topographic-correction">Topographic correction (C, SCS+C)</a></td><td>The illumination of the relief.</td></tr>
+            <tr><td><a href="#radcal">Radiometric normalization (iMAD invariant pixels)</a></td><td>The dates put on the scale of a reference date, by the pixels that did not change.</td></tr>
+            <tr><td rowspan="2">Geometry</td><td><a href="#co-registration">Co-register dates (AROSICS)</a></td><td>Dates a pixel or less away from their reference.</td></tr>
+            <tr><td><a href="#warp">Reproject, resample, clip</a></td><td>Another CRS, pixel size or grid, or only an area.</td></tr>
+            <tr><td rowspan="4">Time</td><td><a href="#interpolate">Interpolate (regular grid)</a></td><td>Each pixel's series on a regular grid of dates, with the gaps filled by a model.</td></tr>
+            <tr><td><a href="#regularize">Regularize series</a></td><td>One composite per period of a fixed step.</td></tr>
+            <tr><td><a href="#smoothing">Smoothing</a></td><td>The noise of a series, drawn on the chart.</td></tr>
+            <tr><td><a href="#standardize">Standardize (FORCE)</a></td><td>Every series on one scale: minus its mean, or also over its standard deviation.</td></tr>
+            <tr><td>Radar</td><td><a href="#speckle">Speckle filter</a></td><td>The grain of a radar image.</td></tr>
+            <tr><td>Resolution</td><td><a href="#improphe">ImproPhe (FORCE)</a></td><td>A coarse series sharpened to the pixels of a finer one.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The menu does not follow this order: it lists the Zeit tools first (Smoothing, Tmask, Interpolate, Standardize, Clear-sky observations, the spectral adjustment, NBAR, the topographic correction, the co-registration, ImproPhe, Level 1C, the radiometric normalization), then a separator, then Janus' own four (Regularize series, Speckle filter, Harmonize sensors, Reproject, resample, clip). The order of use for an optical series is the one of the table: bring the scenes to surface reflectance, take out the clouds, make the dates comparable in light and band, put them on one grid, and last make the time regular. Not every series needs every step. A Sentinel-2 L2A or a Landsat Collection 2 series from a catalogue is already at surface reflectance and has a quality band, and often needs only a few of them.</p>
+      <p><strong>How a Zeit tool's window works.</strong> The tools of Zeit share one window, with the same parts:</p>
+      <ul>
+        <li><strong>Bands</strong>, for the tools that read several: which band of each date plays which role (<code>green</code>, <code>nir</code>, <code>swir1</code>...). The quality band is set in the Display panel.</li>
+        <li><strong>Parameters</strong>, with the defaults of the tables below and a <span class="ui">Reset to defaults</span> button. The <span class="ui">?</span> button at the top opens this page at the tool's section where the tool has one.</li>
+        <li><strong>On the chart</strong>, for the tools that have a pixel mode: the tool is fitted on the series of the cursor, the pins and the ROI and drawn over them.</li>
+        <li><strong>Run on the raster</strong>: the scope (<span class="ui">Whole image</span>, <span class="ui">Visible area</span> or <span class="ui">ROI</span>), the output folder, the threads, <span class="ui">Run</span>, and <span class="ui">Preview</span> and <span class="ui">Auto-preview</span> on the ROI or the centre of the view before the whole scene.</li>
+      </ul>
+      <p>A run is a task (<span class="ui">Tools &rarr; Tasks</span>) in a folder of its own, named after the layer, the tool and the time. It holds <code>job.json</code>, <code>job.log</code>, <code>provenance.json</code>, <code>rerun.py</code> (the Zeit script of the run, the same one <span class="ui">Copy Python</span> gives) and the maps, as tiled, compressed GeoTIFFs named after the tool and the output, with one band for each date where the output is a series. The results open as new layers. Copy Python leaves out the arguments that are Zeit's own defaults and adds <code>nodata=None</code> and <code>n_jobs=1</code>, which make the call what Janus ran; the snippets below write the arguments that teach and leave those two out.</p>
+      <p>Two chains in the Tools menu run several of these steps in one task: <span class="ui">Analysis-ready data (FORCE)</span> runs NBAR, the spectral adjustment, Tasseled Cap and ImproPhe, and <span class="ui">Time series analysis (FORCE)</span> the clear-sky observations, the interpolation, the standardization, the metrics and the trends (<a href="docs-usage.html#analysis-ready-data-force">Analysis-ready data</a> and <a href="docs-usage.html#time-series-analysis-force">Time series analysis</a> in the usage reference). Building a series from loose files and saving it are in <a href="series.html">Series</a>.</p>
+    </section>
+
+    <section id="level-1">
+      <h2><span class="n">02</span>From Level 1 to surface reflectance</h2>
+
+      <h3 id="level2">Level 1C to surface reflectance (FORCE)</h3>
+      <p>A Sentinel-2 Level 1C product is reflectance at the top of the atmosphere: what the sensor saw, with the air still in it. On a hazy day the blue of a forest is higher than on a clear one, the water vapour changes the SWIR, and the light scattered from a bright field next door lifts the pixels beside it. Two such scenes cannot be compared band by band, and the Level 1C has no flags for the clouds, the shadows and the snow. This tool takes a product to <strong>surface reflectance</strong> and writes the flags with it, so that what follows (the series of a tile, a change detector) reads the land and not the air.</p>
+      <p><strong>How it works.</strong> It is the Level 2 processor of FORCE (<code>force-l2ps</code>, Frantz 2019; FORCE is by David Frantz) as run in the Zeit core, <code>zeit.level2</code>, one scene at a time. The top-of-atmosphere reflectance is corrected for the gases and the water vapour, for the aerosols (the optical depth is estimated from the dark targets of the scene: dense vegetation, water and shadow), for the adjacency effect, for the topography (with a digital elevation model) and for the BRDF (the reflectance brought to nadir view and the scene's own sun, with the c-factor of the <a href="#nbar">NBAR</a> tool). The cloud, shadow, snow and water flags come from Zeit's port of the Fmask (version 4.7 of the code; Qiu, Zhu and He 2019 describe Fmask 4.0). Everything is written on the scene's 10 m grid.</p>
+      <p>What is and what is not FORCE's. Given FORCE's own cloud flags, sun, geography and BRDF factor, every product of <code>zeit.level2</code> equals that of <code>force-l2ps</code> in every pixel, in the three runs Zeit compared. The tool does not take those from FORCE: the clouds are Zeit's Fmask, the sun is Zeit's own and the BRDF factor is the c-factor of NBAR, so with them it differs a little. On tile 23LKC (2023), Zeit's Fmask marks 19.93 % of the pixels as cloud or shadow against 19.70 % in FORCE's and agrees with it in 98.12 % of them; the shadow is what diverges. The details and the comparison with the Level 2A of ESA are in Zeit's tutorial <em>Sentinel-2 Level 1C to Surface Reflectance</em> and its page of comparisons with the original implementations. It is for Sentinel-2 Level 1C only.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Level 1C to surface reflectance (FORCE)</span>. It needs <strong>no open series</strong>: its input is a folder, either a <code>.SAFE</code> product (JPEG 2000 or GeoTIFF bands) or a folder that holds <code>.SAFE</code> folders. Each product is processed in turn, in the order of its name and never two at once. It needs a <strong>digital elevation model</strong> (elevations in metres, any grid and CRS, put on the scene's 10 m grid by bilinear resampling) because the topographic correction is on by default: with it on and no DEM the run is refused and says so. Switch the topographic correction off, or choose a DEM, as the Copernicus GLO-30 clipped to the tile. There is no window, scope or preview: a scene is processed whole.</p>
+      <p>A scene needs about <strong>13 GiB of memory</strong> (17.5 GiB with the merge of the 20 m bands), measured on a whole 110 km tile, and the window says so. A whole tile takes about 150 s a scene on 8 threads (the figure the app assumes, measured on tile 23LKC), and the run never uses more than 8 threads. Close what you can before a run. It cannot be stopped inside a scene, only between scenes, and it runs in the background: see <span class="ui">Tools &rarr; Tasks</span>. For Zeit's own measurement, the whole chain with its Fmask took 141 to 147 s on 8 threads against 197 s for <code>force-l2ps</code>, on a machine that was not dedicated; these are not clean benchmarks.</p>
+      <!-- figure: dp-02-level2-window | the Level 1C to surface reflectance window with a .SAFE folder, a DEM chosen and the defaults, the memory line and the output folder -->
+
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>input</code></td><td>none</td><td>A <code>.SAFE</code> folder of a Level 1C product, or a folder that holds <code>.SAFE</code> folders.</td></tr>
+            <tr><td><code>dem</code></td><td>none</td><td>Elevations in metres, any grid and CRS (the Copernicus GLO-30, SRTM...). Needed by the topographic correction, and used by the Fmask.</td></tr>
+            <tr><td><code>merge</code></td><td>none</td><td>Merge the 20 m bands to 10 m: <code>none</code> (the 20 m bands as they are, on the 10 m grid), <code>regression</code> (FORCE's <code>RESOLUTION_MERGE=REGRESSION</code>) or <code>improphe</code> (<code>RESOLUTION_MERGE=IMPROPHE</code>). It predicts the six 20 m bands (red edge 1 to 3, NIR, SWIR1 and SWIR2) from the 10 m bands, on the top-of-atmosphere reflectance and before the correction, as <code>force-l2ps</code> does. It needs about a third more memory.</td></tr>
+            <tr><td><code>brdf</code></td><td>on</td><td>Normalize the reflectance to nadir view and the scene's own sun (FORCE's <code>DO_BRDF</code>).</td></tr>
+            <tr><td><code>topography</code></td><td>on</td><td>Correct the illumination of the relief (<code>DO_TOPO</code>). It needs the DEM.</td></tr>
+            <tr><td><code>aod</code></td><td>on</td><td>Estimate the aerosol optical depth from the dark targets of the scene (<code>DO_AOD</code>). Off: a fixed fallback spectrum.</td></tr>
+            <tr><td><code>adjacency</code></td><td>on</td><td>Correct the light scattered from the neighbouring pixels (<code>DO_ENV</code>).</td></tr>
+            <tr><td><code>multiple_scattering</code></td><td>on</td><td>Include the multiple scattering of the atmosphere in the radiative transfer (<code>MULTI_SCATTERING</code>).</td></tr>
+            <tr><td><code>erase_cloud</code></td><td>off</td><td>Write no data where the Fmask finds opaque cloud (<code>ERASE_CLOUDS</code>).</td></tr>
+            <tr><td><code>fmask</code></td><td>on</td><td>Run Zeit's Fmask for the cloud, shadow, snow and water flags. Off: no cloud detection, and the QAI has no such flags.</td></tr>
+            <tr><td><code>fmask_compat</code></td><td>off</td><td>Zeit's compatibility switch of the Fmask: on, it reproduces three oddities of the original Fmask 4.7 code; off, it corrects them.</td></tr>
+            <tr><td><code>gswo</code></td><td>none</td><td>A raster of the water occurrence (JRC's Global Surface Water Occurrence, in percent), used by the Fmask for the water flags. None: the Fmask's own.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Outputs</strong></p>
+      <ul>
+        <li>For each scene, a subfolder of the output folder named after the product, with <code>boa.tif</code> (the bottom-of-atmosphere reflectance: 10 bands, blue, green, red, red edge 1 to 3, broad NIR (B08), NIR (B8A), SWIR1 and SWIR2, times 10000, as int16, with -9999 where there is no data), <code>qai.tif</code> (the quality information), <code>dst.tif</code> (the distance to the nearest cloud, shadow or snow, in metres, 0 on them), <code>vzn.tif</code> (the view zenith, in degrees times 100), <code>hot.tif</code> (the haze optimized transform), <code>aod.tif</code> (the aerosol optical depth of the green band, times 1000) and <code>wvp.tif</code> (the water vapour, in cm times 1000).</li>
+        <li><code>attrs.json</code>: the scene's date, sensor, the aerosol optical depth and the water vapour found, the number of dark targets, the summary of the Fmask, and how the correction went.</li>
+        <li>Two layers for each scene open in Janus, <em>surface reflectance</em> and <em>quality (QAI)</em>; the quality layer is hidden at first.</li>
+      </ul>
+      <p><strong>How to read them.</strong> Start with the quality layer. Its value packs several flags in 16 bits, from bit 0 (the least significant):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Bits</th><th>Flag</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>0</td><td>No data (outside the scene)</td><td>1: off</td></tr>
+            <tr><td>1&ndash;2</td><td>Cloud state</td><td>0 none, 1 less confident (the buffer), 2 confident and opaque, 3 cirrus</td></tr>
+            <tr><td>3</td><td>Cloud shadow</td><td>1: shadow</td></tr>
+            <tr><td>4</td><td>Snow</td><td>1: snow</td></tr>
+            <tr><td>5</td><td>Water</td><td>1: water</td></tr>
+            <tr><td>6&ndash;7</td><td>Aerosol</td><td>0 good, 1 interpolated, 2 high optical depth, 3 the scene's fill value</td></tr>
+            <tr><td>8</td><td>Sub-zero reflectance</td><td>the surface reflectance was below 0 in a band</td></tr>
+            <tr><td>9</td><td>Saturation</td><td>the surface reflectance was above 1 in a band</td></tr>
+            <tr><td>10</td><td>Low sun</td><td>the sun's zenith is above 75&deg;</td></tr>
+            <tr><td>11&ndash;12</td><td>Illumination</td><td>0 good, 1 moderate, 2 poor, 3 deep shadow</td></tr>
+            <tr><td>13</td><td>Slope</td><td>the slope is above 2&deg;</td></tr>
+            <tr><td>14</td><td>Water vapour fill</td><td>the water vapour of the pixel is the scene's average</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The cloud buffer of the QAI is 300 m, as in FORCE, and Zeit's Fmask never marks cirrus. The Display panel has no rule for these bits, so a mask is made in Python (below). Then open <code>attrs.json</code>: a very high aerosol optical depth, few dark targets (<code>n_targets</code>) or a scene mostly under cloud are the cases where the correction is worth a second look. <code>dst.tif</code> is 32767 in the whole image when the scene has no cloud target at all. Compare a bright, stable surface on a clear scene and a hazy one: after the correction their values should be close.</p>
+      <!-- figure: dp-03-level2-result | the surface reflectance of a scene in true colour with the QAI of the same scene beside it (cloud, shadow, water), a scene with scattered cumulus; data: one Sentinel-2 L1C scene with 10 to 30 % cloud over a mixed forest and field area -->
+
+      <p><strong>In Python</strong></p>
+      <p>Copy Python writes one call for each scene, with only the parameters that are not Zeit's defaults, and the <code>save</code> that writes the products as the tool does. It needs <code>pip install "zeit-cdts&gt;=3.6.0"</code>. A scene in Python takes about 22 GiB of memory (29 GiB with the merge) with Zeit's own accounting, more than in the app, and the scenes run one at a time.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+l2 = zeit.level2(
+    "D:/data/S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE",
+    dem="D:/data/dem.tif", merge="improphe",
+)
+l2.zeit.save("D:/results/S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149")
+
+# a clear-sky mask from the QAI: no data, any cloud state, shadow and snow left out
+q = l2.qai
+clear = ~(((q &amp; 1) != 0) | (((q &gt;&gt; 1) &amp; 3) != 0) | (((q &gt;&gt; 3) &amp; 1) != 0) | (((q &gt;&gt; 4) &amp; 1) != 0))
+red = l2.boa.sel(band="RED").where(clear) / 10000</code></pre></div>
+    </section>
+
+    <section id="clouds">
+      <h2><span class="n">03</span>Clouds</h2>
+
+      <h3 id="tmask">Tmask (cloud screening)</h3>
+      <p>A quality band marks the clouds a scene's own processing found: the thick ones, mostly. The thin cloud, the haze and the edge of a shadow often stay. On the chart of a pasture in a humid area they are the dates whose green is too bright or whose SWIR is too dark for the season, and a change detector reads each of them as a break. Tmask looks at the same pixel through <em>time</em> instead of at the scene: an observation that does not fit that pixel's own seasonal curve, in the direction a cloud or a shadow pushes it, is flagged.</p>
+      <p><strong>How it works.</strong> Tmask is that of Zhu and Woodcock (2014), as implemented in Zeit. For each pixel a robust fit (iteratively reweighted least squares with bisquare weights, as the MATLAB <code>robustfit</code> that CCDC's own Tmask uses) of an offset, a trend and one harmonic of the year, <em>a0 + c1 t + a1 cos(&omega;t) + b1 sin(&omega;t)</em>, is made to the green and the SWIR1 series. An observation whose green rises above the fit by more than 0.04 (a cloud) or whose SWIR1 falls below it by more than 0.04 (a shadow), in reflectance, is flagged. The observations the quality band refuses are left out before the fit, and a pixel with five valid observations or fewer is not screened. The model spans the whole series: after a sudden lasting change, as a clearing, the observations that follow can look like clouds to it. Check such pixels on the chart.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Tmask (cloud screening)</span>. The series needs one file per date with the <code>green</code> and <code>swir1</code> bands mapped in the window, real dates, at least 6 dates and at least 2 observations a year. It works on the chart (the flagged observations are marked on each pin's series, and the Statistics table counts the valid and the flagged observations) and on the raster (<span class="ui">Whole image</span>, <span class="ui">Visible area</span> or <span class="ui">ROI</span>). The <span class="ui">?</span> button of its window opens the methods list.</p>
+      <!-- figure: dp-04-tmask-window | the Tmask window: bands green and swir1 mapped, units automatic, write the screened series on, the run on the ROI; data: a Landsat or Sentinel-2 series of at least two years with cloudy dates, in a humid-tropical or temperate area -->
+
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>units</code></td><td>auto</td><td>The reflectance units, because the thresholds are in reflectance: <code>auto</code> (a median of 2 or less is reflectance 0 to 1; a median of 6500 or more is Landsat Collection 2 Level-2 digital numbers, taken to reflectance with &times; 0.0000275 &minus; 0.2; otherwise already &times; 10000), <code>x10000</code>, <code>unit</code> (0 to 1) or <code>landsat_c2</code>. Janus applies the files' scale and offset metadata first, when present.</td></tr>
+            <tr><td><code>write_series</code></td><td>on</td><td>Raster runs: also write the series shown without the flagged observations, opened as a new layer.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Outputs</strong></p>
+      <ul>
+        <li><strong>Observations flagged</strong> (<code>tmask_n_flagged.tif</code>): the number of flagged observations of each pixel, in the Plasma colours. <strong>Share flagged</strong> (<code>tmask_flagged_share.tif</code>): the same as a percent of the pixel's valid observations.</li>
+        <li><strong>Screened series</strong> (<code>tmask_series.tif</code>): the series shown, one band for each date, with the flagged observations empty. It opens as a new layer and every tool that follows reads it without them.</li>
+        <li>On the chart: a marker on each flagged observation, named <em>Tmask: cloud or shadow</em>.</li>
+      </ul>
+      <p><strong>How to read them.</strong> Put pins on a few places and look at the markers: they should fall on the dates where the series jumps against its neighbours, a green or NIR spike or a dark SWIR. The share map follows the weather: high in the wet season of the tropics, low where the sky is clear. A pixel with a share far above its neighbours of the same cover is suspicious, since a real change that lasts (a clearing) makes its later dates look like clouds to a model that spans the whole series. Pixels with five valid observations or fewer come out unflagged; on the chart the Statistics say so.</p>
+      <!-- figure: dp-05-tmask-chart | a pin's series of NDVI or NIR with the Tmask markers on the dates it flagged, and the Statistics rows Valid observations and Flagged; data: the same series, a pasture or crop pixel with several thin-cloud dates the quality band kept -->
+      <!-- figure: dp-06-tmask-map | the Share flagged map over the area, higher on the cloudy side, with the Screened series shown as a layer beside it; data: the same series -->
+
+      <p><strong>In Python</strong></p>
+      <p>Copy Python reads the series as Janus shows it (the bands by role, the quality mask) and makes the same call. It needs <code>pip install "zeit-cdts&gt;=3.2"</code>.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+cube = zeit.load_raster("series_folder", masked=True)            # (time, band, y, x), bands named green, swir1
+clear = zeit.tmask(cube, green="green", swir="swir1", scale=10000.0)   # True: clear; False: cloud, shadow or no observation
+screened = cube.where(clear)                                     # the flagged observations as NaN
+valid = cube.sel(band=["green", "swir1"]).notnull().all("band")
+n_flagged = (valid &amp; ~clear).sum("time")                         # the first map</code></pre></div>
+
+      <h3 id="clear-observations">Clear-sky observations (FORCE CSO)</h3>
+      <p>Before trusting a series, ask how much of it there is. In Rondônia a Sentinel-2 pixel has few clear dates from October to May, and a break date found there is a guess. This tool counts, for each pixel and each window of months, the valid observations, and measures the gaps between them. A map of the longest gap tells where a seasonal curve cannot follow the year, and a map of the count says where a monthly composite would be empty.</p>
+      <p><strong>How it works.</strong> It is FORCE's clear-sky observations (the CSO of its time series analysis, Frantz 2019), as <code>zeit.clear_observations</code>. The windows begin on the first day of the month of the first date and go on, <code>months</code> months each, until the one that holds the last date, which is kept whole (FORCE leaves out a last window that starts in the month of its range's end; here every window is made). An observation is valid where its value is not missing: the clouds, the quality band and NoData are missing. In each window the gaps, in days, are those from the start of the window to the first valid observation, between consecutive valid observations, and from the last one to the end of the window. Observations on the same day make no gap, and a window without a valid observation has a count of 0 and one gap as long as the window. Unlike FORCE, which divides some of the statistics by the number of observations instead of the number of gaps, every statistic but the count here is that of the same gaps.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Clear-sky observations (FORCE CSO)</span>. Any series with real dates in order; set the quality band in the Display panel so that the clouds are missing. It runs on the chart (the windows of a pin are listed in the Statistics) and on the raster.</p>
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>months</code></td><td>1</td><td>The length of each window, in calendar months (1 to 12), from the first day of the first date's month.</td></tr>
+            <tr><td><code>statistics</code></td><td>count, mean, max</td><td>What to write: <code>count</code> (the clear observations of the window) and, of the gaps in days between them, <code>min</code>, <code>p05</code>, <code>p10</code>, <code>p25</code>, <code>median</code>, <code>p75</code>, <code>p90</code>, <code>p95</code>, <code>max</code> (the longest gap), <code>range</code>, <code>iqr</code>, <code>mean</code> (the mean revisit time), <code>std</code>, <code>skew</code> and <code>kurtosis</code> (the excess).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Outputs.</strong> One new layer for each chosen statistic (<code>clear_observations_o_count.tif</code>, <code>clear_observations_o_max.tif</code>...) with one band for each window, labelled with its first month (<code>2020-03</code>), so that it opens as a monthly series.</p>
+      <p><strong>How to read them.</strong> Start with the count of the wettest month and the longest gap (<code>max</code>) of the year. A pixel with a count of 0 has a gap as long as the window, and a month whose longest gap is the whole month has nothing in it. A tool that wants a value every month (a monthly composite, a regular series for BFAST) has none to use where the longest gap is the length of the step. The mean gap is the revisit time the pixel really has, which is longer than the satellite's wherever clouds are.</p>
+      <!-- figure: dp-07-cso-map | the count of clear observations of a wet-season month and of a dry-season month side by side (two bands of the same layer), with the CSO window set to 1 month; data: a Sentinel-2 or Landsat series of 3 or more years in a region with a marked wet season -->
+      <p><strong>In Python</strong></p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+series = zeit.load_raster("series.tif", masked=True)            # (time, y, x), clouds as NaN
+cso = zeit.clear_observations(series, months=1, metrics=["count", "mean", "max"])   # (metric, window, y, x)
+cso.sel(metric="max").isel(window=0)                           # the longest gap of the first month</code></pre></div>
+
+      <h3 id="cloud-mask">Cloud detection</h3>
+      <p>Coming: clouds, shadows and snow for a series without a quality band, first Fmask for Sentinel-2 Level 1C, then OmniCloudMask. Until then the <a href="#level2">Level 1C tool</a> already writes the Fmask flags with the surface reflectance it makes, and <a href="#tmask">Tmask</a> finds what a quality band leaves in a series that has one.</p>
+    </section>
+
+    <section id="radiometry">
+      <h2><span class="n">04</span>Radiometric consistency</h2>
+      <p>Five tools make the dates of a series comparable in the value they give to the same ground. They fix different things and are not alternatives. <a href="#nbar">NBAR</a> takes the sun and the view of each date out. <a href="#spectral-adjust">The spectral adjustment</a> and <a href="#harmonize">Harmonize sensors</a> take the bands of one sensor to those of another, in opposite directions. The <a href="#topographic-correction">topographic correction</a> takes the relief's illumination out, and the <a href="#radcal">radiometric normalization</a> puts the dates on the scale of one of them, whatever the cause of the difference.</p>
+
+      <h3 id="nbar">NBAR (c-factor)</h3>
+      <p>The reflectance of a surface depends on where the sun and the sensor are. A Landsat scene is seen from nadir at its centre and from a few degrees to the side at its edges, a field in the overlap of two paths is seen from two sides, and the sun is higher in March than in July. The forest has not changed, but its numbers have, and a change detector looking for a small change finds the geometry. The <strong>nadir BRDF-adjusted reflectance</strong> (NBAR) puts every date as it would look from nadir with the sun at one zenith.</p>
+      <p><strong>How it works.</strong> It is the c-factor method of Roy et al. (2016a, 2017), as in FORCE and in HLS, as <code>zeit.nbar</code>: each band is multiplied by the ratio <em>c</em> of the MODIS Ross-Thick / Li-Sparse-Reciprocal model (three fixed parameters for each band) at nadir view and a normalized solar zenith, over the model at the pixel's own sun and view angles. The normalized zenith is, by default, the mean of the observed solar zenith of each date over the pixels of the run's window whose four angles are valid (Roy et al. 2016a advise against one far from the observed ones). The view is always nadir. The model is that of MODIS for snow-free land: <strong>not for snow</strong>, and <strong>not for HLS</strong>, which is already NBAR. The factor is a ratio, so it needs reflectance (any scale), not Landsat Collection 2's digital numbers with their offset. The quality band is not applied.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; NBAR (c-factor)</span>. Map the bands to normalize (any of <code>coastal</code>, <code>blue</code>, <code>green</code>, <code>red</code>, <code>rededge1</code> to <code>rededge3</code>, <code>nir</code> (Sentinel-2's B08), <code>nir08</code> (B8A, OLI's band 5), <code>swir1</code>, <code>swir2</code>; at least one, or the run stops and says so) and, unless the angles come from Sentinel-2's metadata, the four angle bands of each date: <code>sza</code>, <code>saa</code>, <code>vza</code>, <code>vaa</code> (solar and view zenith and azimuth), of the same series as the reflectance. Landsat Collection 2's SZA, SAA, VZA and VAA bands are the Level-1 angle bands, and HLS has them too. The series needs real dates. It runs on the chart (there is no scene there, so each date is brought to nadir at the pixel's own sun) and on the raster.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-08-nbar-window.png"><img src="assets/img/data-preparation/dp-08-nbar-window.png" alt="The NBAR window, scrolled past its description: the Bands section with blue, green, red, nir (4: NIR B08), nir08 (5: NIR narrow B8A), swir1 and swir2 mapped to the bands of a Sentinel-2 series and the four angle roles, the coastal and the red edge roles not used; the line Quality: SCL; the parameters Sun and view angles from Sentinel-2 granule metadata (MTD_TL.xml), Sentinel-2 view band B06, Normalized solar zenith A fixed angle, Fixed solar zenith 30.0 degrees, Angle bands unit Degrees and Also write the c-factors checked; then On the chart and Run on the raster with the estimate of the time, ~3 s for 1.000 M px." width="616" height="990" loading="lazy"></a>
+        <figcaption><b>The window.</b> For a Sentinel-2 series: the angles are read from each tile&rsquo;s <code>MTD_TL.xml</code>, so the four angle roles stay unused and only the bands to normalize are mapped (the broad NIR, B08, as <code>nir</code> and the narrow one, B8A, as <code>nir08</code>). The picture is scrolled to start at the bands; the normalized zenith is fixed at 30&deg; and the c-factors are written.</figcaption>
+      </figure>
+      <p><strong>Sentinel-2 from the tiles' metadata.</strong> Sentinel-2 Level 2A files have no angle bands, but each tile's <code>MTD_TL.xml</code> has the sun's and the view angles on a 5 km grid. Set <span class="ui">Sun and view angles from</span> to <em>Sentinel-2 granule metadata</em> and map only the bands to normalize: the angles of every pixel are computed as <code>zeit.sentinel2_angles</code> does, the view angles of one band (B06 as HLS, the choice <code>view_band</code>) for every band, interpolated bilinearly to the pixels (Roy et al. 2017). The metadata is found from the STAC items the series was made from (a series built from a search records their addresses) or from the Sentinel-2 product the file is in (<code>X.SAFE/GRANULE/&lt;granule&gt;/MTD_TL.xml</code>, or an <code>MTD_TL.xml</code> beside the file). A date without metadata stops the run and is named.</p>
+
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>angles</code></td><td>bands</td><td>Where the angles come from: <code>bands</code> (the four angle bands of each date) or <code>sentinel2</code> (the granule metadata). With the metadata the angle bands and <code>angle_scale</code> are not needed.</td></tr>
+            <tr><td><code>view_band</code></td><td>B06</td><td>With the metadata: the Sentinel-2 band whose view zenith and azimuth every band takes. B06 is HLS's choice (User Guide, Sec. 6.3): one view geometry for all bands.</td></tr>
+            <tr><td><code>sza</code></td><td>scene</td><td>The solar zenith the reflectance is brought to: <code>scene</code> (the mean of each date, over the pixels of the run's window with valid angles: change the window and the means change) or <code>fixed</code>.</td></tr>
+            <tr><td><code>sza_fixed</code></td><td>30</td><td>The zenith, in degrees (0 to 89.9), when <code>sza</code> is fixed.</td></tr>
+            <tr><td><code>angle_scale</code></td><td>degrees</td><td>With the angle bands: their unit, <code>degrees</code> or <code>hundredths</code> (Landsat Collection 2 and HLS store 3025 for 30.25&deg;). Hundredths read as degrees make every pixel missing; degrees read as hundredths give angles near zero and a wrong result <strong>without a warning</strong>.</td></tr>
+            <tr><td><code>cfactor</code></td><td>off</td><td>Also write the c-factor (NBAR over the observed reflectance, not clipped) of each band, to inspect the correction.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Outputs.</strong> One series for each mapped band, <em>NBAR blue</em>, <em>NBAR nir</em>..., in the units of the input, each opened as a new layer, and with <code>cfactor</code> on, one series of c-factors for each band. A pixel with a zenith outside 0 to 90&deg; or an angle without a value is missing.</p>
+      <p><strong>How to read them.</strong> Write the c-factors the first time. In a Landsat's field of view they stay within 0.95 to 1.05 (Zeit's documentation): a correction of a few percent. A c far outside that, or constant, says the angles are wrong, usually their unit. What it should be depends on the zenith it is brought to: on the Sentinel-2 window of the figure, where the sun&rsquo;s zenith runs from 21&deg; to 52&deg; over the 36 dates and the zenith is fixed at 30&deg;, the NIR&rsquo;s c is 0.98 to 1.09; with the default (each date&rsquo;s own scene mean) it is 1.00 to 1.01 over 98 % of the window, because one date has one sun and the view hardly changes in 10 km, and the series is hardly touched. Then compare a stable pixel before and after on the chart: its values should follow the sun and the view of each date less. NBAR does not remove the atmosphere, the shadows or the difference between sensors; for the last, see the next two tools.</p>
+      <figure class="fig">
+        <a href="assets/img/data-preparation/dp-09-nbar-chart.png"><img src="assets/img/data-preparation/dp-09-nbar-chart.png" alt="Two charts side by side. Left: the NIR of one pixel of flat forest at 10 m over the 36 Sentinel-2 dates of 2022 and 2023, as observed (circles) and after NBAR to a solar zenith of 30 degrees (diamonds): both follow the same seasons between about 0.26 and 0.40, the NBAR line above the other in the winter months and below it in November and December. Right: the c-factor of the NIR at the same pixel, rising from 1.00 in January 2022 to 1.09 in June and July, back to 0.98 in November 2023 and 0.99 in December." width="1474" height="539" loading="lazy"></a>
+        <figcaption><b>Before and after.</b> A pixel of flat forest (a slope under 2&deg;, NDVI 0.91 at most dates) in a 10 &times; 10 km window of the Serra dos &Oacute;rg&atilde;os, Rio de Janeiro: its NIR as observed and after NBAR with the zenith fixed at 30&deg; (left), and the c-factor that made the difference (right). The sun&rsquo;s zenith runs from 20.6&deg; in November to 52.2&deg; in June, and the c-factor follows it from 0.978 to 1.092. The NIR&rsquo;s standard deviation over the 36 dates goes from 0.0332 to 0.0265 (the coefficient of variation from 0.102 to 0.077) and its amplitude from 0.145 to 0.115: the part of the seasons that was the sun is gone, the rest is the forest and the air. With the default normalized zenith (each date&rsquo;s own scene mean) the c-factors of the red and the NIR are 1.002 to 1.011 over 98 % of this window, and the series hardly changes.</figcaption>
+      </figure>
+      <p><strong>In Python</strong></p>
+      <p>Copy Python writes the reading of the bands and of the angles and the call. It needs <code>pip install "zeit-cdts&gt;=3.2"</code>. With the Sentinel-2 metadata the angles come from <code>zeit.sentinel2_angles</code> instead (<code>sources</code> are the metadata's addresses, one for each date of the cube; Zeit signs Planetary Computer's if <code>planetary_computer</code> is installed).</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import xarray as xr
+import zeit
+
+cube = zeit.load_raster("series_folder", masked=True)     # (time, band, y, x): the reflectance bands and sza, saa, vza, vaa
+refl = cube.sel(band=["blue", "nir", "swir1"])
+angles = xr.Dataset({a.upper(): cube.sel(band=a, drop=True) * 0.01 for a in ["sza", "saa", "vza", "vaa"]})   # hundredths to degrees
+nbar, c = zeit.nbar(refl, angles, bands={"blue": "blue", "nir": "nir", "swir1": "swir1"}, return_cfactor=True)
+
+# Sentinel-2: angles = zeit.sentinel2_angles(sources, like=refl, view_band="B06")</code></pre></div>
+
+      <h3 id="spectral-adjust">Spectral adjustment to Sentinel-2A (FORCE)</h3>
+      <p>Landsat's bands are not Sentinel-2's, and Landsat has no red edge. A red-edge index, or a classifier trained on Sentinel-2, cannot be run on a Landsat or MODIS series as it is. This tool takes Landsat 4 to 9 and MODIS surface reflectance onto the spectral response of <strong>Sentinel-2A</strong>, predicting the red edge bands and the broad NIR that those sensors do not have.</p>
+      <p><strong>How it works.</strong> It is FORCE's spectral adjustment (Scheffler, Frantz and Segl 2020), as <code>zeit.spectral_adjust</code>. Each sensor (Landsat 4, 5, 7, 8, 9, MODIS Terra and Aqua) has 50 clusters of spectra and a global one, each with a linear regression of the ten Sentinel-2A bands on its own six (blue, green, red, NIR, SWIR1, SWIR2). For each pixel the spectral angle to the centre of every cluster gives a weight, and the prediction is the average of the regressions of the closest clusters, weighted. All ten bands are rewritten, not only the new ones, because the blue of Landsat 8 is not Sentinel-2A's. This is not Harmonize sensors, which takes Sentinel-2 towards Landsat 8 with a line a band and predicts no new band.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Spectral adjustment to Sentinel-2A (FORCE)</span>. A series with one file a date and the six reflective bands mapped to <code>blue</code>, <code>green</code>, <code>red</code>, <code>nir</code>, <code>swir1</code> and <code>swir2</code>, with real dates. For MODIS, map SWIR1 and SWIR2 to bands 6 and 7. The sensor of each date is read from the scene it came from (its STAC platform, else its file name: <code>LC08_...</code>, <code>LT05_...</code>, <code>MOD09...</code>); a date whose sensor is not found is an error that names it, and so is a Sentinel-2 date, which the tool refuses. The observations the quality band keeps are the ones passed. It runs on the chart and on the raster.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-10-spectral-window.png"><img src="assets/img/data-preparation/dp-10-spectral-window.png" alt="The Spectral adjustment to Sentinel-2A (FORCE) window: its description, the Bands section with 1 Blue, 2 Green, 3 Red, 4 NIR, 5 SWIR1 and 6 SWIR2 mapped to blue, green, red, nir, swir1 and swir2, the line Quality: QA_PIXEL; the parameters Sensor Each date&rsquo;s own (from its scene), Reflectance units Automatic (from the values) and FORCE&rsquo;s first cluster search unchecked; On the chart with the fit of the cursor, pins and ROI series checked; Run on the raster with Whole image, the estimate ~7 s for 1.440 M px, Run and Preview." width="616" height="923" loading="lazy"></a>
+        <figcaption><b>The window.</b> On a Landsat 8-9 Collection 2 series (27 dates of 1200 &times; 1200 pixels): the six reflective bands are found from their names, each date&rsquo;s sensor from its file, and the units are automatic (the files carry Collection 2&rsquo;s scale, 0.0000275, and offset, &minus;0.2, which Janus applies first).</figcaption>
+      </figure>
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>sensor</code></td><td>auto</td><td><code>auto</code> (each date's own, as above) or one for every date: <code>LND04</code>, <code>LND05</code>, <code>LND07</code>, <code>LND08</code>, <code>LND09</code>, <code>MOD01</code> (Terra) or <code>MOD02</code> (Aqua).</td></tr>
+            <tr><td><code>units</code></td><td>auto</td><td>The bands are taken as reflectance &times; 10000, FORCE's integers, and the result is in it. <code>auto</code>: a median of 2 or less is reflectance 0 to 1, a median of 6500 or more is Landsat Collection 2 digital numbers (&times; 0.0000275 &minus; 0.2), otherwise already &times; 10000. Janus applies the files' scale and offset first, when present.</td></tr>
+            <tr><td><code>force_search</code></td><td>off</td><td>FORCE's first search for the closest cluster skips cluster 9 where it means to leave out the global cluster, and lets the global cluster be the first pick. On: the search as FORCE has it, so that the values cut to integers are FORCE's in every pixel. Off: the search as the paper means it, which differs from FORCE's integers by more than 1 in 1.6 to 2.3 % of the observations of the synthetic mixtures Zeit tried.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Outputs.</strong> Ten series, one for each band of Sentinel-2A: blue, green, red, red edge 1 (B5), red edge 2 (B6), red edge 3 (B7), broad NIR (B8), NIR (B8A), SWIR1 (B11) and SWIR2 (B12), in reflectance &times; 10000, each opened as a new layer. A pixel with a missing band is missing in all ten.</p>
+      <p><strong>How to read them.</strong> All ten bands are rewritten, so even the blue differs from the original, and the three red edge bands are predictions from the six bands Landsat has: they carry no information the six did not have, they only put it where an index of Sentinel-2 expects it. Compare the adjusted NIR (B8A) and red edge with a Sentinel-2 series of the same place on dates close in time. In the FORCE chain <span class="ui">Analysis-ready data (FORCE)</span> the adjustment comes after NBAR.</p>
+      <p><strong>In Python</strong></p>
+      <p>Copy Python passes the dates' sensors it found and the observations the quality band keeps. It needs <code>pip install "zeit-cdts&gt;=3.2"</code>.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+cube = zeit.load_raster("series_folder", masked=True)     # (time, band, y, x), bands named blue ... swir2
+adjusted = zeit.spectral_adjust(
+    cube, sensor=["LND08", "LND09", "LND08"],               # one for each date, as Janus found them
+    bands={"blue": "blue", "green": "green", "red": "red", "nir": "nir", "swir1": "swir1", "swir2": "swir2"},
+    scale=10000.0,
+)
+adjusted.band.values      # blue green red rededge1 rededge2 rededge3 nir nir08 swir16 swir22</code></pre></div>
+
+      <h3 id="harmonize">Harmonize sensors</h3>
+      <p>The bands of Sentinel-2's MSI are not those of Landsat 8's OLI. A series that joins the two has a step wherever the sensor changes, and CCDC or BFAST read the step as a break. This tool takes the Sentinel-2 dates to the bands of Landsat 8, so that the two sensors form one series.</p>
+      <p><strong>How it works.</strong> It is the bandpass adjustment of HLS (the Harmonized Landsat Sentinel-2 product; Claverie et al. 2018), as <code>zeit.bandpass_adjust</code>: a line for each band and each Sentinel-2 unit (A, B, C) that takes MSI's reflectance to OLI's. OLI is the reference, as in HLS: Landsat 8 and 9 stay as they are. Landsat 7 (ETM+) and Landsat 4 and 5 (TM) are taken to OLI only when asked, with the reduced major axis or the least squares lines of Roy et al. (2016b, table 2); those were fitted on pre-collection data and Collection 2 surface reflectance is generally used across sensors without them, so the default leaves them as they are. This is <strong>only the bandpass step of HLS</strong>: not its atmospheric correction, its cloud mask or its BRDF normalization (<a href="#nbar">NBAR</a> comes before the bandpass in HLS). It does not align the dates either: for that, <a href="#co-registration">co-register</a> them.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Harmonize sensors...</span>. The active series needs dates and a sensor for each: read from the scene (the STAC item a series built from a search records, else the file name), listed in the window as, say, <em>Sentinel-2A 12, Landsat 8-9 (OLI) 30</em>, or chosen for all dates. The bands that HLS adjusts must be named <code>blue</code>, <code>green</code>, <code>red</code>, <code>nir</code>, <code>swir1</code> and <code>swir2</code>; for Sentinel-2 the NIR must be B8A (search with B8A): HLS has no line for the broad B08, which stays as it is, and the window says so. An HLS series is refused, since its Sentinel-2 dates are already adjusted. <span class="ui">Join with</span> takes another open series <em>on the same grid</em> (a Landsat search and a Sentinel-2 one, say) and joins them in time; one on another grid is listed as such and cannot be picked until it is reprojected onto this one's grid (<a href="#warp">Reproject, resample, clip</a>, to a layer's grid).</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-11-harmonize-window.png"><img src="assets/img/data-preparation/dp-11-harmonize-window.png" alt="The Harmonize sensors window: the line s2: 58 dates of 7 band(s); Sensors Sentinel-2A 33, Sentinel-2B 25 with the choice From the scenes; Join with landsat, whose sensors are listed as Landsat 8-9 (OLI) 27; Landsat 7 and 4-5 as they are; Area the whole layer; Name s2 harmonized; the note on what the adjustment is and is not; the threads and the Run button." width="480" height="468" loading="lazy"></a>
+        <figcaption><b>The window.</b> A Sentinel-2 series (58 dates, 33 of Sentinel-2A and 25 of 2B, found from the files) is the active one and a Landsat 8-9 series of 27 dates on the same 30 m grid is picked in <span class="ui">Join with</span>; Landsat 7 and 4-5 would stay as they are (there are none here). The NIR of the Sentinel-2 files is B8A, so the window has no warning about the broad one.</figcaption>
+      </figure>
+      <p><strong>Settings</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Sensors</td><td>from the scenes</td><td>Each date's sensor from its STAC item or file name, or one chosen for every date: Sentinel-2A, 2B, 2C, Sentinel-2 (unit unknown, adjusted as 2A), Landsat 8-9 (OLI), Landsat 7 (ETM+), Landsat 4-5 (TM). Reading them opens every file.</td></tr>
+            <tr><td>Join with</td><td>nothing (this series alone)</td><td>Another open series with dates, on this one's grid. Both are adjusted and joined in time, with the reflectance bands they share named by role, in the units of the first.</td></tr>
+            <tr><td>Landsat 7 and 4-5</td><td>as they are</td><td><em>As they are</em>, <em>to OLI, Roy et al. 2016 (RMA)</em> or <em>to OLI, Roy et al. 2016 (OLS)</em>.</td></tr>
+            <tr><td>Area</td><td>the whole layer</td><td>The whole layer or the ROI.</td></tr>
+            <tr><td>Name</td><td>&lt;layer&gt; harmonized</td><td>The name of the new series and of the files.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Outputs.</strong> A COG for each date in a folder of its own (<code>results\harmonize</code>, under the name and the time), which opens as a new series. For one series, every band of every date: those with a line are adjusted and the others (red edge, B08, the quality band) are copied, and the series is shown as the original was (an index stays an index). Joined, the bands are the reflectance bands the two series share, by role. <code>job.log</code> notes what was left as it was, and why.</p>
+      <p><strong>How to read them.</strong> Put a pin on a stable cover (a pasture that is always green, a lake, a bare surface) and show the original and the harmonized series on the chart (<span class="ui">All visible layers</span>). Around the dates where the sensor changes, the harmonized series should have a smaller step. It is a small correction, mostly in the blue: on 23 pairs of dates up to 3 days apart the mean difference between Sentinel-2 and Landsat fell from 0.0104 to 0.0051 in the blue and by 5 to 24 % in the other bands. What the bandpass leaves is what it does not touch: the atmosphere, which differs between the Sen2Cor of Level 2A and the LaSRC of Landsat, the view geometry (<a href="#nbar">NBAR</a>), the shadows of the relief and a misregistration.</p>
+      <figure class="fig">
+        <a href="assets/img/data-preparation/dp-12-harmonize-chart.png"><img src="assets/img/data-preparation/dp-12-harmonize-chart.png" alt="A chart of the blue band at one pixel of forest over the 58 Sentinel-2 and 27 Landsat dates of 2022 and 2023, three series on All visible layers: the Sentinel-2 series as it is, the Landsat 8-9 series as it is and the harmonized series of both, between 0.010 and 0.036 with the Sentinel-2 dates above the Landsat ones in the dry season; the dates of the rainy season are missing because of the clouds." width="730" height="539" loading="lazy"></a>
+        <figcaption><b>Before and after.</b> The blue of a pixel of evergreen forest (x 782, y 492; the NDVI varies least there, 0.017, of the pixels of the area that are forest on both sensors) on the Sentinel-2 series, the Landsat one and the harmonized series of both. The step is clearest in the blue, the band HLS&rsquo;s line changes most. On the 23 pairs of a Sentinel-2 and a Landsat date up to 3 days apart, the mean difference of the clear pixels (Sentinel-2 minus Landsat) goes from +0.0104 to +0.0051 in the blue (21 % to 10 % of Landsat&rsquo;s 0.050) and at this pixel from +0.0076 to +0.0031; in the other bands it changes by 5 to 24 % (red +0.0068 to +0.0052, NIR +0.0040 to +0.0033, SWIR2 +0.0246 to +0.0234). What stays is what the bandpass does not touch.</figcaption>
+      </figure>
+      <p><strong>In Python</strong></p>
+      <p>Janus writes no script for this tool (Copy Python and the history have nothing for it). The call is Zeit's <code>zeit.bandpass_adjust</code>, with the signature below; this snippet is written by hand from it, not by Janus.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+s2 = zeit.load_raster("sentinel2_folder", masked=True)       # bands named blue, green, red, nir08 (B8A), swir16, swir22 ...
+landsat = zeit.load_raster("landsat_folder", masked=True)    # on the same grid
+mixed = zeit.bandpass_adjust([s2, landsat], etm=None)        # one series sorted by time; etm="rma" or "ols" for Landsat 7 and 4-5
+zeit.ccdc(mixed)                                              # no break where the sensor changes</code></pre></div>
+
+      <h3 id="topographic-correction">Topographic correction (C, SCS+C)</h3>
+      <p>In rough terrain the same cover does not give the same reflectance everywhere. A slope that faces the sun receives more light than the flat ground, and a slope that faces away receives less, so a forest looks bright on one side of a ridge and dark on the other, and a classifier or a change detector reads the shadow of the relief as a difference in the land. The correction here estimates, for each band of each date, how much of the reflectance follows the illumination, and divides it out. It is the one a user of Landsat Collection 2 reflectance needs when the area has relief and the dates differ in sun, as dates of different seasons do. Sentinel-2 Level 2A from ESA is another case: Sen2Cor already corrects the terrain with an elevation model, so on the guide's mountains the regression of most dates did not rise with the illumination and the tool left the bands as they were; correct it only where you know the product was not.</p>
       <p><strong>How it works.</strong> The slope and aspect of an elevation model (Horn 1981) and the sun of the date (its zenith <em>sz</em> and azimuth) give each pixel's illumination, the cosine of the angle between the sun and the surface's normal: <em>cos i = cos sz cos s + sin sz sin s cos(saz &minus; a)</em>, with <em>s</em> the slope and <em>a</em> the aspect. For each band of each date the reflectance is regressed on it, <em>&rho; = b + m cos i</em>, and <em>c = b / m</em>. The two corrections are then:</p>
       <ul>
         <li><strong>C-correction</strong> (Teillet, Guindon and Goodenough 1982): <em>&rho; (cos sz + c) / (cos i + c)</em>.</li>
         <li><strong>SCS+C</strong> (Soenen, Peddle and Coburn 2005), the default: <em>&rho; (cos s cos sz + c) / (cos i + c)</em>. It keeps the sun-canopy-sensor geometry, in which the trees stand vertically on a slope, and so over-corrects less in forests on steep ground.</li>
       </ul>
       <p>Zeit's <code>zeit.topographic_correction</code> does the arithmetic; Janus finds the elevation model and each date's sun, makes the sample the regression runs on, and writes the files. The result is empirical and Lambertian: it assumes that the surface reflects equally in all directions and that the same cover grows on every slope. It does not model the light scattered by the sky or by the terrain around.</p>
-      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Topographic correction (C, SCS+C)</span>. The series needs every band of a date in one file (surface reflectance, with the bands named blue to SWIR2), a <strong>projected CRS in metres</strong> (a series in degrees is refused: reproject it to the UTM zone first) and the dates. Single-band series, such as an NDVI, cannot be corrected: the correction is for reflectance. It runs on the whole window (the image, the ROI or the visible area) and not on a pin, because the regression needs the whole scene. The <span class="ui">?</span> button of its window opens this page.</p>
-      <!-- figure: the topographic correction window with the sun of each date -->
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Topographic correction (C, SCS+C)</span>. The series needs every band of a date in one file (surface reflectance, with the bands named blue to SWIR2), a <strong>projected CRS in metres</strong> (a series in degrees is refused: <a href="#warp">reproject</a> it to the UTM zone first) and the dates. Single-band series, such as an NDVI, cannot be corrected: the correction is for reflectance. A quality band can also take the very pixels the correction needs out of its sample: the scene classification (SCL) of Sentinel-2 marks many slopes in the shade of the relief as cloud shadow, so over steep ground look at <code>n</code> in <code>topo_c.csv</code>, or use a quality band that does not. It runs on the whole window (the image, the ROI or the visible area) and not on a pin, because the regression needs the whole scene. The <span class="ui">?</span> button of its window opens this page.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-13-topocorr-window.png"><img src="assets/img/data-preparation/dp-13-topocorr-window.png" alt="The Topographic correction window, scrolled to start near its parameters: Method SCS+C (Soenen et al. 2005), Elevation model Copernicus DEM GLO-30 (downloaded), DEM resampling bilinear, Sun angles from Each date&rsquo;s best source, Angle bands unit Degrees, c estimated on Every pixel on a slope, Minimum slope 5.0, Fewest pixels for a fit 100; under them the list Sun of each date with eight rows, zenith and azimuth in degrees and the source STAC item for each: 2022-01-23 31.00 and 91.82, 2022-03-04 35.46 and 69.29, 2022-05-23 52.43 and 35.72, 2022-06-16 55.23 and 34.81, 2023-03-23 38.51 and 57.94, 2023-03-31 41.08 and 52.41, 2023-08-06 49.38 and 41.61, 2023-08-22 45.18 and 45.26; then Run on the raster, Whole image, ~25 s for 0.490 M px." width="616" height="984" loading="lazy"></a>
+        <figcaption><b>The window.</b> The window on eight Landsat 8-9 dates of 2022 and 2023 over the Serra dos &Oacute;rg&atilde;os (21 &times; 21 km, UTM zone 23 S, 30 m): the picture starts at the parameters, below the description and the bands. Under them the sun of each date, 31.0&deg; of zenith in January to 55.2&deg; in June, each from the STAC item the file records, which is how a series built from a catalogue search carries it.</figcaption>
+      </figure>
 
-      <h3>The sun of each date</h3>
+      <p><strong>The sun of each date</strong></p>
       <p>Each date has its own sun, and the window lists them under the parameters (date, zenith, azimuth and where it comes from), in red where a date has none. For each date, the first source that has it:</p>
       <ol>
         <li><strong>Angle bands</strong> of the series, mapped as <code>sza</code> and <code>saa</code> (HLS, Landsat Collection 2 angle bands), one value for every pixel. Their unit is in the parameter <code>angle_scale</code>: hundredths of a degree for those two products.</li>
@@ -90,16 +402,16 @@
       </ol>
       <p>A date with none of them stops the run and is named, unless <code>missing_sun</code> says to use the typed angles (<code>sun_zenith</code> and <code>sun_azimuth</code>), which <code>sun = fixed</code> uses for every date. The source of each date is written in <code>topo_c.csv</code>.</p>
 
-      <h3>The elevation model</h3>
+      <p><strong>The elevation model</strong></p>
       <p>The DEM is either <strong>a file</strong> (elevations in metres, any grid and CRS) or the <strong>Copernicus DEM</strong> GLO-30 (30 m) or GLO-90 (90 m, for series of 60 m or coarser), read from Planetary Computer for the series' extent (Earth Search if it does not answer) and mosaicked. It is warped onto the grid of the run's window by GDAL (bilinear by default) and kept as a COG in the <code>dem</code> folder of the results, so the next run on the same grid does not read it again. The vertical datum (EGM2008) does not matter: only the differences of height between neighbours do.</p>
       <p><strong>It is a surface model.</strong> The Copernicus DEM is a radar (TanDEM-X, X-band) model of the top of what is there: the canopy of a forest and the roofs of a city are in it, not the ground under them. Its sampling is 1&Prime; (about 30 m), coarser than Sentinel-2's 10 m, so the slopes at 10 m are smoothed versions, and a cliff or a small gully is not in it. For a 10 m series the correction is a good first order of the large relief and does not remove the illumination of a feature smaller than three pixels. Zeit's own advice is a DEM of about the resolution of the image: a finer one of your own, as a file, is the better input when you have it.</p>
 
-      <h3>Licence and attribution of the Copernicus DEM</h3>
+      <p><strong>Licence and attribution of the Copernicus DEM</strong></p>
       <p>The Copernicus DEM is provided under the &ldquo;Licence for the use of the Copernicus WorldDEM-30&rdquo;: free of charge, worldwide and without time limit, allowing reproduction, distribution, adaptation and combination. Its Article 6 asks for the notice below on what is adapted from it, and Janus writes it in the metadata of the cached DEM and of every corrected file (<code>COPERNICUS_DEM_NOTICE</code>), in the run's provenance and in <code>report.txt</code>. Say it too where you publish a result:</p>
       <blockquote><p>Produced using Copernicus WorldDEM-30 &copy; DLR e.V. 2010-2014 and &copy; Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.</p></blockquote>
       <p>For GLO-90 the product is named WorldDEM-90. On redistribution: &ldquo;The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.&rdquo; Nothing implies that they endorse the result.</p>
 
-      <h3>Parameters</h3>
+      <p><strong>Parameters</strong></p>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -122,19 +434,26 @@
       </div>
       <p>The <strong>vegetation sample</strong> answers the assumption of the method that one cover grows on every slope. If the slopes of a scene are forest on one side and pasture on the other, the regression mixes them and the correction over- or under-corrects one of the two; fitting on pixels above an NDVI threshold makes the line the forest's. It needs the bands <code>red</code> and <code>nir</code> mapped.</p>
 
-      <h3>Outputs</h3>
+      <p><strong>Outputs</strong></p>
       <ul>
         <li>The <strong>corrected series</strong> opens as a new layer: a file a date in the run's <code>series</code> folder, the corrected bands first (float32) and the quality band of the series as it was, last. Clouds, shadows and snow are corrected like any pixel, since the factor is geometry, and stay marked in the quality band, so every tool that reads it leaves them out as before.</li>
         <li><code>topo_c.csv</code>: for each date and band the regression (<code>c</code>, its slope <code>m</code> and intercept <code>b</code>, the sample pixels <code>n</code>), the pixels left as they were (<code>skipped</code>), whether the band was corrected and why not, the sun and where it came from.</li>
         <li><code>validation.csv</code>: for each date and band the correlation of the reflectance with cos i on the sample, before and after, and the mean reflectance of the steep slopes (15&deg; or more) that face the sun and of those that face away, before and after.</li>
         <li><code>report.txt</code>: the summary, the DEM and its notice, the bands copied and why. <code>topocorr.json</code>: the record.</li>
       </ul>
-      <h3>How to read them</h3>
+      <p><strong>How to read them</strong></p>
       <p>Start with <code>validation.csv</code>. The correlation <code>r_before</code> of a band over rough terrain is clearly positive, and <code>r_after</code> should be much smaller. With the C-correction it is near zero (not exactly: the correction removes the slope of the regression, not the correlation of the noise). With SCS+C it falls but stays above zero on steep ground, by design: its numerator keeps <em>cos s</em>, the cosine of the slope, which is itself correlated with the illumination. The ratio of the sunlit to the shaded slopes' mean should go from well over 1 towards 1 on a uniform cover; over a mixed cover it need not, and that is the scene, not the correction. A band whose <code>r_before</code> is already low had little illumination to remove.</p>
       <p>Then <code>topo_c.csv</code>. A band that was <strong>copied</strong> (<code>fitted</code> false) says why: fewer pixels than <code>min_sample</code> in the sample, no spread of cos i, or a regression that does not rise with the illumination (<code>m &le; 0</code>), which means the topography is not what drives that band or the sample is wrong, as a snow-covered scene is. A <code>c</code> that is very different between the bands of one date, or between dates of the same season, points to a mixed sample. Pixels in deep shadow (cos i + c under 0.01), where the ratio of two small numbers is noise, are left as they are and counted in <code>skipped</code>. Finally compare a ridge's two sides before and after on the chart.</p>
-      <!-- figure: a ridge before and after the correction -->
+      <figure class="fig">
+        <a href="assets/img/data-preparation/dp-14-topocorr-ridge.jpg"><picture><source type="image/webp" srcset="assets/img/data-preparation/dp-14-topocorr-ridge.webp"><img src="assets/img/data-preparation/dp-14-topocorr-ridge.jpg" alt="Two maps of the same ridge of forest at 30 m, the NIR of 2022-06-16 from 0.063 (purple) to 0.424 (yellow). Left, as observed: the slopes facing the sun in yellow and green, the slopes facing away in purple, a crest from the left edge to the right between them. Right, after the correction: the two sides in the same blue-green, the relief only in the grain of the pixels, with a few dark and bright pixels at the foot of the left edge where the shade is deepest." width="1414" height="570" loading="lazy"></picture></a>
+        <figcaption><b>The ridge before and after.</b> The NIR of 2022-06-16 (the sun at 55.2&deg; of zenith and 34.8&deg; of azimuth: the lowest of the eight dates) over a ridge of forest, on the same range of values, before and after SCS+C. The shaded slope is bright again. <code>validation.csv</code> says it in numbers: the correlation of the NIR with cos&nbsp;<em>i</em> falls from 0.876 to 0.096, and the mean of the steep slopes (15&deg; or more) that face the sun over the mean of those that face away goes from 3.24 to 1.07 (the red: 0.521 to 0.074 and 3.57 to 1.06). On the date of the highest sun, 2022-01-23 (31.0&deg;), it goes from 1.43 to 1.01. The pixels in deepest shade, where <em>cos&nbsp;i</em> + <em>c</em> is under 0.01, are left as they were, and show as the dark and bright pixels at the left edge.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/data-preparation/dp-15-topocorr-chart.png"><img src="assets/img/data-preparation/dp-15-topocorr-chart.png" alt="A chart of the NIR of two pins on the same forest, one on each side of the ridge, over the eight Landsat dates of 2022 and 2023, as observed and corrected: before, the sunlit pin (red, upper) runs between 0.33 and 0.39 and the shaded one (blue) between 0.17 and 0.32, far apart in the dates of the low sun; after, the corrected series of the two (marked with squares) are between 0.22 and 0.30 and 0.27 and 0.34 and cross each other." width="730" height="539" loading="lazy"></a>
+        <figcaption><b>The two slopes.</b> The NIR of a pixel on the slope that faces the sun (pin 1, cos&nbsp;<em>i</em> 0.92, 32&deg;) and one on the slope that faces away (pin 2, cos&nbsp;<em>i</em> 0.22, 25&deg;), 120 m apart at the same height, as observed and corrected. In the 3 &times; 3 pixel means, on 2022-06-16 (55.2&deg;) they are 0.353 and 0.176 before and 0.223 and 0.266 after; over the eight dates the mean absolute difference between the two goes from 0.108 to 0.033. SCS+C goes a little past the other side on the dates of the low sun (the ratio of the sunlit to the shaded is 0.84 to 0.93 on the eight dates): the correction is empirical, and the pixel is a forest of one canopy on a 30 m model of its surface.</figcaption>
+      </figure>
 
-      <h3>In Python</h3>
+      <p><strong>In Python</strong></p>
       <p>Copy Python writes the script of the run: the DEM on the cube's grid, the sun of each date as Janus found it and the call. It needs <code>pip install "zeit-cdts&gt;=3.9"</code>, and, for the Copernicus DEM, <code>planetary-computer</code> and <code>pystac-client</code>. The script leaves as NaN the pixels the quality band masks; Janus corrects them.</p>
       <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
 from rasterio.enums import Resampling
@@ -146,25 +465,38 @@ corrected = zeit.topographic_correction(
     method="scs+c", min_slope=5.0, min_sample=100,
 )
 corrected.coords["topo_c"].to_pandas()                          # c of each date and band</code></pre></div>
+      <p><strong>Time.</strong> On a synthetic scene of 2000 &times; 2000 pixels of 30 m, six bands and one date (hills for the DEM, a land cover of vegetation and soil mixed by a smooth field, the light of the relief with a diffuse part so that the C-correction has a <em>c</em>, the sun at zenith 38&deg; and azimuth 140&deg;), on 4 threads and the best of three runs, Janus's job (the six bands read from their files, the DEM warped onto the grid, the corrected file written) takes 1.04 s for the C-correction and 1.03 s for SCS+C. Zeit's own call (<code>zeit.topographic_correction</code> on the same cube and DEM) takes 0.16 s in memory and 1.78 s (1.75 s for SCS+C) once its inputs are read from the files and its result is written. The corrected pixels are the same in Janus and in Zeit (largest difference 0) and the <em>c</em> of each band differs by at most 1.4e-8. RStoolbox's <code>topCor(method = "C")</code>, on one thread and given Zeit's slope and aspect, takes 1.62 s; its values are within 2.0 % of Zeit's at most, because it fits on a sample of at most 10,000 pixels where Janus and Zeit fit on every pixel with a slope of at least <code>min_slope</code>. The script is <code>tools/bench_topocorr_vs_zeit.py</code> and the figures are in <code>bench/topocorr-vs-zeit.json</code>.</p>
+
+
+      <h3 id="radcal">Radiometric normalization (iMAD invariant pixels)</h3>
+      <p>When the dates differ in sun, atmosphere or sensor and none of the tools above names the cause, <span class="ui">Tools &rarr; Data preparation &rarr; Radiometric normalization (iMAD invariant pixels)</span> puts them on the scale of one date by the data themselves. It takes a reference date, finds with iMAD the pixels that did <em>not</em> change between it and each other date, and fits for each band a line from the date to the reference by orthogonal regression (Canty, Nielsen and Schmidt 2004; Canty and Nielsen 2008); every pixel of the date is then <em>gain &times; value + offset</em>. Two thirds of the invariant pixels fit the line and the third left out tests it, with a paired t-test of the means and an F-test of the variances. It needs a series with two dates or more and several bands a date, and runs on the raster only. The reference defaults to the first date and the invariant pixels to a probability of no change above 0.95.</p>
+      <p>The parameters, the outputs (the normalized series as a new layer, <code>radcal_fits.csv</code> and <code>radcal.json</code>), how to read the fits and the Python call are in the guide <a href="envi.html#radcal">Noise and change</a>, section <em>Radiometric normalization</em>. Its invariant pixels are too few where most of the land changed between the dates, and the fit then says so in the tests.</p>
     </section>
 
-    <section id="co-registration">
-      <h2><span class="n">02</span>Co-registration of dates</h2>
+    <section id="geometry">
+      <h2><span class="n">05</span>Geometry</h2>
+      <p>Two tools put the pixels of the dates in the same place. The <a href="#co-registration">co-registration</a> moves each date onto a reference, by a fraction of a pixel or a few pixels. <a href="#warp">Reproject, resample, clip</a> changes the grid itself: the CRS, the pixel size, the area. When both are needed, reproject first, since the co-registration wants a projected CRS in metres.</p>
+
+      <h3 id="co-registration">Co-register dates (AROSICS)</h3>
       <p>Two images of the same place are rarely on the same pixels. The dates of a Landsat series are registered to within a fraction of a pixel and the dates of a Sentinel-2 series to a tenth of one, but a series that mixes the two, an older scene, a different orbit or a product of another processing can be a pixel or more away from its neighbours. A shift of half a pixel does not show when you look at two dates, and does show in a change detector: along every field edge, road and river the pixel is one cover on one date and the other on the next, and LandTrendr, CCDC and BFAST take it for a break. The tool finds, for each date, how far its pixels are from a reference and moves them there.</p>
       <p><strong>How it works.</strong> It is AROSICS (Scheffler et al. 2017), as ported in Zeit (<code>zeit.coregister</code> and <code>zeit.coregister_local</code>). In <strong>global</strong> mode a window of the date's matching band and the same window of the reference are compared by <em>phase correlation</em> (Kuglin and Hines's method: the cross power spectrum of the two windows, whose inverse transform peaks at their shift); the side maxima of the peak give the part of a pixel (Foroosh, Zerubia and Berthod 2002). The whole-pixel shift is then checked by moving the reference's window by it and correlating again, up to <code>max_iter</code> times, and the window is compared before and after by the structural similarity (SSIM). A shift above <code>max_shift</code>, or without a clear peak, is not accepted. In <strong>local</strong> mode the same is done at the points of a grid, for a scene whose misplacement varies (an old orthorectification, relief), and the points that cannot be trusted are dropped by three filters: reliability under 60, a window that is not more similar to the reference after the shift, and RANSAC (Fischler and Bolles 1981) on an affine model of the shifts.</p>
       <p>The shift is in pixels of the series, <em>x</em> to the right and <em>y</em> down, the amount the date has to be moved to fit the reference: a date with a shift of (3, &minus;2) has its content three pixels to the left and two below where the reference has it. The part of a pixel is read from the side maxima of the correlation peak and is the less certain half of the answer (on a synthetic scene of noise it was off by up to half a pixel, in AROSICS too); a whole-pixel shift is found exactly. Look at the reliability and at the similarity before and after.</p>
-      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Co-register dates (AROSICS)</span>. The series needs a <strong>projected CRS</strong> (the shifts are in pixels and map units of a metric grid; reproject a series in degrees first), its dates, and, for the band to match, the roles <code>nir</code> or <code>red</code> mapped (or the first band is used). It runs on the whole window (the image, the ROI or the visible area), not on a pin. The <span class="ui">?</span> button of its window opens this page. After a run the window lists the shifts of the dates (a click on a date shows it on the map).</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Co-register dates (AROSICS)</span>. The series needs a <strong>projected CRS</strong> (the shifts are in pixels and map units of a metric grid; <a href="#warp">reproject</a> a series in degrees first), its dates, and, for the band to match, the roles <code>nir</code> or <code>red</code> mapped (or the first band is used). It runs on the whole window (the image, the ROI or the visible area), not on a pin. The <span class="ui">?</span> button of its window opens this page. After a run the window lists the shifts of the dates (a click on a date shows it on the map).</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-16-coreg-window.png"><img src="assets/img/data-preparation/dp-16-coreg-window.png" alt="The Co-register dates window after a global run, scrolled to start at the bands: the Parameters (One shift per date, Reference A date of the series, Reference date 0, Band matched Automatic, Cloud margin 2, Matching window 256, Largest shift 5.0, Resampling cubic, Corrected series as Virtual, Arrows magnified 100) and the list Shifts of the last run (7 of 8 dates moved) with a row a date: 2023-06-16 +0.111, +0.116, reliability 93; 2023-06-18 -0.054, -0.102; 2023-07-13 -0.043, -0.061; 2023-07-18 -0.854, -1.116, reliability 89, SSIM 0.661 to 0.839; 2023-08-11 +0.125, -0.131; 2023-08-17 the reference; 2023-09-20 +0.064, -0.085; 2023-09-21 -0.094, +0.091; then the Run on the raster section." width="616" height="984" loading="lazy"></a>
+        <figcaption><b>The shifts.</b> Eight dates of the dry season of 2023, four of Landsat 8-9 and four of Sentinel-2, of 36 &times; 36 km of irrigated fields in western Bahia on one 30 m grid, matched on the NIR in global mode. The reference is the date with the most clear pixels, 2023-08-17 (Sentinel-2): it is listed as the reference and not moved. <strong>Landsat 8-9 and Sentinel-2 agree here to 0.13 pixel</strong> in x and in y (1 to 4 m; six dates, reliability 91 to 96, the SSIM before and after the same to 0.001), so there was nothing for the tool to show: <strong>the Landsat date of 2023-07-18 has its pixels moved by one pixel to the right and one down on purpose</strong> (copied one over, no resampling), and the tool finds it, &minus;0.854 and &minus;1.116 pixels (the 0.12 and 0.15 pixel that it is away from a whole pixel are the real offset of that date), the SSIM of its window to the reference going from 0.661 to 0.839.</figcaption>
+      </figure>
 
-      <h3>The reference</h3>
+      <p><strong>The reference</strong></p>
       <ul>
         <li><strong>A date of the series</strong> (the default): <code>ref_date</code> is its number (1 is the first date), or 0 for the date with the most clear pixels in the window by the quality band. That date is not moved.</li>
         <li><strong>The median of dates</strong>: at each pixel the median of the clear observations of the dates of the most frequent sensor (or of every date), for a pixel with at least three. Every date is then moved to it, the reference's own dates included. A composite from several sensors is blurred by their own misplacement, so the sensor is the default.</li>
         <li><strong>Another layer</strong>: another open series or map in the same CRS, its date or the median of its dates, put on this series' grid by cubic convolution (said in the report) when its grid differs. Use it to bring a series to a reference of another sensor, as Sentinel-2 for a Landsat series.</li>
       </ul>
-      <p><strong>Mixed sensors.</strong> The dates are matched as they are: there is no step that harmonizes the bands of the sensors first. Phase correlation compares texture, the edges and patterns of the band, and a gain or an offset between sensors changes little of it, so the NIR band of Landsat against the NIR of Sentinel-2 matches well. Bands of very different wavelengths, or an optical image against radar, do not: choose the same band on both sides (<code>band</code>), and the NIR where you have it.</p>
+      <p><strong>Mixed sensors.</strong> The dates are matched as they are: there is no step that harmonizes the bands of the sensors first. Phase correlation compares texture, the edges and patterns of the band, and a gain or an offset between sensors changes little of it, so the NIR band of Landsat against the NIR of Sentinel-2 matches well (<a href="#harmonize">Harmonize sensors</a>, above, can be run first if you want the bands harmonized, but the matching does not need it). Bands of very different wavelengths, or an optical image against radar, do not: choose the same band on both sides (<code>band</code>), and the NIR where you have it.</p>
       <p>The pixels the quality band refuses (cloud, shadow, snow) and those without a value stay out of the windows, with a margin of <code>mask_buffer</code> pixels around them (2 by default), so the edge of a cloud does not pull the shift. When a cloud is in the middle of what the dates share, where AROSICS puts its window, the window is moved to the largest clear square and the report says so. A date with under 5% of clear pixels is not matched.</p>
 
-      <h3>Parameters</h3>
+      <p><strong>Parameters</strong></p>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -188,7 +520,7 @@ corrected.coords["topo_c"].to_pandas()                          # c of each date
         </table>
       </div>
 
-      <h3>Outputs</h3>
+      <p><strong>Outputs</strong></p>
       <ul>
         <li>The <strong>co-registered series</strong> opens as a new layer, a file a date in the run's <code>series</code> folder: the bands moved, then the quality band as it was, moved by nearest neighbour, last. What the shift brings in from outside the date has no value and is refused in the quality band. A date that was not moved is in the series as it was. The files are <strong>warped VRTs</strong> by default: the warp is computed as the series is read, so a run is quick and a large series costs nothing until you look at it, and a map that is read often is faster from COGs (the choice of <code>auto</code> above 4000 x 4000 pixels). The VRTs read the run's folder (<code>parts</code> and <code>sources</code>), so write COGs for a series you will move or share.</li>
         <li><code>shifts.csv</code>: a row a date with the shift in pixels (<code>x_shift_px</code>, <code>y_shift_px</code>) and map units, its <code>reliability</code> (0 to 100, AROSICS'), the structural similarity of the window to the reference before and after (<code>ssim_before</code>, <code>ssim_after</code>), whether the date was <code>applied</code> and the <code>reason</code> it was not, the matching window, and the share of the window that was clear. In local mode, the mean over the used points, and the points placed, matched and used.</li>
@@ -196,11 +528,15 @@ corrected.coords["topo_c"].to_pandas()                          # c of each date
         <li><code>shifts.gpkg</code>: the shifts as arrows on the map, a layer of lines in the series' CRS that opens with the series: global, one arrow a date from the centre of its matching window; local, one for each matched tie point (those the filters dropped are marked <code>used</code> 0 and say which filter). The arrow is the shift times <code>arrow_scale</code>, because a third of a pixel does not show.</li>
         <li><code>report.txt</code> and <code>coregister.json</code>: the reference, the shift of each date, the dates left alone and why, the shifts near the largest allowed.</li>
       </ul>
-      <h3>How to read them</h3>
-      <p>Look at the arrows first. Shifts of one direction on every date point to a series that is offset from its reference, which the tool corrects; arrows that wander by date point to a reference that is not good (a cloudy date, a different sensor) or to a band that has no texture. A <strong>reliability</strong> under 60, or an SSIM that does not rise after the shift (<code>ssim_after</code> under <code>ssim_before</code>), says the shift is not well supported: the window is a field of one cover, water or cloud shadow, and has nothing to correlate. A shift near <code>max_shift</code> may be a larger one that was cut off: raise it, or put the reference nearer. The window of the tool lists the reasons a date was left alone (<em>no match found in the window</em>, <em>shift above max_shift</em>, <em>too cloudy</em>) and marks in red the dates that were not moved.</p>
+      <p><strong>How to read them</strong></p>
+      <p>The figures of this section use eight real dates of irrigated fields in which Landsat 8-9 and Sentinel-2 agree to 0.13 pixel, so that one Landsat date, 2023-07-18, has its pixels moved by one pixel to the right and one down on purpose: that is the date the tool finds. Look at the arrows first. Shifts of one direction on every date point to a series that is offset from its reference, which the tool corrects; arrows that wander by date point to a reference that is not good (a cloudy date, a different sensor) or to a band that has no texture. A <strong>reliability</strong> under 60, or an SSIM that does not rise after the shift (<code>ssim_after</code> under <code>ssim_before</code>), says the shift is not well supported: the window is a field of one cover, water or cloud shadow, and has nothing to correlate. A shift near <code>max_shift</code> may be a larger one that was cut off: raise it, or put the reference nearer. The window of the tool lists the reasons a date was left alone (<em>no match found in the window</em>, <em>shift above max_shift</em>, <em>too cloudy</em>) and marks in red the dates that were not moved.</p>
       <p>In local mode the tie points tell where the scene is misplaced: a smooth change of the arrows across the scene is a real distortion, and a point whose arrow points against its neighbours is an outlier the filters should have dropped (<code>outlier_ransac</code>). A date with few points left stays as it is (<code>min_points</code>).</p>
+      <figure class="fig narrow">
+        <a href="assets/img/data-preparation/dp-17-coreg-arrows.jpg"><picture><source type="image/webp" srcset="assets/img/data-preparation/dp-17-coreg-arrows.webp"><img src="assets/img/data-preparation/dp-17-coreg-arrows.jpg" alt="The NDVI of the first date, 2023-06-16, over the fields and pivots of the irrigated area, in viridis colours from purple to yellow, with the arrows of shifts.gpkg over it: about thirty long arrows in rows over the whole scene, parallel and pointing the same way, down and to the right, and short marks at the edges of the map." width="743" height="727" loading="lazy"></picture></a>
+        <figcaption><b>The arrows.</b> The local run (a tie point every 200 pixels, 49 a date) of the same eight dates, the arrows of <code>shifts.gpkg</code> over the first date, with the arrows magnified 30 times (the default is 100: a shift of a pixel would be an arrow of 3 km). The long, parallel arrows are those of the date moved on purpose, 29 of its 35 matched tie points used (the shift found is &minus;0.946 and &minus;1.041 pixels): its tie points agree on one shift across the whole scene, as a block moved as a whole does. The arrows of the other six dates (0.01 to 0.14 pixel, the mean of the used points) are shorter than a pixel of the screen at this magnification.</figcaption>
+      </figure>
 
-      <h3>In Python</h3>
+      <p><strong>In Python</strong></p>
       <p>Copy Python writes the script of the run. It needs <code>pip install "zeit-cdts&gt;=3.2"</code> (and <code>scipy</code>, which Zeit needs, for the margin around the clouds). Zeit moves every band it is given with the resampling, quality band included, where Janus moves the quality band by nearest neighbour and keeps the clouds in the files it writes, so the script gives Zeit the bands with the pixels the quality band refuses as NaN and leaves the quality band out.</p>
       <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
 
@@ -213,25 +549,217 @@ shifts[["x_shift_px", "y_shift_px", "reliability", "applied"]]
 aligned, points = zeit.coregister_local(cube, ref, grid_res=200, window_size=256, band="nir")
 points.groupby("time")["used"].sum()</code></pre></div>
       <p><strong>Time.</strong> On a synthetic series of 8 dates of 2048 x 2048 pixels and four bands (a scene of noise moved by whole and fractional shifts), on 4 threads, Janus finds the shifts of the seven dates to the first in 0.7 s and writes the series as warped VRTs in the same time, since nothing is computed until it is read; written as COGs it takes 12.7 s, which is the warp and the writing of 134 million pixels. Zeit's own call (<code>zeit.coregister</code>, the shifts and the warp of the four bands in memory) takes 1.1 s, and 12.9 s with its file saved. AROSICS (one band of one date at a time: its shifts 0.6 s for the seven dates on one CPU, 0.5 s on four, and 0.9 s to correct that one band) finds the same shifts as Janus to 4e-7 pixel, and Zeit's call writes the same pixels as Janus's COGs. Local mode, with a tie point every 256 pixels (81 a date): Janus 2.7 s for the tie points of the seven dates, 17.3 s with the COGs written; Zeit 5.0 s and 20.2 s; AROSICS' <code>COREG_LOCAL</code> 3.2 s and 1.6 s for the tie points of each of two dates on four CPUs. Janus and Zeit use the same 386 tie points. The part of a pixel is the less certain of the shift: on this noise it was off by up to half a pixel for the fractional shifts, in Janus, Zeit and AROSICS alike, and a whole-pixel shift was found exactly. The machine was not idle: the figures show the order, not the last second (<code>tools/bench_coreg_vs_zeit.py</code>, <code>bench/coregister-vs-zeit.json</code>).</p>
+
+      <h3 id="warp">Reproject, resample, clip</h3>
+      <p>Several tools of this page ask for the series to be on a grid: the topographic correction and the co-registration want a projected CRS in metres, Harmonize sensors joins two series only on one grid, and ImproPhe and the co-registration to another layer take a layer in the same CRS. <span class="ui">Tools &rarr; Data preparation &rarr; Reproject, resample, clip...</span> warps the active series' files (or a run's map) with <code>gdalwarp</code> and opens the result as a new series. <span class="ui">To</span> is a CRS, the CRS of a layer or the whole grid of a layer (its CRS, origin, pixel size and extent, so that the maps align pixel for pixel); <span class="ui">Resampling</span> is near, bilinear, cubic, average, mode, min, max or med; <span class="ui">Area</span> is the whole layer, the visible area, the ROI or the polygons of a vector layer; the <span class="ui">Format</span> is COGs, GeoTIFFs or virtual (warped VRTs: nothing written, the pixels computed as they are read). The window writes the arguments of the <code>gdalwarp</code> command it runs and the task's log keeps them. Copy Python writes the same warp as Zeit's <code>zeit.load_raster</code> (<code>crs=</code>, <code>res=</code>, <code>resampling=</code>) and <code>zeit.save_raster</code>, and as <code>gdal.Warp</code> with <code>gdalwarp</code>'s options for what Zeit does not reproduce. Its window, a figure, the time and the check against <code>gdalwarp</code> are in the guide <a href="maps-to-numbers.html#warp">Maps to numbers</a>, section <em>Onto one grid</em>.</p>
     </section>
 
-    <section id="cloud-mask">
-      <h2><span class="n">03</span>Cloud detection</h2>
-      <p>Coming: clouds, shadows and snow for a series without a quality band (Fmask).</p>
+    <section id="time">
+      <h2><span class="n">06</span>Time</h2>
+      <p>The dates of an optical series are where the sky was clear, and many tools want a fixed step or a series on one scale. <a href="#interpolate">Interpolate</a> and <a href="#regularize">Regularize</a> both give a regular series and differ in what the value of a date is: a model of the pixel's own series, or a composite of the real observations of a period. <a href="#smoothing">Smoothing</a> draws a smooth curve over a pixel's series on the chart, and <a href="#standardize">Standardize</a> puts every pixel's series on one scale.</p>
+
+      <h3 id="interpolate">Interpolate (regular grid)</h3>
+      <p>The dates of a Landsat series are a week apart in one place and two months apart in another, depending on the overlap of the paths and on the clouds. BFAST, BEAST and the phenology want a date every 16 days, and a classifier that reads a year as a vector wants the same dates for every pixel. Interpolate puts each pixel's series on a <strong>regular grid of dates</strong>, with the missing observations (clouds, the quality band, NoData) ignored and the gaps filled by the model.</p>
+      <p><strong>How it works.</strong> It is FORCE's time series interpolation (Frantz 2019), as <code>zeit.interpolate</code>. The grid starts at the first date of the series and has a date every <code>step</code> days, 16 by default as in FORCE, up to the last date that fits before the end. Four methods give the value at each date:</p>
+      <ul>
+        <li><strong>Radial basis functions</strong> (the default, FORCE's): an ensemble of Gaussian kernels of several widths, each cut where the share of its mass kept reaches <code>cutoff</code> and weighted by the data it finds around each date. Narrow kernels follow the data, wide ones reach across long gaps, and the mix smooths the noise.</li>
+        <li><strong>Linear</strong>: straight lines between the valid observations on either side, so every valid observation is kept.</li>
+        <li><strong>Moving average</strong>: the mean of the valid observations within <code>window</code> days of each date (closed: |t &minus; date| &le; window).</li>
+        <li><strong>Harmonic</strong>: a robust fit (bisquare weights) of an offset, an optional trend and up to three harmonics of the year, predicted at every date.</li>
+      </ul>
+      <p>A date with no data within reach is empty. The tool needs real dates.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Interpolate (regular grid)</span>. Any series with real dates and at least two of them. On the chart the interpolated curve is drawn over each pin's series and the Statistics give the method, the number of grid dates, the valid observations and the dates without a value; on the raster the whole image, the visible area or the ROI. The <span class="ui">?</span> button opens the methods list.</p>
+      <!-- figure: dp-18-interpolate-chart | the Interpolate window (radial basis functions, step 16) beside the chart of a pin whose series has long wet-season gaps, the interpolated curve drawn over the observations; data: a Landsat or Sentinel-2 NDVI series of 3 or more years with a marked wet season -->
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>method</code></td><td>rbf</td><td><code>rbf</code> (radial basis functions, an ensemble), <code>linear</code>, <code>moving</code> (moving average) or <code>harmonic</code> (robust fit).</td></tr>
+            <tr><td><code>step</code></td><td>16</td><td>Days between the dates of the new grid (1 to 366), from the first date of the series.</td></tr>
+            <tr><td><code>sigma</code></td><td>8, 16, 32</td><td>Radial basis functions: the standard deviations of the Gaussian kernels, in days. The other choices are 4, 8, 16; 16, 32, 64; and 16 alone.</td></tr>
+            <tr><td><code>cutoff</code></td><td>0.95</td><td>Radial basis functions: each kernel is cut where the share of its mass kept reaches this value (0.5 to 0.999).</td></tr>
+            <tr><td><code>window</code></td><td>16</td><td>Moving average: the half-width, in days (1 to 366).</td></tr>
+            <tr><td><code>modes</code></td><td>3</td><td>Harmonic: the number of harmonics of the year (1 to 3).</td></tr>
+            <tr><td><code>trend</code></td><td>on</td><td>Harmonic: add a linear trend to the offset.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Outputs.</strong> One new series, <em>Interpolated</em>, with one band for each date of the grid and the date as its band description (<code>interpolate_series.tif</code>). It opens as a series of its own, so the tools that want a regular series read it. Clear-sky observations, Interpolate and Standardize are also the first steps of the chain <span class="ui">Time series analysis (FORCE)</span>.</p>
+      <p><strong>How to read them.</strong> Show the original and the interpolated series on the chart (<span class="ui">All visible layers</span>) at a pin with a long gap. The gap is bridged by the model and the dates in it are not observations: for the wet season of the tropics a filled gap is right for a tool that needs a value at every step and wrong to read as what the ground did then. The radial basis functions and the moving average smooth, so a single date that is a real, brief event is flattened; the linear method keeps it, and keeps the noise too. The harmonic method fits one seasonal shape, with an optional linear trend, to the whole series, so a change in the shape of the season is not followed.</p>
+      <p><strong>Interpolate or Regularize.</strong> Interpolate gives each date a <em>model value</em> of the pixel's own series. <a href="#regularize">Regularize</a> gives each period a <em>real observation</em> (the median, the medoid or the clearest date of the period) and fills only the empty ones. Prefer Regularize when you want the values to be observations and the gaps to be visible, and Interpolate when you want smooth, noise-reduced curves on dates you choose.</p>
+      <p><strong>In Python</strong></p>
+      <p>Copy Python writes the reading of the series and the call. It needs <code>pip install "zeit-cdts&gt;=3.2"</code>.</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+series = zeit.load_raster("series.tif", masked=True)           # (time, y, x), clouds as NaN
+grid = zeit.interpolate(series, "rbf", step=16, sigma=[8.0, 16.0, 32.0], cutoff=0.95)
+grid.time.values[:3]                                            # the first dates of the new grid</code></pre></div>
+
+      <h3 id="regularize">Regularize series</h3>
+      <p><span class="ui">Tools &rarr; Data preparation &rarr; Regularize series...</span> cuts the time of the active series into periods of a fixed step (8 or 16 days, a month, a year, or any number of days) and gives each one value: the median of the period's observations, the medoid (the observation nearest the medians of all the bands, so a composite's bands all come from one date) or the date with the most clear pixels. The empty periods are left empty or filled in time, linearly or from a Whittaker curve, with a limit on how long a gap may be filled. The result is a COG for each period, in a folder that opens as a new series. The defaults are a step of 16 days, the median, empty periods left empty (Whittaker's &lambda; is 10 when it is chosen, and the longest gap 0 days, meaning any), the quantity shown with its quality mask and the whole layer. Copy Python writes it as <code>zeit.regularize_time_series</code>.</p>
+      <p>It has its own section, with the window, the figures, the time of a run and the warning that a filled gap is not an observation, in the guide <a href="series.html#regularize">A series in, a series out</a>, section <em>Regularize</em>.</p>
+
+      <h3 id="smoothing">Smoothing</h3>
+      <p>The NDVI of one pixel over three years has noise: a thin cloud, a different sun, a bad registration. To see the season, or to pick the dates of the peak, a curve is drawn through it. Smoothing is a tool of the chart: it fits the pixel's series and draws the curve over it, in its own colour, for the cursor, every pin and the ROI. It writes no map.</p>
+      <p><strong>How it works.</strong> Two smoothers, in Zeit's <code>zeit.smooth</code>:</p>
+      <ul>
+        <li><strong>Whittaker</strong> (Eilers 2003), the default: a penalised least-squares fit that follows the data more or less closely as <code>lmbda</code> says. It follows the real spacing of the dates, so it suits an uneven series, and it fills the missing observations with the curve. The meaning of <code>lmbda</code> does not depend on the spacing of the dates: 10 is light for a 16-day series, 1000 strong.</li>
+        <li><strong>Savitzky-Golay</strong> (Savitzky and Golay 1964): a local polynomial of order <code>polyorder</code> over <code>window</code> dates, for dates evenly spaced; the missing observations are first interpolated linearly in time.</li>
+      </ul>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Smoothing</span>, any series with at least 5 dates. In <span class="ui">On the chart</span>, <span class="ui">Fit the cursor, pins and ROI series</span> is on while the window is open. The Statistics add the residual RMSE, how many gaps the curve filled (or interpolated) and the largest smoothed value with its date. The <span class="ui">?</span> button opens the methods list.</p>
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>method</code></td><td>whittaker</td><td><code>whittaker</code> (handles gaps and uneven dates, a common choice for vegetation indices) or <code>savgol</code> (Savitzky-Golay).</td></tr>
+            <tr><td><code>lmbda</code></td><td>10</td><td>Whittaker: larger is smoother (0.001 to 10,000,000).</td></tr>
+            <tr><td><code>window</code></td><td>7</td><td>Savitzky-Golay: the odd number of observations of each local fit, made odd and capped at the length of the series (3 to 999). Zeit's own default in Python is 5: the Copy Python script passes the window it ran.</td></tr>
+            <tr><td><code>polyorder</code></td><td>2</td><td>Savitzky-Golay: the order of the local polynomial, below the window length (0 to 6).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>How to read it.</strong> The residual RMSE is how far the curve is from the observations: it falls as <code>lmbda</code> falls. A curve that follows every dip has not smoothed anything, and one that cuts the peaks of the season has smoothed too much; the tool's own guidance is that 10 is light for a series every 16 days and 1000 strong. A Whittaker curve through a long gap is the model's idea of the gap, not data. The curve is for looking: to put the whole image on a smooth, regular series, use <a href="#interpolate">Interpolate</a>.</p>
+      <!-- figure: dp-19-smooth-chart | the chart of a pin's NDVI with the Whittaker curve at lambda 10 and the Savitzky-Golay curve drawn over it, and the Smoothing window beside it; data: an NDVI series every 5 to 16 days over 3 or more years -->
+      <p><strong>In Python</strong></p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+series = zeit.load_raster("series.tif", masked=True)           # (time, y, x), cloudy dates as NaN
+smooth = zeit.smooth(series, method="whittaker", lmbda=10.0)    # gaps filled by the curve
+smooth_sg = zeit.smooth(series, method="savgol", window=7, polyorder=2)</code></pre></div>
+
+      <h3 id="standardize">Standardize (FORCE)</h3>
+      <p>Two pixels of NDVI, a forest near 0.8 and a pasture near 0.5, cannot be compared by their values when what matters is how each departs from its own usual. Standardize gives every pixel's series the same scale: minus the pixel's mean, or also divided by its standard deviation, so that a z-score of &minus;2 means the same in a forest and in a pasture. It is FORCE's STANDARDIZE (the same step of its time series analysis), as <code>zeit.standardize</code>.</p>
+      <p><strong>How it works.</strong> The mean, and for the z-score the sample standard deviation (n &minus; 1), are those of the valid observations of each pixel. Missing observations stay empty, a series with fewer than 2 valid observations is left as it is, and a constant series gives empty values when it is normalized.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Standardize (FORCE)</span>. Any series with at least 2 dates. On the chart the standardized curve is drawn over each pin's series and the Statistics give the valid observations, the mean and the standard deviation; on the raster, a series on the run's dates.</p>
+      <p><strong>Parameters.</strong> One: <code>method</code>, <code>normalize</code> by default (the z-score: minus the mean, over the standard deviation) or <code>center</code> (minus the mean only). The z-score puts every series on one scale (mean 0, standard deviation 1); centring only removes the mean.</p>
+      <p><strong>Outputs.</strong> One series, <em>Standardized</em>, on the dates of the run (<code>standardize_series.tif</code>), as a new layer.</p>
+      <p><strong>How to read it.</strong> A value is how many standard deviations the pixel is from its own mean on that date. A pixel whose series is dominated by one change (a clearing) has a mean and a deviation that the change itself made, so its z-scores are not "anomalies" of the ordinary season. Standardize a stack of years with a stable season, not a series with a break in the middle.</p>
+      <!-- figure: dp-20-standardize-chart | the chart of two pins (a forest near 0.8 NDVI and a pasture near 0.5) as read and as z-scores, the two curves on one scale; data: a 3 to 5 year NDVI series with a forest pin and a seasonal pasture pin -->
+      <p><strong>In Python</strong></p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+series = zeit.load_raster("series.tif", masked=True)           # (time, y, x)
+z = zeit.standardize(series, "normalize")                       # "center": only minus the mean</code></pre></div>
+    </section>
+
+    <section id="radar">
+      <h2><span class="n">07</span>Radar</h2>
+
+      <h3 id="speckle">Speckle filter</h3>
+      <p>Sentinel-1's backscatter is grainy: each cell sums the echoes of many scatterers that add up or cancel at random. This <em>speckle</em> is not an error to be fixed but a property of the signal, and it is averaged away over neighbouring cells or over dates. <span class="ui">Tools &rarr; Data preparation &rarr; Speckle filter...</span> writes a filtered copy of a radar series, with Quegan and Yu's multitemporal filter or Lee's.</p>
+      <p><strong>How it works.</strong> Both work on the bands' <strong>linear</strong> values (&sigma;&deg; or &gamma;&deg;, not decibels: an average of decibels is not the decibels of the average), in a square window.</p>
+      <ul>
+        <li><strong>Quegan (multitemporal)</strong> (Quegan and Yu 2001): each date's window mean times the mean, over the <em>N</em> dates that have a value, of each date's value divided by its own window mean, <em>J<sub>k</sub> = (m<sub>k</sub> / N) &Sigma; x<sub>i</sub> / m<sub>i</sub></em>. The speckle is averaged through time, so a date keeps its own changes and the cells keep more detail than the window alone would leave. It needs two dates or more, and one orbit pass: dates seen from another side would be averaged with the others.</li>
+        <li><strong>Lee (spatial)</strong> (Lee 1980): each date alone, the window's mean <em>m</em> plus the cell's departure from it, <em>m + w (x &minus; m)</em>, weighted by how much more the window varies than speckle of <em>L</em> looks would, <em>w = 1 &minus; m&sup2; / (L v)</em> with <em>v</em> the window's variance, at least 0. It needs no other date and keeps edges.</li>
+      </ul>
+      <p>The windows are cut by the edges of the series and count only the cells that have a value.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; Speckle filter...</span>, with a radar series open (File &rarr; Search STAC catalog &rarr; Sentinel-1 RTC) that has dates. It runs on the whole layer or the ROI, as a task, and has no preview. The <span class="ui">?</span> button of its window opens the guide Series.</p>
+      <p><strong>Settings</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Filter</td><td>Quegan (multitemporal)</td><td>Quegan (needs 2 dates or more) or Lee (spatial).</td></tr>
+            <tr><td>Window</td><td>7 &times; 7 pixels</td><td>3, 5, 7, 9, 11 or 15 pixels a side.</td></tr>
+            <tr><td>Looks</td><td>4.4</td><td>Lee only: the number of looks of the speckle, whose variation is 1 / &radic;looks (0.5 to 100). 4.4 is Sentinel-1's IW GRDH; fewer smooths less.</td></tr>
+            <tr><td>Area</td><td>the whole layer</td><td>The whole layer or the ROI.</td></tr>
+            <tr><td>Name</td><td>&lt;layer&gt; filtered</td><td>The name of the new series and of the files.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Outputs.</strong> Every band of every date, on the linear values, as a COG for each date named <code>&lt;name&gt;_&lt;YYYYMMDD&gt;.tif</code> in a folder under <code>results\speckle</code> that opens as a series shown as the one filtered was (in decibels, if it was). A task, with its own <code>provenance.json</code>.</p>
+      <p><strong>How to read it.</strong> Swipe the filtered series against the original at one date: fields and forest edges should be smooth where they were grainy. Then put a pin on a stable cover and compare the standard deviation of its year: in the guide <a href="series.html#radar">A series in, a series out</a> the forest pin's 24 dates of VH vary by 2.38 dB as read, by 1.03 dB after Quegan's 7 &times; 7 filter and by 1.16 dB after Lee's. What a filter must not remove is the change on the ground (a pasture drying through August and September), and Quegan keeps it by averaging through time rather than through space. Where the window is larger than a feature, the feature is blurred.</p>
+      <p><strong>In Python.</strong> Zeit has no speckle filter, so Janus writes no script for this tool. The formulas above are a few lines of NumPy with <code>scipy.ndimage.uniform_filter</code> for the window means. The window, the figures and the timing are in <a href="series.html#radar">Series</a> and in <a href="stac.html#radar">STAC catalogs</a>, section <em>Sentinel-1: radar through the clouds</em>.</p>
+    </section>
+
+    <section id="resolution">
+      <h2><span class="n">08</span>Resolution</h2>
+
+      <h3 id="improphe">ImproPhe (FORCE)</h3>
+      <p>A phenology metric of each year from MODIS or another 500 m product is smooth, and a field of 3 ha is a fraction of one of its pixels. A Landsat scene at 30 m next to Sentinel-2 at 10 m has the same problem on a smaller scale. ImproPhe sharpens a <strong>coarse</strong> series to the pixels of a finer one: where the fine data say that a pixel looks like its neighbour, they share the coarse value, and where they say it does not, they do not.</p>
+      <p><strong>How it works.</strong> It is FORCE's CF- and L2-ImproPhe (Frantz et al. 2016), as <code>zeit.improphe</code>. The fine scenes are averaged in seasonal windows of the year, reduced to principal components and standardized. Each fine pixel's value is then the weighted mean of the coarse values at the pixels of its neighbourhood that look like it in the fine data, weighted by the spectral difference, the fine texture and the coarse texture. There are two uses:</p>
+      <ul>
+        <li><strong>A field with one layer a year</strong> (CF-ImproPhe), a 500 m phenology metric of each year, say: sharpened year by year with the fine scenes of that year.</li>
+        <li><strong>The scenes of a coarser sensor</strong> (L2-ImproPhe), Landsat at 30 m for Sentinel-2 at 10 m: each scene sharpened with the seasonal means of all the fine scenes of the series.</li>
+      </ul>
+      <p>The same method is the <code>merge = improphe</code> choice of the <a href="#level2">Level 1C tool</a>, which predicts the six 20 m bands of a Sentinel-2 scene at 10 m.</p>
+      <p><strong>Where:</strong> <span class="ui">Tools &rarr; Data preparation &rarr; ImproPhe (FORCE)</span>. The active series is the <strong>fine</strong> one: every band of each date (the quality band is applied, and masks the dates it refuses) with real dates. The series to sharpen is <strong>another open series</strong> in the same CRS, chosen in <span class="ui">Coarse series</span> (a menu of the other open series with their dates and bands; one in another CRS is listed and cannot be picked: <a href="#warp">reproject it first</a>). It may be on any grid: each fine pixel takes the coarse pixel its centre falls in, and where the coarse series has no pixel or no value the output is empty. Each band of a coarse date is a field of its own (the phenology metrics of a year, the bands of a Landsat scene) and is sharpened with the same neighbours. It runs on the raster only. The whole window is held in memory and the cost of a pixel grows with the area of the neighbourhood circle: a window needing more than 6 GB is refused and says how much it needs, so choose the ROI or the visible area and a radius that fits. The window gives an estimate, and <span class="ui">Preview</span> runs the tool on the ROI first.</p>
+      <!-- figure: dp-21-improphe-window | the ImproPhe window with a Sentinel-2 series active, a coarse series picked in Coarse series, the coarse series is set to a field with a layer a year, kernel radius lowered for a preview, the memory estimate; data: a Sentinel-2 series of one year with a coarse (500 m or 30 m) series of the same area and CRS -->
+
+      <p><strong>Parameters</strong></p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>coarse</code></td><td>none</td><td>The series to sharpen: another open series in the same CRS, on any grid (nearest neighbour onto this one's, as FORCE reads it). Dates with no value, and its NoData, are missing: those pixels come out empty and are not neighbours.</td></tr>
+            <tr><td><code>by</code></td><td>auto</td><td>What the coarse series is: <code>year</code> (a field with a layer a year, CF-ImproPhe: the years of its dates must differ), <code>scenes</code> (the scenes of a sensor, L2-ImproPhe) or <code>auto</code> (scenes if some year has several dates; a series with one date a year is asked about, since it could be either).</td></tr>
+            <tr><td><code>seasons</code></td><td>1,91,181,271,365</td><td>The limits of the seasonal windows in days of the year (FORCE's <code>SEASONAL_WINDOW</code>), <em>n</em> + 1 integers for <em>n</em> windows, in FORCE's 365-day calendar (29 February is day 60, with 1 March). A limit larger than the next makes a window that crosses the new year (330,60,330). A window with no scene at a pixel takes the mean of all the scenes.</td></tr>
+            <tr><td><code>kernel_size</code></td><td>2500</td><td>The radius of the neighbourhood circle, in the series' map units (FORCE's <code>KERNEL_SIZE</code>), cut to fine pixels: it should be a multiple of the pixel size. 2500 m is 250 pixels of 10 m, minutes for a 1000 &times; 1000 window. Try 300 to 500 on a preview first. Pixels within the radius of the window's edge see fewer neighbours.</td></tr>
+            <tr><td><code>texture_size</code></td><td>330</td><td>The radius of the window of the texture (the largest standard deviation of the components, and the coarse values' own), in map units (<code>KERNEL_TEXT</code>), cut to fine pixels.</td></tr>
+            <tr><td><code>pc_variance</code></td><td>0.975</td><td>The fraction of the variance of the seasonal means that the principal components keep (FORCE's).</td></tr>
+            <tr><td><code>force</code></td><td>off</td><td>Off: the method as the paper describes it (float seasonal means, the last window including day 365). On: FORCE's arithmetic to the letter, to reproduce its output (the means cut to integers, right only for reflectance &times; 10000; the upper limit of every window excluded, so day 365 is in none of the default seasons; FORCE's components).</td></tr>
+            <tr><td><code>pca</code></td><td>default</td><td>The components whose distances choose the neighbours: <code>default</code> (as the <code>force</code> switch says), <code>principal</code> or <code>force</code> (FORCE's projection on the rows of its eigenvector matrix, a rotation that is not the principal axes). Neither is better throughout on the synthetic data Zeit compared.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Outputs.</strong> One new series (<code>improphe_improphe.tif</code>) on the grid and the window of the active series, with one band for each layer (and band) of the coarse series, named by the coarse series' dates, in its units.</p>
+      <p><strong>How to read it.</strong> Swipe the result against the coarse layer: the coarse value should now follow the fields and the roads of the fine image, with no new values beyond the range of the coarse ones, since each output is a weighted mean of them. Check the border of the window, where fewer neighbours are seen, and the pixels the coarse series has no value for, which stay empty. A coarse feature that the fine data cannot see (a difference between two fields that look alike in the fine bands) is not sharpened, and is not invented. A year with no fine scene keeps its coarse values.</p>
+      <!-- figure: dp-22-improphe-map | the coarse layer and the ImproPhe result of the same area side by side (swipe), the coarse pixels blocky and the result following the field edges; data: a 500 m or 30 m coarse field of one year (a phenology metric, or a Landsat scene) over the area of a 10 m Sentinel-2 series of the same year -->
+
+      <p><strong>In Python</strong></p>
+      <p>Copy Python reads both series into cubes (the fine one over the window, the coarse one whole) and makes the call; it was checked to give the run's values. It needs <code>pip install "zeit-cdts&gt;=3.2"</code>. <code>by</code> is <code>"auto"</code>, <code>"year"</code> or <code>None</code> (the scenes).</p>
+      <div class="pycode"><pre class="code py" tabindex="0"><code>import zeit
+
+fine_cube = zeit.load_raster("fine_series", masked=True)       # (time, band, y, x), the quality mask applied
+coarse_cube = zeit.load_raster("coarse_series", masked=True)
+sharp = zeit.improphe(
+    coarse_cube, fine_cube, by="auto", seasons=(1, 91, 181, 271, 365),
+    kernel_size=300.0, texture_size=330.0, pc_variance=0.975,      # radii in map units
+)</code></pre></div>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Detect change on it</strong>: a series of every date, cleaned and made consistent, suits <a href="ccdc.html">CCDC</a>, <a href="sccd.html">S-CCD</a> and <a href="ewmacd.html">EWMACD</a>; a regular one (<a href="#interpolate">Interpolate</a> or <a href="#regularize">Regularize</a>) <a href="bfast.html">BFAST</a> and <a href="beast.html">BEAST</a>; an annual one <a href="landtrendr.html">LandTrendr</a>. <a href="coded.html">CODED</a> reads the forest's degradation from the six reflective bands.</li>
+        <li><strong>The seasons</strong>: the <a href="phenology.html">phenology guide</a> fits a curve to each year of a regular series.</li>
+        <li><strong>Compare two dates</strong>: <a href="envi.html">Noise and change</a> has the MNF, change vector analysis, iMAD and the radiometric normalization in full.</li>
+        <li><strong>Classify it</strong>: the <a href="deep-learning.html">Deep learning guide</a> trains TempCNN or L-TAE on samples over the series, and <a href="snic.html">SNIC</a> and <a href="fields.html">field delineation</a> work on its objects.</li>
+        <li><strong>The data and the files</strong>: <a href="stac.html">STAC catalogs</a> finds and downloads the series used here, and <a href="series.html">Series</a> builds, regularizes and saves them. <a href="maps-to-numbers.html">Maps to numbers</a> puts maps on one grid and measures them.</li>
+        <li><strong>Script it</strong>: every tool above is a Zeit function, and Tools &rarr; Python history keeps the code of each run. <a href="docs-usage.html#analysis-ready-data-force">Analysis-ready data (FORCE)</a> and <a href="docs-usage.html#time-series-analysis-force">Time series analysis (FORCE)</a> chain several of them in one task.</li>
+      </ul>
     </section>
 
     <section id="refs">
-      <h2><span class="n">04</span>References</h2>
+      <h2><span class="n">10</span>References</h2>
       <ul class="refs">
+        <li>Canty, M. J., Nielsen, A. A. (2008). Automatic radiometric normalization of multitemporal satellite imagery with the iteratively re-weighted MAD transformation. <em>Remote Sensing of Environment</em>, 112(3), 1025&ndash;1036. <a href="https://doi.org/10.1016/j.rse.2007.07.013">doi:10.1016/j.rse.2007.07.013</a></li>
+        <li>Canty, M. J., Nielsen, A. A., Schmidt, M. (2004). Automatic radiometric normalization of multitemporal satellite imagery. <em>Remote Sensing of Environment</em>, 91(3&ndash;4), 441&ndash;451. <a href="https://doi.org/10.1016/j.rse.2003.10.024">doi:10.1016/j.rse.2003.10.024</a></li>
+        <li>Claverie, M., Ju, J., Masek, J. G., Dungan, J. L., Vermote, E. F., Roger, J.-C., Skakun, S. V., Justice, C. (2018). The Harmonized Landsat and Sentinel-2 surface reflectance data set. <em>Remote Sensing of Environment</em>, 219, 145&ndash;161. <a href="https://doi.org/10.1016/j.rse.2018.09.002">doi:10.1016/j.rse.2018.09.002</a></li>
         <li>Copernicus DEM: European Space Agency, Sinergise (2021). <em>Copernicus Global Digital Elevation Model</em> (GLO-30 and GLO-90). <a href="https://doi.org/10.5270/ESA-c5d3d65">doi:10.5270/ESA-c5d3d65</a>. Licence: <a href="https://dataspace.copernicus.eu/">Licence for the use of the Copernicus WorldDEM-30</a>.</li>
+        <li>Eilers, P. H. C. (2003). A perfect smoother. <em>Analytical Chemistry</em>, 75(14), 3631&ndash;3636. <a href="https://doi.org/10.1021/ac034173t">doi:10.1021/ac034173t</a></li>
         <li>Fischler, M. A., Bolles, R. C. (1981). Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. <em>Communications of the ACM</em>, 24(6), 381&ndash;395. <a href="https://doi.org/10.1145/358669.358692">doi:10.1145/358669.358692</a></li>
         <li>Foroosh, H., Zerubia, J. B., Berthod, M. (2002). Extension of phase correlation to subpixel registration. <em>IEEE Transactions on Image Processing</em>, 11(3), 188&ndash;200. <a href="https://doi.org/10.1109/83.988953">doi:10.1109/83.988953</a></li>
+        <li>Frantz, D. (2019). FORCE: Landsat + Sentinel-2 analysis ready data and beyond. <em>Remote Sensing</em>, 11(9), 1124. <a href="https://doi.org/10.3390/rs11091124">doi:10.3390/rs11091124</a>. FORCE is GPL-3.0-or-later; its level 2 processor, the interpolation, the clear-sky observations, the standardization, the spectral adjustment and ImproPhe are the parts Zeit ports.</li>
+        <li>Frantz, D., Stellmes, M., Roder, A., Udelhoven, T., Mader, S., Hill, J. (2016). Improving the spatial resolution of land surface phenology by fusing medium- and coarse-resolution inputs. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 54(7), 4153&ndash;4164. <a href="https://doi.org/10.1109/TGRS.2016.2537929">doi:10.1109/TGRS.2016.2537929</a></li>
         <li>Horn, B. K. P. (1981). Hill shading and the reflectance map. <em>Proceedings of the IEEE</em>, 69(1), 14&ndash;47. <a href="https://doi.org/10.1109/PROC.1981.11918">doi:10.1109/PROC.1981.11918</a></li>
         <li>Kuglin, C. D., Hines, D. C. (1975). The phase correlation image alignment method. <em>Proceedings of the IEEE International Conference on Cybernetics and Society</em>, 163&ndash;165.</li>
+        <li>Lee, J.-S. (1980). Digital image enhancement and noise filtering by use of local statistics. <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, PAMI-2(2), 165&ndash;168. <a href="https://doi.org/10.1109/TPAMI.1980.4766994">doi:10.1109/TPAMI.1980.4766994</a></li>
+        <li>Qiu, S., Zhu, Z., He, B. (2019). Fmask 4.0: improved cloud and cloud shadow detection in Landsats 4&ndash;8 and Sentinel-2 imagery. <em>Remote Sensing of Environment</em>, 231, 111205. <a href="https://doi.org/10.1016/j.rse.2019.05.024">doi:10.1016/j.rse.2019.05.024</a></li>
+        <li>Quegan, S., Yu, J. J. (2001). Filtering of multichannel SAR images. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 39(11), 2373&ndash;2379. <a href="https://doi.org/10.1109/36.964973">doi:10.1109/36.964973</a></li>
+        <li>Roy, D. P., Zhang, H. K., Ju, J., Gomez-Dans, J. L., Lewis, P. E., Schaaf, C. B., Sun, Q., Li, J., Huang, H., Kovalskyy, V. (2016a). A general method to normalize Landsat reflectance data to nadir BRDF adjusted reflectance. <em>Remote Sensing of Environment</em>, 176, 255&ndash;271. <a href="https://doi.org/10.1016/j.rse.2016.01.023">doi:10.1016/j.rse.2016.01.023</a></li>
+        <li>Roy, D. P., Kovalskyy, V., Zhang, H. K., Vermote, E. F., Yan, L., Kumar, S. S., Egorov, A. (2016b). Characterization of Landsat-7 to Landsat-8 reflective wavelength and normalized difference vegetation index continuity. <em>Remote Sensing of Environment</em>, 185, 57&ndash;70. <a href="https://doi.org/10.1016/j.rse.2015.12.024">doi:10.1016/j.rse.2015.12.024</a></li>
+        <li>Roy, D. P., Li, J., Zhang, H. K., Yan, L., Huang, H., Li, Z. (2017). Examination of Sentinel-2A multi-spectral instrument (MSI) reflectance anisotropy and the suitability of a general method to normalize MSI reflectance to nadir BRDF adjusted reflectance. <em>Remote Sensing of Environment</em>, 199, 25&ndash;38. <a href="https://doi.org/10.1016/j.rse.2017.06.019">doi:10.1016/j.rse.2017.06.019</a></li>
+        <li>Savitzky, A., Golay, M. J. E. (1964). Smoothing and differentiation of data by simplified least squares procedures. <em>Analytical Chemistry</em>, 36(8), 1627&ndash;1639. <a href="https://doi.org/10.1021/ac60214a047">doi:10.1021/ac60214a047</a></li>
+        <li>Scheffler, D., Frantz, D., Segl, K. (2020). Spectral harmonization and red edge prediction of Landsat-8 to Sentinel-2 using land cover optimized multivariate regressors. <em>Remote Sensing of Environment</em>, 241, 111723. <a href="https://doi.org/10.1016/j.rse.2020.111723">doi:10.1016/j.rse.2020.111723</a></li>
         <li>Scheffler, D., Hollstein, A., Diedrich, H., Segl, K., Hostert, P. (2017). AROSICS: an automated and robust open-source image co-registration software for multi-sensor satellite data. <em>Remote Sensing</em>, 9(7), 676. <a href="https://doi.org/10.3390/rs9070676">doi:10.3390/rs9070676</a>. <a href="https://git.gfz-potsdam.de/danschef/arosics">AROSICS</a> (Apache-2.0, GFZ Potsdam), which Zeit ports.</li>
         <li>Soenen, S. A., Peddle, D. R., Coburn, C. A. (2005). SCS+C: a modified sun-canopy-sensor topographic correction in forested terrain. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 43(9), 2148&ndash;2159. <a href="https://doi.org/10.1109/TGRS.2005.852480">doi:10.1109/TGRS.2005.852480</a></li>
         <li>Teillet, P. M., Guindon, B., Goodenough, D. G. (1982). On the slope-aspect correction of multispectral scanner data. <em>Canadian Journal of Remote Sensing</em>, 8(2), 84&ndash;106. <a href="https://doi.org/10.1080/07038992.1982.10855028">doi:10.1080/07038992.1982.10855028</a></li>
-        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.topographic_correction</code>, <code>zeit.coregister</code>, <code>zeit.coregister_local</code>).</li>
+        <li>Zhu, Z., Woodcock, C. E. (2014). Automated cloud, cloud shadow, and snow detection in multitemporal Landsat data: an algorithm designed specifically for monitoring land cover change. <em>Remote Sensing of Environment</em>, 152, 217&ndash;234. <a href="https://doi.org/10.1016/j.rse.2014.06.012">doi:10.1016/j.rse.2014.06.012</a></li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus (<code>zeit.level2</code>, <code>zeit.tmask</code>, <code>zeit.clear_observations</code>, <code>zeit.nbar</code>, <code>zeit.spectral_adjust</code>, <code>zeit.bandpass_adjust</code>, <code>zeit.topographic_correction</code>, <code>zeit.radcal</code>, <code>zeit.coregister</code>, <code>zeit.coregister_local</code>, <code>zeit.interpolate</code>, <code>zeit.regularize_time_series</code>, <code>zeit.smooth</code>, <code>zeit.standardize</code>, <code>zeit.improphe</code>). Its pages <em>Sentinel-2 Level 1C to Surface Reflectance</em> and <em>Against the Original Implementations</em> hold the comparisons quoted here.</li>
       </ul>
     </section>
 

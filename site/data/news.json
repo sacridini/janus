@@ -1,5 +1,40 @@
 [
   {
+    "tag": "v1.23.0",
+    "version": "1.23.0",
+    "date": "2026-11-21",
+    "blocks": [
+      {
+        "ul": [
+          "Save figure as on screen by default (the panel at its size on screen, drawn by the GPU at 1x to 4x, the SVG of the same shapes; the publication look in mm kept as an option)",
+          "the menu bar's menus switch on hover once one is open",
+          "detached windows remember their place and size between runs",
+          "the lagged correlation's driver CSV names its column (the EOF tool's pcs.csv gave the year column)"
+        ]
+      }
+    ]
+  },
+  {
+    "tag": "v1.22.1",
+    "version": "1.22.1",
+    "date": "2026-11-21",
+    "blocks": [
+      {
+        "p": "the binaries of 1.22.0, whose build stopped at the Zeit tools' self-test on the three systems: the topographic correction and the radiometric normalization left out of it (each date's sun from the scenes' metadata and a downloaded elevation model; invariant pixels between two dates), the outputs the MNF, CVA, iMAD and omnibus decide from the data accepted as the manifest declares them"
+      }
+    ]
+  },
+  {
+    "tag": "v1.22.0",
+    "version": "1.22.0",
+    "date": "2026-11-21",
+    "blocks": [
+      {
+        "p": "the ENVI tools of change (MNF, CVA, iMAD, the radiometric normalization, Sentinel-1's omnibus change test, guide envi.html), and in Tools > Data preparation the topographic correction (each date's sun, the Copernicus DEM) and the co-registration of dates (AROSICS, global or by tie points; a date, the median or another layer as the reference), guide data-preparation.html"
+      }
+    ]
+  },
+  {
     "tag": "v1.21.1",
     "version": "1.21.1",
     "date": "2026-11-20",

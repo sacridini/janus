@@ -96,6 +96,8 @@ mod settings;
 mod shots;
 mod shots_alerts;
 mod shots_clips;
+mod shots_dataprep;
+mod shots_envi;
 mod shots_eof;
 mod shots_layout;
 mod shots_ml;
