@@ -46,8 +46,8 @@ fn svg_texts(svg: &str) -> Vec<String> {
         .collect()
 }
 
-fn figure(o: &FigureOptions, s: &mut State) -> Option<Rendered> {
-    s.render_figure(Source::Chart, o)
+fn figure(o: &FigureOptions, s: &mut State, ctx: &egui::Context) -> Option<Rendered> {
+    s.render_figure(Source::Chart, o, ctx)
 }
 
 impl State {
@@ -160,7 +160,7 @@ impl State {
                     format: Format::Svg,
                     ..Default::default()
                 };
-                let plain = figure(&o, self)?;
+                let plain = figure(&o, self, ctx)?;
                 let (plain_svg, plain_png) = (plain.to_svg(180.0, 110.0), plain.to_png().ok()?);
                 self.chart.looks.insert(RAIN.into(), Look { right: true, ..Default::default() });
                 let Some(d) = self.dual_axes(&self.chart, &exts, 300.0) else {
@@ -192,7 +192,7 @@ impl State {
                     d.right.step,
                     d.left.n
                 );
-                let fig = figure(&o, self)?;
+                let fig = figure(&o, self, ctx)?;
                 let svg = fig.to_svg(180.0, 110.0);
                 let texts = svg_texts(&svg);
                 let nums: Vec<f64> = texts.iter().filter_map(|t| t.parse().ok()).collect();
@@ -243,7 +243,7 @@ impl State {
                     ..Default::default()
                 };
                 self.chart.looks.entry(RAIN.into()).or_default().bars = true;
-                let fig = figure(&o, self)?;
+                let fig = figure(&o, self, ctx)?;
                 let (png, svg) = (fig.to_png().ok()?, fig.to_svg(180.0, 110.0));
                 let (lines_png, lines_svg) = with_kept(|k| (k.lines_png.clone(), k.lines_svg.clone()));
                 let (a, b) = (
@@ -297,9 +297,9 @@ impl State {
                     format: Format::Svg,
                     ..Default::default()
                 };
-                let before = figure(&o, self)?.to_svg(180.0, 110.0);
+                let before = figure(&o, self, ctx)?.to_svg(180.0, 110.0);
                 self.chart.looks.entry(active.clone()).or_default().shift = Some(Lag::Obs(2));
-                let after = figure(&o, self)?.to_svg(180.0, 110.0);
+                let after = figure(&o, self, ctx)?.to_svg(180.0, 110.0);
                 if before == after {
                     return fail("the shifted series should be drawn elsewhere");
                 }
