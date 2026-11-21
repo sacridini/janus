@@ -108,7 +108,9 @@ pub(crate) fn parse(text: &str) -> Vec<ShiftRow> {
 
 /// The rows of the shifts.csv of a run folder, read again when the file changes.
 pub(crate) fn rows_of(dir: &str) -> Arc<Vec<ShiftRow>> {
-    static CACHE: LazyLock<Mutex<HashMap<String, (SystemTime, Arc<Vec<ShiftRow>>)>>> = LazyLock::new(Default::default);
+    // (the file's time of change, its rows)
+    type Cached = (SystemTime, Arc<Vec<ShiftRow>>);
+    static CACHE: LazyLock<Mutex<HashMap<String, Cached>>> = LazyLock::new(Default::default);
     let path = std::path::Path::new(dir).join("shifts.csv");
     let Some(modified) = std::fs::metadata(&path).and_then(|m| m.modified()).ok() else { return Arc::default() };
     if let Some((t, rows)) = CACHE.lock().ok().and_then(|c| c.get(dir).cloned())
