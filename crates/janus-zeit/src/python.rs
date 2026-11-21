@@ -1110,9 +1110,23 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
             let mut pieces = vec![];
             let (driver, inputs) = match p.str("y_mode") {
                 "file" => {
+                    // the column the run reads, resolved by the same rule from the file's header (the file may be
+                    // gone from this machine: then the name or number as given)
+                    let path = p.str("y_file");
+                    let header = std::fs::read_to_string(path).ok().and_then(|t| crate::correlation::csv_columns(&t));
+                    let column = match crate::correlation::driver_column(header.as_deref(), p.str("y_column")) {
+                        Ok(c) => match c.name {
+                            Some(name) if c.index > 1 => format!(".loc[:, {}]", py_str(&name)),
+                            _ => format!(".iloc[:, {}]", c.index - 1),
+                        },
+                        Err(_) => match p.str("y_column").trim().parse::<usize>() {
+                            Ok(k) if k >= 1 => format!(".iloc[:, {}]", k - 1),
+                            _ => format!(".loc[:, {}]", py_str(p.str("y_column").trim())),
+                        },
+                    };
                     pieces.push(Piece::Raw(format!(
-                        "driver = pd.read_csv({}, index_col=0, parse_dates=True).iloc[:, 0]  # the driver's CSV: a date and a value",
-                        py_str(p.str("y_file"))
+                        "driver = pd.read_csv({}, index_col=0, parse_dates=True){column}  # the driver's CSV: a date and a value",
+                        py_str(path)
                     )));
                     ("driver", vec!["series"])
                 }

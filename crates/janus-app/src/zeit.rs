@@ -1109,9 +1109,17 @@ impl State {
                 if crate::coregister_ui::hidden(&tool.id, &p.id, values) {
                     continue;
                 }
+                let csv = (tool.id == "lagged_correlation" && p.id == "y_column")
+                    .then(|| values.get("y_file").and_then(Value::as_str).unwrap_or("").to_string());
                 let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
                 let hover = crate::welcome::param_help(p);
                 let help = |r: egui::Response| if hover.is_empty() { r } else { r.on_hover_text(&hover) };
+                if let Some(csv) = csv {
+                    help(ui.label(&p.label));
+                    changed |= csv_column_ui(ui, v, &csv, &hover);
+                    ui.end_row();
+                    continue;
+                }
                 match p.kind.as_str() {
                     "int" => {
                         help(ui.label(&p.label));
@@ -1206,6 +1214,66 @@ impl State {
         }
         changed
     }
+}
+
+/// The columns after the date of the header of a driver's CSV, read when the path or the file's time changes (the
+/// context keeps the last path, its time and what it gave): None for an unreadable file or one with no header row.
+fn csv_columns_of(ctx: &egui::Context, path: &str) -> Option<Vec<String>> {
+    let key = egui::Id::new("driver csv columns");
+    // a file made or rewritten after its path was typed is read again
+    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    type Kept = (String, Option<std::time::SystemTime>, Option<Vec<String>>);
+    if let Some((p, t, cols)) = ctx.data(|d| d.get_temp::<Kept>(key))
+        && p == path
+        && t == modified
+    {
+        return cols;
+    }
+    let cols = std::fs::File::open(path).ok().and_then(|f| {
+        use std::io::Read;
+        // the header is in the first lines
+        let mut head = Vec::new();
+        f.take(64 * 1024).read_to_end(&mut head).ok()?;
+        janus_zeit::correlation::csv_columns(&String::from_utf8_lossy(&head))
+    });
+    ctx.data_mut(|d| d.insert_temp::<Kept>(key, (path.to_string(), modified, cols.clone())));
+    cols
+}
+
+/// The lagged correlation's `y_column`: a combo of the CSV's columns after the date (and what an empty choice
+/// picks), a text field when the file is unreadable or has no header row. Value: the name or number, "" for the
+/// default.
+fn csv_column_ui(ui: &mut Ui, v: &mut Value, path: &str, hover: &str) -> bool {
+    let mut changed = false;
+    let mut x = v.as_str().unwrap_or("").to_string();
+    let Some(cols) = csv_columns_of(ui.ctx(), path) else {
+        let edit =
+            egui::TextEdit::singleline(&mut x).desired_width(crate::fit::scaled(ui, 220.0)).hint_text("name or number");
+        if ui.add(edit).on_hover_text(hover).changed() {
+            *v = json!(x);
+            changed = true;
+        }
+        return changed;
+    };
+    let names = cols.get(1..).unwrap_or(&[]);
+    let default = janus_zeit::correlation::driver_column(Some(&cols), "").ok().and_then(|c| c.name).unwrap_or_default();
+    let shown = if x.trim().is_empty() { format!("(default: {default})") } else { x.clone() };
+    ComboBox::from_id_salt("driver csv column").width(crate::fit::scaled(ui, 220.0)).selected_text(shown).show_ui(
+        ui,
+        |ui| {
+            if ui.selectable_label(x.trim().is_empty(), format!("(default: {default})")).clicked() {
+                *v = json!("");
+                changed = true;
+            }
+            for name in names {
+                if ui.selectable_label(x == *name, name).clicked() {
+                    *v = json!(name);
+                    changed = true;
+                }
+            }
+        },
+    );
+    changed
 }
 
 /// The closed text of a "multi" parameter: the chosen labels joined by ", " (shortened), "k of n" when they do not

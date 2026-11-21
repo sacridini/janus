@@ -156,26 +156,106 @@ fn parse_date(text: &str) -> Option<i64> {
     Some(days_from_civil(year, month, day))
 }
 
-/// The dates and values of a CSV (a header line, if any, is skipped; the values empty or "NA" are missing), by date.
-fn parse_series(text: &str) -> Result<(Vec<i64>, Vec<f64>), String> {
-    let mut rows: Vec<(i64, f64)> = vec![];
-    for (n, line) in text.lines().enumerate() {
-        let line = line.trim().trim_start_matches('\u{feff}');
-        if line.is_empty() || line.starts_with('#') {
-            continue;
+/// The fields of a CSV line: comma, semicolon or tab separated, else by white space.
+fn split_fields(line: &str) -> Vec<&str> {
+    if line.contains([',', ';', '\t']) {
+        line.split([',', ';', '\t']).collect()
+    } else {
+        line.split_whitespace().collect()
+    }
+}
+
+/// The CSV's lines that count: not empty, not a comment, the byte order mark off.
+fn csv_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    text.lines()
+        .enumerate()
+        .map(|(n, l)| (n, l.trim().trim_start_matches('\u{feff}')))
+        .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
+}
+
+/// The names of the columns of a CSV's header line (the date's first), None when its first line starts with a date
+/// (there is no header). For the app's list of columns to choose from.
+pub fn csv_columns(text: &str) -> Option<Vec<String>> {
+    let (_, line) = csv_lines(text).next()?;
+    let fields = split_fields(line);
+    if fields.first().and_then(|f| parse_date(f)).is_some() {
+        return None;
+    }
+    Some(fields.iter().map(|f| f.trim().trim_matches('"').to_string()).collect())
+}
+
+/// The columns an empty choice skips: a year as a decimal number and a flag of what was filled (the EOF tool's
+/// pcs.csv has `date,year,filled,pc1,...`).
+fn is_bookkeeping(name: &str) -> bool {
+    matches!(name.to_ascii_lowercase().as_str(), "year" | "filled")
+}
+
+/// The column of a driver's CSV the value is read from: its place after the date column (1 is the first) and, with a
+/// header, its name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DriverColumn {
+    pub index: usize,
+    pub name: Option<String>,
+}
+
+/// Which column of the driver's CSV `choice` is. `columns` are the header's names (the date's first; None when the
+/// file has no header or is not known). The rule: a header name (exactly, else without regard to case), or a number
+/// (1 is the first column after the date); empty is the first column after the date that is not named `year` or
+/// `filled` (the first one when there is no header).
+pub fn driver_column(columns: Option<&[String]>, choice: &str) -> Result<DriverColumn, String> {
+    let choice = choice.trim();
+    let names: Option<&[String]> = columns.map(|c| c.get(1..).unwrap_or(&[]));
+    let named = |i: usize| DriverColumn { index: i + 1, name: names.and_then(|n| n.get(i)).cloned() };
+    if choice.is_empty() {
+        let i = names.and_then(|n| n.iter().position(|c| !is_bookkeeping(c))).unwrap_or(0);
+        return Ok(named(i));
+    }
+    if let Some(n) = names {
+        let hit = n.iter().position(|c| c == choice).or_else(|| n.iter().position(|c| c.eq_ignore_ascii_case(choice)));
+        if let Some(i) = hit {
+            return Ok(named(i));
         }
-        let fields: Vec<&str> = if line.contains([',', ';', '\t']) {
-            line.split([',', ';', '\t']).collect()
-        } else {
-            line.split_whitespace().collect()
-        };
+    }
+    if let Ok(k) = choice.parse::<usize>() {
+        if k >= 1 && names.is_none_or(|n| k <= n.len()) {
+            return Ok(named(k - 1));
+        }
+        return Err(match names {
+            Some(n) => {
+                format!("ValueError: the driver's CSV has {} column(s) after the date, not a column {k}", n.len())
+            }
+            None => {
+                format!("ValueError: '{choice}' is not a column of the driver's CSV (1 is the first after the date)")
+            }
+        });
+    }
+    Err(match names {
+        Some(n) => {
+            format!("ValueError: the driver's CSV has no column '{choice}'; its columns are: {}", n.join(", "))
+        }
+        None => format!(
+            "ValueError: the driver's CSV has no header row, so its column is a number (1 is the first after the date), not '{choice}'"
+        ),
+    })
+}
+
+/// The dates and values of a CSV (a header line, if any, is skipped; the values empty or "NA" are missing), by date.
+/// `choice` is the column of the values (`driver_column`).
+fn parse_series(text: &str, choice: &str) -> Result<(Vec<i64>, Vec<f64>), String> {
+    let column = driver_column(csv_columns(text).as_deref(), choice)?;
+    let mut rows: Vec<(i64, f64)> = vec![];
+    for (n, line) in csv_lines(text) {
+        let fields = split_fields(line);
         let Some(date) = fields.first().and_then(|f| parse_date(f)) else {
             if rows.is_empty() {
                 continue; // a header
             }
             return Err(format!("ValueError: line {}: '{}' is not a date (2020-03-15 or 2020-03)", n + 1, fields[0]));
         };
-        let value = fields.get(1).map(|v| v.trim().trim_matches('"')).unwrap_or("");
+        if column.index > 1 && fields.len() <= column.index {
+            return Err(format!("ValueError: line {}: the driver's CSV has no column {}", n + 1, column.index));
+        }
+        let value = fields.get(column.index).map(|v| v.trim().trim_matches('"')).unwrap_or("");
         let v = match value.to_ascii_lowercase().as_str() {
             "" | "na" | "nan" | "null" | "none" => f64::NAN,
             s => s.parse::<f64>().map_err(|_| format!("ValueError: line {}: '{value}' is not a number", n + 1))?,
@@ -420,7 +500,7 @@ pub(crate) fn run(
                 return Err("ValueError: choose the driver's CSV file".into());
             }
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-            let (d, v) = parse_series(&text)?;
+            let (d, v) = parse_series(&text, p.str("y_column"))?;
             (d, Some(v))
         }
         Mode::Pixel | Mode::WindowMean => {
@@ -573,7 +653,7 @@ mod tests {
 
     #[test]
     fn a_csv_of_dates_and_values_is_read_with_or_without_a_header() {
-        let (d, v) = parse_series("date,oni\n2020-01,0.5\n2020-02-15;NA\n2020-03,-1.25\n2019-12,0.1\n").unwrap();
+        let (d, v) = parse_series("date,oni\n2020-01,0.5\n2020-02-15;NA\n2020-03,-1.25\n2019-12,0.1\n", "").unwrap();
         assert_eq!(
             d,
             vec![
@@ -586,11 +666,52 @@ mod tests {
         assert_eq!(v[0], 0.1);
         assert!(v[2].is_nan());
         assert_eq!(v[3], -1.25);
-        let (d, _) = parse_series("2020/1/5 1\n2020/1/6 2\n2020/1/7 3\n").unwrap();
+        let (d, _) = parse_series("2020/1/5 1\n2020/1/6 2\n2020/1/7 3\n", "").unwrap();
         assert_eq!(d[0], days_from_civil(2020, 1, 5));
-        assert!(parse_series("2020-01,1\n2020-02,x\n2020-03,3\n").is_err());
-        assert!(parse_series("2020-01,1\n2020-13,2\n2020-03,3\n").is_err());
-        assert!(parse_series("2020-01,1\n").is_err());
+        assert!(parse_series("2020-01,1\n2020-02,x\n2020-03,3\n", "").is_err());
+        assert!(parse_series("2020-01,1\n2020-13,2\n2020-03,3\n", "").is_err());
+        assert!(parse_series("2020-01,1\n", "").is_err());
+    }
+
+    #[test]
+    fn the_drivers_column_is_chosen_by_name_or_number() {
+        let pcs = "date,year,filled,pc1,PC2,pc3\n2020-01,2020.0,0,1,10,100\n2020-02,2020.1,0,2,20,200\n2020-03,2020.2,1,3,30,300\n";
+        let cols = csv_columns(pcs).unwrap();
+        assert_eq!(cols, ["date", "year", "filled", "pc1", "PC2", "pc3"]);
+        let pick = |c: &str| driver_column(Some(&cols), c).unwrap();
+        // empty: the first column that is not the year or the filled flag
+        assert_eq!(pick(""), DriverColumn { index: 3, name: Some("pc1".into()) });
+        // a name, exactly, then without regard to case
+        assert_eq!(pick("pc3").index, 5);
+        assert_eq!(pick("pc2").index, 4);
+        assert_eq!(pick("PC2").index, 4);
+        // a number counts after the date column
+        assert_eq!(pick("4"), DriverColumn { index: 4, name: Some("PC2".into()) });
+        assert_eq!(pick("1").name.as_deref(), Some("year"));
+        // an exact name wins over a number
+        let odd: Vec<String> = ["d", "a", "2"].iter().map(|x| x.to_string()).collect();
+        assert_eq!(driver_column(Some(&odd), "2").unwrap().index, 2);
+        let e = driver_column(Some(&cols), "pc9").unwrap_err();
+        assert!(e.contains("no column 'pc9'") && e.contains("year, filled, pc1, PC2, pc3"), "{e}");
+        assert!(driver_column(Some(&cols), "6").is_err() && driver_column(Some(&cols), "0").is_err());
+        // the values come from the chosen column
+        for (c, last) in [("", 3.0), ("pc2", 30.0), ("5", 300.0), ("year", 2020.2)] {
+            let (_, v) = parse_series(pcs, c).unwrap();
+            assert_eq!(v[2], last, "{c}");
+        }
+        assert!(parse_series(pcs, "pc9").is_err());
+        // a plain date,value file, and a file with only the year and filled columns, pick the first column
+        assert_eq!(driver_column(csv_columns("date,value\n").as_deref(), "").unwrap().index, 1);
+        let only: Vec<String> = ["date", "year", "filled"].iter().map(|x| x.to_string()).collect();
+        assert_eq!(driver_column(Some(&only), "").unwrap().index, 1);
+        // no header: names cannot match, numbers work
+        let bare = "2020-01,1,10\n2020-02,2,20\n2020-03,3,30\n";
+        assert_eq!(csv_columns(bare), None);
+        assert_eq!(parse_series(bare, "").unwrap().1, [1.0, 2.0, 3.0]);
+        assert_eq!(parse_series(bare, "2").unwrap().1, [10.0, 20.0, 30.0]);
+        let e = parse_series(bare, "pc1").unwrap_err();
+        assert!(e.contains("no header row"), "{e}");
+        assert!(parse_series(bare, "3").is_err());
     }
 
     #[test]

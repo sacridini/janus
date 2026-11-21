@@ -100,6 +100,28 @@ fn eof_and_lagged_correlation_have_python_calls() {
         c.contains("zeit.lagged_correlation(series, driver, lags=3, step='month', match='nearest', tolerance='12.5D'"),
         "{c}"
     );
+    // the CSV's column, resolved from its header as the run does: pcs.csv's first column after the date that is not
+    // the year or the flag is pc1, a name or a number picks another, a plain file stays as it was
+    let dir = std::env::temp_dir().join(format!("janus_zeit_python_calls_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pcs = dir.join("pcs.csv");
+    std::fs::write(&pcs, "date,year,filled,pc1,pc2\n2020-01,2020.0,0,1,10\n").unwrap();
+    let pcs = pcs.to_string_lossy().to_string();
+    let driver_line = |column: &str| -> String {
+        let (c, _) = calls(
+            "lagged_correlation",
+            &given(&[("y_mode", json!("file")), ("y_file", json!(pcs)), ("y_column", json!(column))]),
+            &input,
+        )
+        .unwrap();
+        c.lines().next().unwrap().to_string()
+    };
+    assert!(driver_line("").contains("parse_dates=True).loc[:, 'pc1']"), "{}", driver_line(""));
+    assert!(driver_line("pc2").contains("parse_dates=True).loc[:, 'pc2']"));
+    assert!(driver_line("PC2").contains("parse_dates=True).loc[:, 'pc2']"));
+    assert!(driver_line("4").contains("parse_dates=True).loc[:, 'pc2']"));
+    assert!(driver_line("1").contains("parse_dates=True).iloc[:, 0]"));
+    let _ = std::fs::remove_dir_all(&dir);
     // the defaults leave out of the compact call everything but the driver
     let call = janus_zeit::python::tool_call("lagged_correlation", &given(&[]), &input).unwrap();
     assert_eq!(call.compact("").0, "result = zeit.lagged_correlation(series, other_cube)");

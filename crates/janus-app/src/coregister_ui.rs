@@ -15,10 +15,14 @@ use crate::theme;
 
 /// Whether the tool's parameter has no use with the others' values (its form leaves it out).
 pub(crate) fn hidden(tool: &str, param: &str, values: &BTreeMap<String, Value>) -> bool {
+    let text = |k: &str| values.get(k).and_then(Value::as_str).unwrap_or("");
+    if tool == "lagged_correlation" {
+        // the driver's column is only for a CSV file
+        return param == "y_column" && text("y_mode") != "file";
+    }
     if tool != "coregister" {
         return false;
     }
-    let text = |k: &str| values.get(k).and_then(Value::as_str).unwrap_or("");
     let local = text("mode") == "local";
     match param {
         "ref_date" => text("reference") != "date",
@@ -264,6 +268,10 @@ mod tests {
         assert!(!needs_other_series("lagged_correlation", &given("y_mode", "file")));
         assert!(needs_other_series("lagged_correlation", &given("y_mode", "window_mean")));
         assert!(needs_other_series("improphe", &BTreeMap::new()));
+        // the driver's column is shown for a CSV file only
+        assert!(hidden("lagged_correlation", "y_column", &given("y_mode", "pixel")));
+        assert!(!hidden("lagged_correlation", "y_column", &given("y_mode", "file")));
+        assert!(!hidden("lagged_correlation", "y_file", &given("y_mode", "pixel")));
     }
 
     #[test]

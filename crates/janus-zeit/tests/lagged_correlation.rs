@@ -274,6 +274,55 @@ fn the_driver_can_be_the_mean_of_its_window_or_a_csv_file() {
 }
 
 #[test]
+fn the_drivers_column_of_a_csv_like_the_eof_tools_is_chosen() {
+    let dir = folder("columns");
+    let d = driver();
+    let (x, _) = files(&dir, &d);
+    // date,year,filled,pc1,pc2: pc1 is noise, pc2 the real driver
+    let mut rng = Lcg(99);
+    let mut csv = String::from(
+        "date,year,filled,pc1,pc2
+",
+    );
+    for (t, v) in d.iter().enumerate() {
+        csv += &format!(
+            "{}-{:02},{:.4},0,{},{v}
+",
+            2016 + t / 12,
+            t % 12 + 1,
+            2016.0 + t as f64 / 12.0,
+            2.0 * rng.next()
+        );
+    }
+    let path = dir.join("pcs.csv");
+    std::fs::write(&path, csv).unwrap();
+    let file = path.to_string_lossy().to_string();
+    let go = |column: Option<&str>| {
+        let mut params = json!({ "lags": 4, "y_mode": "file", "y_file": file });
+        if let Some(c) = column {
+            params["y_column"] = json!(c);
+        }
+        run_job(&spec(&dir, &x, None, params), &|_, _| {}, &AtomicBool::new(false))
+    };
+    // by name (exactly or not), and by number after the date column (year 1, filled 2, pc1 3, pc2 4)
+    for column in ["pc2", "PC2", "4"] {
+        check_halves(&go(Some(column)).unwrap(), column);
+    }
+    // empty: the first column that is not the year or the flag, pc1, noise: no best lag of 2 to speak of
+    let r = go(None).unwrap();
+    let (left, _) = halves();
+    let lag = map(&r, "best_lag");
+    let at2 = left.iter().filter(|&&i| lag[i] == 2.0).count();
+    assert!((at2 as f64) < 0.5 * left.len() as f64, "the default column (pc1) is noise: best lag 2 on {at2} pixels");
+    // the decimal year is a column too, when asked for
+    assert!(go(Some("year")).is_ok());
+    // an unknown name or number is refused with the columns
+    let e = go(Some("pc9")).err().expect("refused");
+    assert!(e.contains("no column 'pc9'") && e.contains("year, filled, pc1, pc2"), "{e}");
+    assert!(go(Some("5")).err().expect("refused").contains("4 column(s)"));
+}
+
+#[test]
 fn a_pixel_is_zeit_cores_own_computation() {
     let dir = folder("direct");
     let d = driver();

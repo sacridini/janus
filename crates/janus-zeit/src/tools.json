@@ -5673,6 +5673,13 @@
      "help": "The CSV of the driver: a date (2020-03-15, or 2020-03 for a month) and a value on each line, comma, semicolon or tab separated; empty or NA values are missing."
     },
     {
+     "id": "y_column",
+     "label": "Driver column",
+     "type": "text",
+     "default": "",
+     "help": "The column of the CSV that holds the driver: its name in the header line, or its number counted after the date column (1 is the first). Empty: the first column after the date that is not named year or filled (the EOF tool's pcs.csv, date,year,filled,pc1,pc2,..., gives pc1). Only for a CSV file."
+    },
+    {
      "id": "lags",
      "label": "Lags",
      "type": "int",
