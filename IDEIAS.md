@@ -2444,7 +2444,12 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   referência data, mediana ou outra camada, autoteste 375-379), com o guia data-preparation.html.
   Faltam a detecção de nuvens sem QA (Fmask, OmniCloudMask) e a fusão STARFM no app; os menus por
   hover, a geometria das janelas destacadas, a coluna do CSV e a exportação de figuras "como na
-  tela" ficaram nos worktrees janus-ui e janus-fig, sem merge.
+  tela" ficaram nos worktrees janus-ui e janus-fig, sem merge. A tag ficou sem binários (o
+  --selftest-zeit do CI rodou a correção topográfica numa série sintética, sem o sol das datas).
+- 1.22.1: o --selftest-zeit deixa de fora a correção topográfica (o sol vem dos metadados das
+  cenas e o DEM é baixado) e a normalização radiométrica (as datas sintéticas não têm pixels
+  invariantes), e aceita as saídas que o MNF, o CVA, o iMAD e o omnibus decidem pelos dados (cada
+  uma declarada no manifesto); os binários da 1.22.0.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
