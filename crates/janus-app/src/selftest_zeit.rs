@@ -90,6 +90,11 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                 why = Some("not a regular series (a constant step of whole days)".into());
             }
         }
+        if tool.id == "topocorr" {
+            // each date's sun comes from angle bands, the granule's metadata, a STAC item, an MTL or an acquisition
+            // time, and the elevation model is downloaded: the UI self-test (370-374) and its tests cover it
+            why = Some("needs each date's sun from the scenes' metadata and downloads an elevation model".into());
+        }
         let missing: Vec<&String> =
             tool.requires.bands.iter().flatten().filter(|r| !roles.contains_key(r.as_str())).collect();
         if why.is_none() && !missing.is_empty() {
