@@ -6,8 +6,8 @@ abstract: "Janus is a desktop application for satellite image time series: it sh
 authors:
   - family-names: "Lacerda"
     given-names: "Eduardo"
-version: "1.21.1"
-date-released: "2026-11-20"
+version: "1.22.0"
+date-released: "2026-11-21"
 license: "GPL-3.0-or-later"
 repository-code: "https://github.com/sacridini/janus"
 url: "https://sacridini.github.io/janus/"
