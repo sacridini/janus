@@ -112,10 +112,8 @@ pub(crate) fn drawn_last_frame(ctx: &egui::Context, id: egui::Id) -> bool {
 pub(crate) fn set_detached(ctx: &egui::Context, id: egui::Id, on: bool) {
     let mut st = detach_load(ctx, id);
     if on && !st.detached {
-        // the OS position of the window as it is drawn now (the main window's plus its place in it)
-        let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
-        let area = ctx.memory(|m| m.area_rect(id));
-        st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+        let title = ctx.data(|d| d.get_temp::<String>(title_key(id)));
+        detach_start(ctx, id, &mut st, title.as_deref());
         st.seen = ctx.cumulative_frame_nr();
     } else if !on {
         st.back();
@@ -126,6 +124,86 @@ pub(crate) fn set_detached(ctx: &egui::Context, id: egui::Id, on: bool) {
 /// The viewport of a window in an OS window of its own.
 fn detached_viewport_id(id: egui::Id) -> egui::ViewportId {
     egui::ViewportId::from_hash_of(("detached window", id))
+}
+
+/// The geometry an OS window of a window of Janus had when it was last seen: its outer position and its inner size
+/// in points, `[x, y, width, height]`: what `with_position` and `with_inner_size` take, so that it round-trips.
+pub(crate) type Geom = [f32; 4];
+
+/// The geometries kept, by the window's title (stable between runs, unlike its id's hash). They live in the
+/// context's memory; `pump_settings` carries them to and from the settings file.
+fn geoms_key() -> egui::Id {
+    egui::Id::new("detached windows geometry")
+}
+
+pub(crate) fn detach_geoms(ctx: &egui::Context) -> Vec<(String, Geom)> {
+    ctx.data(|d| d.get_temp::<Vec<(String, Geom)>>(geoms_key())).unwrap_or_default()
+}
+
+pub(crate) fn set_detach_geoms(ctx: &egui::Context, geoms: Vec<(String, Geom)>) {
+    ctx.data_mut(|d| d.insert_temp(geoms_key(), geoms));
+}
+
+/// How many windows' geometries are kept.
+const MAX_GEOMS: usize = 64;
+
+/// Keeps the geometry of the OS window being drawn (called inside its viewport), when it changed. A minimized window
+/// (the system parks it far away) or one not placed yet is left out.
+fn record_geom(ctx: &egui::Context, key: &str) {
+    let (outer, inner, minimized) = ctx.input(|i| {
+        let v = i.viewport();
+        (v.outer_rect, v.inner_rect, v.minimized)
+    });
+    let (Some(outer), Some(inner)) = (outer, inner) else { return };
+    if minimized == Some(true) || inner.width() < 100.0 || inner.height() < 60.0 {
+        return;
+    }
+    // whole points: no jitter from the scale factor's fractions
+    let g = [outer.min.x.round(), outer.min.y.round(), inner.width().round(), inner.height().round()];
+    let mut all = detach_geoms(ctx);
+    match all.iter_mut().find(|(k, _)| k == key) {
+        Some(e) if e.1 == g => return,
+        Some(e) => e.1 = g,
+        None => {
+            if all.len() >= MAX_GEOMS {
+                all.remove(0);
+            }
+            all.push((key.to_string(), g));
+        }
+    }
+    set_detach_geoms(ctx, all);
+}
+
+/// The title the window with this id was drawn with (its key for the geometries).
+fn title_key(id: egui::Id) -> egui::Id {
+    egui::Id::new(("detach title", id))
+}
+
+/// Takes the window out of the main window: it opens where and as large as it was in an OS window before (when that
+/// place is plausible: its top-left no farther from the main window than a monitor's size, else the screen it was
+/// on is gone), else where it is drawn now.
+fn detach_start(ctx: &egui::Context, id: egui::Id, st: &mut Detach, title: Option<&str>) {
+    let (outer, monitor) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().monitor_size));
+    let origin = outer.map(|r| r.min).unwrap_or_default();
+    let area = ctx.memory(|m| m.area_rect(id));
+    let mut at = area.map(|r| origin + r.min.to_vec2());
+    let mut size = area.map(|r| r.size());
+    let saved = title.and_then(|t| detach_geoms(ctx).into_iter().find(|(k, _)| k == t)).map(|e| e.1);
+    if let Some([x, y, w, h]) = saved {
+        size = Some(vec2(w, h));
+        let pos = egui::pos2(x, y);
+        if plausible_position(pos, outer, monitor) {
+            at = Some(pos);
+        }
+    }
+    st.start(at, size);
+}
+
+/// Is a saved position still on a screen: its top-left within a monitor's size of the main window's rectangle (any
+/// side)? Without the main window's place or the monitor's size nothing says otherwise.
+fn plausible_position(pos: egui::Pos2, main: Option<Rect>, monitor: Option<egui::Vec2>) -> bool {
+    let (Some(main), Some(monitor)) = (main, monitor) else { return true };
+    main.expand2(monitor).contains(pos)
 }
 
 /// The OS window's builder: titled, sized and placed from what the window was in the main window.
@@ -266,6 +344,7 @@ impl<'a> PanelWindow<'a> {
         if !detachable {
             return win.show(ctx, add);
         }
+        ctx.data_mut(|d| d.insert_temp(title_key(id), title.clone()));
         let mut st = detach_load(ctx, id);
         st.seen(ctx.cumulative_frame_nr());
         if st.detached {
@@ -275,6 +354,7 @@ impl<'a> PanelWindow<'a> {
             let vid = detached_viewport_id(id);
             let closed = ctx.show_viewport_immediate(vid, builder, |ui, _class| {
                 st.viewport = Some(ui.ctx().viewport_id());
+                record_geom(ui.ctx(), &title);
                 egui::CentralPanel::default().show(ui, |ui| {
                     if !own_button {
                         back = detach_row(ui, f32::INFINITY, true);
@@ -306,9 +386,7 @@ impl<'a> PanelWindow<'a> {
         // the content's own button may have changed the state: read it again
         let mut st = detach_load(ctx, id);
         if asked {
-            let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
-            let area = ctx.memory(|m| m.area_rect(id));
-            st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+            detach_start(ctx, id, &mut st, Some(&title));
         }
         st.viewport = None;
         st.seen = ctx.cumulative_frame_nr();
@@ -346,6 +424,7 @@ pub(crate) fn modal(id: egui::Id, title: &str) -> PanelModal {
 impl PanelModal {
     pub fn show<T: Default>(self, ctx: &egui::Context, add: impl FnOnce(&mut Ui) -> T) -> ModalOut<T> {
         let Self { id, title } = self;
+        ctx.data_mut(|d| d.insert_temp(title_key(id), title.clone()));
         let mut st = detach_load(ctx, id);
         st.seen(ctx.cumulative_frame_nr());
         if st.detached {
@@ -354,6 +433,7 @@ impl PanelModal {
             let vid = detached_viewport_id(id);
             let closed = ctx.show_viewport_immediate(vid, builder, |ui, _class| {
                 st.viewport = Some(ui.ctx().viewport_id());
+                record_geom(ui.ctx(), &title);
                 egui::CentralPanel::default().show(ui, |ui| {
                     back = detach_row(ui, f32::INFINITY, true);
                     if let Some(add) = add.take() {
@@ -381,9 +461,7 @@ impl PanelModal {
         let close = out.should_close();
         let mut st = detach_load(ctx, id);
         if asked {
-            let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
-            let area = ctx.memory(|m| m.area_rect(id));
-            st.start(area.map(|r| origin + r.min.to_vec2()), area.map(|r| r.size()));
+            detach_start(ctx, id, &mut st, Some(&title));
         }
         st.seen = ctx.cumulative_frame_nr();
         detach_store(ctx, id, st);

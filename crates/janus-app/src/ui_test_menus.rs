@@ -121,7 +121,7 @@ impl State {
                 egui::Popup::close_all(ctx);
                 println!("[{:5.1} s] the menus and the pointer put back", t0.elapsed().as_secs_f64());
                 *AT.lock().unwrap() = (0, 0, 0);
-                st.stage = 299;
+                st.stage = 413; // the detached windows' geometry (413-419, ui_test_calc_detach.rs), then 299
                 st.since = Some(Instant::now());
                 st.frames = 0;
             }

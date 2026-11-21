@@ -47,6 +47,9 @@ pub struct Settings {
     pub palette_recent: Vec<String>,
     /// saved layer styles: name, style (style.rs's text)
     pub styles: Vec<(String, String)>,
+    /// where the OS windows of the detached windows were last: title, `[x, y, width, height]` (panels.rs's `Geom`);
+    /// only the place is kept, every window still opens in the main window
+    pub detached_geoms: Vec<(String, [f32; 4])>,
     /// saved views (navigation.rs's text); the minimap shown
     pub saved_views: Vec<String>,
     pub minimap: bool,
@@ -106,6 +109,7 @@ impl Default for Settings {
             favorites: Vec::new(),
             palette_recent: Vec::new(),
             styles: Vec::new(),
+            detached_geoms: Vec::new(),
             saved_views: Vec::new(),
             minimap: false,
             recent_projects: Vec::new(),
@@ -219,6 +223,18 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
                     s.styles.push((name.to_string(), style.to_string()));
                 }
             }
+            ("janus", "DetachedWindow") => {
+                if let Some((title, g)) = v.split_once('\t') {
+                    let n: Vec<f32> = g.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if let [x, y, w, h] = n[..]
+                        && [x, y, w, h].iter().all(|v| v.is_finite())
+                        && w > 0.0
+                        && h > 0.0
+                    {
+                        s.detached_geoms.push((title.to_string(), [x, y, w, h]));
+                    }
+                }
+            }
             ("janus", "Theme") => {
                 if let Some(i) = theme::NAMES.iter().position(|n| *n == v) {
                     s.theme = i;
@@ -282,6 +298,11 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
     }
     for v in &s.saved_views {
         out += &format!("SavedView={v}\n");
+    }
+    for (title, [x, y, w, h]) in &s.detached_geoms {
+        if !title.contains(['\t', '\n', '\r']) {
+            out += &format!("DetachedWindow={title}\t{x},{y},{w},{h}\n");
+        }
     }
     out += &format!("Minimap={}\n", i32::from(s.minimap));
     for p in &s.recent_projects {
@@ -397,6 +418,17 @@ impl State {
             // the cursor's series in the theme's colour
             if let Some(h) = &mut self.series.hover {
                 h.color = theme::cursor_series();
+            }
+        }
+        // the OS windows' places: the file's into the context once, then the context's back when they moved
+        if ctx.data(|d| d.get_temp::<bool>(egui::Id::new("detached geoms loaded"))).is_none() {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("detached geoms loaded"), true));
+            crate::panels::set_detach_geoms(ctx, st.s.detached_geoms.clone());
+        } else {
+            let now = crate::panels::detach_geoms(ctx);
+            if now != st.s.detached_geoms {
+                st.s.detached_geoms = now;
+                st.changed();
             }
         }
         let due = st.changed_at.is_some_and(|t| t.elapsed() > Duration::from_secs(1))
@@ -999,6 +1031,27 @@ pub(crate) fn fit_slider(ui: &mut Ui, w: f32, widest: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The OS windows' places are written as one line each and read back; a negative position (a screen left of the
+    /// main one) stays, a broken line is left out.
+    #[test]
+    fn detached_windows_round_trip() {
+        let bm = crate::basemap::BasemapUi::default();
+        let s = Settings {
+            detached_geoms: vec![
+                ("Raster calculator".into(), [-1500.0, 40.0, 640.0, 480.0]),
+                ("Export".into(), [10.0, 20.0, 480.0, 360.0]),
+            ],
+            ..Settings::default()
+        };
+        let text = to_ini(&s, &bm);
+        assert!(text.contains("DetachedWindow=Raster calculator\t-1500,40,640,480\n"));
+        let (s2, _) = parse(&text);
+        assert_eq!(s2.detached_geoms, s.detached_geoms);
+        let broken = "[Janus][Settings]\nDetachedWindow=A\t1,2,3\nDetachedWindow=B\t1,2,0,5\nDetachedWindow=C\tx\n";
+        let (s3, _) = parse(broken);
+        assert!(s3.detached_geoms.is_empty());
+    }
 
     /// The C++'s settings are read as written, and written back the same.
     #[test]

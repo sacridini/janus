@@ -1091,7 +1091,8 @@ impl State {
             385..=399 => return self.test_calc_detach(st, t0, ctx),
             400..=406 => return self.test_envi(st, t0, ctx),
             407..=409 => return self.test_omnibus(st, t0, ctx),
-            410..=414 => return self.test_menus(st, t0, ctx),
+            410..=412 => return self.test_menus(st, t0, ctx),
+            413..=419 => return self.test_detach_geom(st, t0, ctx),
             _ => {}
         }
         None

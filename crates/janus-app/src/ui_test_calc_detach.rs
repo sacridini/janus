@@ -272,3 +272,139 @@ impl State {
         None
     }
 }
+
+/// Where 413-419 move the calculator's OS window: its outer position and inner size.
+const TARGET: [f32; 4] = [150.0, 120.0, 620.0, 420.0];
+
+/// The geometry kept for the only window that has one (the stages clear the list first).
+fn kept_geom(ctx: &egui::Context) -> Option<(String, [f32; 4])> {
+    let all = crate::panels::detach_geoms(ctx);
+    if all.len() == 1 { all.into_iter().next() } else { None }
+}
+
+fn near(a: [f32; 4], b: [f32; 4]) -> bool {
+    a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 3.0)
+}
+
+impl State {
+    /// `--selftest-ui` stages 413-419: a detached window remembers its OS window's place. 413 detaches the
+    /// calculator with nothing kept; 414 moves and resizes its OS window with viewport commands; 415 checks the
+    /// geometry kept follows, and that the settings text holds it and reads back, and brings the window back; 416
+    /// detaches it again; 417 checks it opened where it was (the builder got the kept place), then keeps a place on a
+    /// screen that is not there and brings it back; 418 detaches it; 419 checks it opened at its size but not at the
+    /// impossible position, then puts everything back.
+    pub(super) fn test_detach_geom(&mut self, st: &mut UiTest, t0: Instant, ctx: &egui::Context) -> Option<i32> {
+        let stage = st.stage;
+        let fail = |what: &str| {
+            println!("FAIL (stage {stage}): {what}");
+            Some(1)
+        };
+        let next = |st: &mut UiTest, done: &str| {
+            println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
+            st.stage += 1;
+            st.since = Some(Instant::now());
+            st.frames = 0;
+        };
+        let id = State::calc_window_id();
+        let wait = |st: &mut UiTest, n: usize| {
+            st.frames += 1;
+            st.frames < n
+        };
+        match stage {
+            413 => {
+                self.calc.show = true;
+                crate::panels::set_detached(ctx, id, false);
+                crate::panels::set_detach_geoms(ctx, Vec::new());
+                crate::panels::set_detached(ctx, id, true);
+                next(st, "window geometry: the calculator detached with no place kept");
+            }
+            414 => {
+                if wait(st, 10) {
+                    return None;
+                }
+                let Some((vid, _)) = crate::panels::detached_viewport(ctx, id) else {
+                    return fail("the calculator should be in a viewport of its own");
+                };
+                let [x, y, w, h] = TARGET;
+                ctx.send_viewport_cmd_to(vid, egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                ctx.send_viewport_cmd_to(vid, egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                next(st, "window geometry: its OS window moved and resized");
+            }
+            415 => {
+                if wait(st, 14) {
+                    return None;
+                }
+                let Some((_, g)) = kept_geom(ctx) else {
+                    return fail(&format!("one geometry should be kept: {:?}", crate::panels::detach_geoms(ctx)));
+                };
+                if !near(g, TARGET) {
+                    return fail(&format!("the kept geometry {g:?} should follow the window to {TARGET:?}"));
+                }
+                if self.settings.s.detached_geoms != crate::panels::detach_geoms(ctx) {
+                    return fail("the settings should hold the geometry kept");
+                }
+                let text = crate::settings::to_ini(&self.settings.s, &self.basemap.ui);
+                if !text.contains("DetachedWindow=")
+                    || crate::settings::parse(&text).0.detached_geoms != vec![kept_geom(ctx)?]
+                {
+                    return fail("the settings text should hold the geometry and read it back");
+                }
+                crate::panels::set_detached(ctx, id, false);
+                next(
+                    st,
+                    &format!("window geometry: the kept {g:?} follows the OS window and the settings text holds it"),
+                );
+            }
+            416 => {
+                if wait(st, 5) {
+                    return None;
+                }
+                if crate::panels::is_detached(ctx, id) {
+                    return fail("the calculator should be in the main window");
+                }
+                crate::panels::set_detached(ctx, id, true);
+                next(st, "window geometry: detached again");
+            }
+            417 => {
+                if wait(st, 14) {
+                    return None;
+                }
+                let Some((_, g)) = kept_geom(ctx) else { return fail("the geometry should still be kept") };
+                if !near(g, TARGET) {
+                    return fail(&format!("the window should open where it was ({TARGET:?}), it is at {g:?}"));
+                }
+                // a place on a screen that is not there
+                crate::panels::set_detached(ctx, id, false);
+                let (title, _) = kept_geom(ctx)?;
+                crate::panels::set_detach_geoms(ctx, vec![(title, [100000.0, 100000.0, 500.0, 350.0])]);
+                next(st, &format!("window geometry: opened where it was ({g:?}); an impossible place kept"));
+            }
+            418 => {
+                if wait(st, 5) {
+                    return None;
+                }
+                crate::panels::set_detached(ctx, id, true);
+                next(st, "window geometry: detached with the impossible place");
+            }
+            419 => {
+                if wait(st, 14) {
+                    return None;
+                }
+                let Some((_, g)) = kept_geom(ctx) else { return fail("the geometry should be kept") };
+                if g[0] > 50000.0 || g[1] > 50000.0 {
+                    return fail(&format!("an impossible position should not be used: {g:?}"));
+                }
+                if (g[2] - 500.0).abs() > 3.0 || (g[3] - 350.0).abs() > 3.0 {
+                    return fail(&format!("the saved size should be kept when the position is not: {g:?}"));
+                }
+                crate::panels::set_detached(ctx, id, false);
+                self.calc.show = false;
+                crate::panels::set_detach_geoms(ctx, Vec::new());
+                next(st, &format!("window geometry: the impossible place left out, the size kept ({g:?})"));
+                st.stage = 299;
+            }
+            _ => {}
+        }
+        None
+    }
+}
