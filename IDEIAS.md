@@ -2437,6 +2437,19 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   traz de volta; panels::window e panels::modal (31 janelas e 7 diálogos, a calculadora inclusive);
   os prompts curtos (Go to, Changes not saved) ficam na principal; autoteste 385-392. A correção do
   clippy da 1.21.0.
+- 1.22.0: a parte 3 do levantamento do ENVI, em boa parte: MNF, CVA, iMAD e a normalização
+  radiométrica (Zeit 3.9), o teste omnibus de mudança do Sentinel-1 (envi.html, autoteste
+  400-409); em Tools > Data preparation, a correção topográfica (o sol de cada data, o Copernicus
+  DEM, autoteste 370-374) e o co-registro das datas pelo AROSICS (global e por pontos de amarração,
+  referência data, mediana ou outra camada, autoteste 375-379), com o guia data-preparation.html.
+  Faltam a detecção de nuvens sem QA (Fmask, OmniCloudMask) e a fusão STARFM no app; os menus por
+  hover, a geometria das janelas destacadas, a coluna do CSV e a exportação de figuras "como na
+  tela" ficaram nos worktrees janus-ui e janus-fig, sem merge. A tag ficou sem binários (o
+  --selftest-zeit do CI rodou a correção topográfica numa série sintética, sem o sol das datas).
+- 1.22.1: o --selftest-zeit deixa de fora a correção topográfica (o sol vem dos metadados das
+  cenas e o DEM é baixado) e a normalização radiométrica (as datas sintéticas não têm pixels
+  invariantes), e aceita as saídas que o MNF, o CVA, o iMAD e o omnibus decidem pelos dados (cada
+  uma declarada no manifesto); os binários da 1.22.0.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

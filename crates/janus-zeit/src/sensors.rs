@@ -9,9 +9,9 @@ use std::path::Path;
 use gdal::Metadata;
 use janus_cube::CubeInfo;
 
-/// The tools that read each date's sensor.
+/// The tools that read each date's sensor (the co-registration's composite reference of the dates of one sensor).
 pub fn needs(tool: &str) -> bool {
-    matches!(tool, "tasseled_cap" | "spectral_adjust")
+    matches!(tool, "tasseled_cap" | "spectral_adjust" | "coregister")
 }
 
 /// The sensor of a platform name ("sentinel-2a", "landsat-8", "LANDSAT_7"), a scene id or a file name

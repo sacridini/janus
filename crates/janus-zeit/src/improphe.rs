@@ -156,7 +156,7 @@ pub(crate) fn bands(spec: &JobSpec, _p: &Params) -> Result<Vec<String>, String> 
 }
 
 /// Whether two CRS (WKT) are the same, ignoring the axis order of geographic ones.
-fn same_crs(a: &str, b: &str) -> Result<bool, String> {
+pub(crate) fn same_crs(a: &str, b: &str) -> Result<bool, String> {
     use gdal::spatial_ref::SpatialRef;
     if a == b {
         return Ok(true);

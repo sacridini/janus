@@ -4870,6 +4870,318 @@
    "chunk_cells": 200000
   },
   {
+   "id": "coregister",
+   "name": "Co-register dates (AROSICS)",
+   "category": "Data preparation",
+   "description": "Aligns the dates of a series to a reference image, as zeit.coregister and zeit.coregister_local (ports of AROSICS 1.14.0, Scheffler et al. 2017, Remote Sensing 9:676; Apache-2.0). The shift of each date's band (NIR by default) to the reference's is the peak of the phase correlation of a matching window (its side maxima give the part of a pixel), checked by moving the window and correlating again; local mode does it at the points of a grid and drops the unreliable points (reliability, structural similarity, RANSAC on an affine model). Clouds, shadows and snow of the quality band stay out of the windows, with a margin. A shift of half a pixel between dates (Landsat against Sentinel-2, old scenes, other orbits) shows as change along field edges, roads and rivers, which LandTrendr, CCDC and BFAST take for breaks. The reference is a date of the series, the median of some of its dates, or another open layer. A run writes the shifts (shifts.csv, and arrows on the map), and the series with each date moved: global, its geotransform shifted and resampled onto the window's grid; local, warped by its tie points (a thin plate spline). The series is written as warped VRTs (nothing computed until read; COGs for a window larger than 4000 x 4000 pixels, or when asked) and opened as a new layer with its quality band. The dates are matched as they are, with no harmonization of the sensors; the series and the reference must be in the same projected CRS (a layer in another CRS or grid is resampled onto this series' grid first).",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "all_bands": true,
+    "optional_bands": [
+     "nir",
+     "red",
+     "green",
+     "swir1"
+    ]
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "mode",
+     "label": "Shift",
+     "type": "enum",
+     "default": "global",
+     "options": [
+      "global",
+      "local"
+     ],
+     "labels": [
+      "One shift per date (COREG)",
+      "A grid of tie points per date (COREG_LOCAL)"
+     ],
+     "help": "Global: one shift for the whole date, for a scene misplaced as a block. Local: the shift at the points of a grid, for a misplacement that varies over the scene (an old orthorectification, relief); slower, and it needs texture all over."
+    },
+    {
+     "id": "reference",
+     "label": "Reference",
+     "type": "enum",
+     "default": "date",
+     "options": [
+      "date",
+      "composite",
+      "layer"
+     ],
+     "labels": [
+      "A date of the series",
+      "Median of dates",
+      "Another layer"
+     ],
+     "help": "The image every date is moved to. A date of the series (the one with most clear pixels, or the one you number); the median of some of its dates over their clear pixels (a pixel needs three); or another open series or map. Mixing sensors in a composite blurs it by their own shift."
+    },
+    {
+     "id": "ref_date",
+     "label": "Reference date",
+     "type": "int",
+     "default": 0,
+     "min": 0.0,
+     "max": 100000.0,
+     "help": "0: the date with the most clear pixels in the window; else its number (1 is the first date)."
+    },
+    {
+     "id": "ref_dates",
+     "label": "Composite of",
+     "type": "enum",
+     "default": "sensor",
+     "options": [
+      "sensor",
+      "all"
+     ],
+     "labels": [
+      "The dates of the most frequent sensor",
+      "Every date"
+     ],
+     "help": "Mixing sensors in the reference blurs it by their own shift."
+    },
+    {
+     "id": "ref_layer",
+     "label": "Reference layer",
+     "type": "series",
+     "default": null,
+     "any_crs": true,
+     "help": "A series or a map in the same CRS (put on this series' grid by cubic convolution if its grid differs). Its date 'Layer date', or the median of its dates."
+    },
+    {
+     "id": "ref_band",
+     "label": "Layer band",
+     "type": "int",
+     "default": 0,
+     "min": 0.0,
+     "max": 1000.0,
+     "help": "The band of the reference layer to match: its number (1 is the first); 0: the one named like the band matched here, else the first."
+    },
+    {
+     "id": "ref_layer_date",
+     "label": "Layer date",
+     "type": "int",
+     "default": 0,
+     "min": 0.0,
+     "max": 100000.0,
+     "help": "0: the median of the layer's dates; else the number of its date (1 is the first)."
+    },
+    {
+     "id": "band",
+     "label": "Band matched",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "nir",
+      "red",
+      "green",
+      "swir1"
+     ],
+     "labels": [
+      "Automatic (NIR, red or the first band)",
+      "NIR",
+      "Red",
+      "Green",
+      "SWIR1"
+     ],
+     "help": "The band whose texture is matched (AROSICS: bands of similar wavelength in both images). NIR has the field and forest contrast, red where there is no NIR; automatic: NIR if mapped, else red, else the first band. Sensors are matched as they are, with no harmonization step."
+    },
+    {
+     "id": "mask_buffer",
+     "label": "Cloud margin",
+     "type": "int",
+     "default": 2,
+     "min": 0.0,
+     "max": 50.0,
+     "unit": "pixels",
+     "help": "Pixels the quality band refuses (cloud, shadow, snow) or the band has no value at, grown by this many pixels before the matching, so the edges of a cloud stay out too."
+    },
+    {
+     "id": "window_size",
+     "label": "Matching window",
+     "type": "int",
+     "default": 256,
+     "min": 32.0,
+     "max": 2048.0,
+     "unit": "pixels",
+     "help": "AROSICS' ws: the side of the window (the FFT takes the largest power of 2 inside it, cut down to what the images share). Local mode: each point's window."
+    },
+    {
+     "id": "max_shift",
+     "label": "Largest shift",
+     "type": "float",
+     "default": 5.0,
+     "min": 0.5,
+     "max": 100.0,
+     "unit": "pixels",
+     "help": "A shift above this many pixels is not accepted (AROSICS' max_shift)."
+    },
+    {
+     "id": "max_iter",
+     "label": "Validation tries",
+     "type": "int",
+     "default": 5,
+     "min": 1.0,
+     "max": 20.0,
+     "help": "Tries to validate the integer shift by moving the reference's window by it and correlating again."
+    },
+    {
+     "id": "min_reliability",
+     "label": "Least reliability",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 100.0,
+     "unit": "%",
+     "help": "Global: a shift below it is treated as not found (0: any shift AROSICS' checks accept, as COREG). Local: the points below it are dropped (AROSICS: 60); a local run uses 60 when this is 0."
+    },
+    {
+     "id": "grid_res",
+     "label": "Tie point spacing",
+     "type": "int",
+     "default": 200,
+     "min": 16.0,
+     "max": 5000.0,
+     "unit": "pixels",
+     "help": "Local mode: the distance between the tie points, in pixels."
+    },
+    {
+     "id": "filter_level",
+     "label": "Tie point filters",
+     "type": "enum",
+     "default": "3",
+     "options": [
+      "0",
+      "1",
+      "2",
+      "3"
+     ],
+     "labels": [
+      "None",
+      "Reliability",
+      "Reliability and SSIM",
+      "Reliability, SSIM and RANSAC"
+     ],
+     "help": "Local mode: which tie points are dropped. 1: low reliability; 2: and those where the window does not become more similar to the reference; 3: and RANSAC's outliers of an affine model of the shifts (AROSICS' default)."
+    },
+    {
+     "id": "rs_max_outlier",
+     "label": "RANSAC outliers expected",
+     "type": "float",
+     "default": 10.0,
+     "min": 1.0,
+     "max": 50.0,
+     "unit": "%",
+     "help": "Local mode, RANSAC: the share of the points expected to be outliers; the residual threshold is searched until the outliers are within this share, plus or minus the tolerance."
+    },
+    {
+     "id": "rs_tolerance",
+     "label": "RANSAC tolerance",
+     "type": "float",
+     "default": 2.5,
+     "min": 0.1,
+     "max": 20.0,
+     "unit": "%",
+     "help": "Local mode, RANSAC: the tolerance of that share."
+    },
+    {
+     "id": "min_points",
+     "label": "Fewest tie points",
+     "type": "int",
+     "default": 5,
+     "min": 3.0,
+     "max": 1000.0,
+     "help": "Local mode: a date with fewer valid tie points is left as it is, and the reason is in shifts.csv."
+    },
+    {
+     "id": "arosics_compat",
+     "label": "Reproduce AROSICS' RANSAC flags",
+     "type": "bool",
+     "default": false,
+     "help": "Reproduce a bug of AROSICS 1.14.0, to compare with it: when the reliability or SSIM filter has flagged points, RANSAC's flags land on other points. Off: each flag is on its point."
+    },
+    {
+     "id": "warp",
+     "label": "Local warp",
+     "type": "enum",
+     "default": "tps",
+     "options": [
+      "tps",
+      "poly1",
+      "poly2",
+      "poly3"
+     ],
+     "labels": [
+      "Thin plate spline (AROSICS)",
+      "Affine (polynomial 1)",
+      "Polynomial 2",
+      "Polynomial 3"
+     ],
+     "help": "Local mode: how the tie points move a date. A thin plate spline (AROSICS) follows every point; a polynomial of order 1 (affine) to 3 is smoother."
+    },
+    {
+     "id": "resampling",
+     "label": "Resampling",
+     "type": "enum",
+     "default": "cubic",
+     "options": [
+      "cubic",
+      "bilinear",
+      "lanczos",
+      "near"
+     ],
+     "help": "Of the bands (the quality band is always moved by nearest neighbour). A shift of a whole number of pixels copies the cells."
+    },
+    {
+     "id": "format",
+     "label": "Corrected series as",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "vrt",
+      "cog",
+      "none"
+     ],
+     "labels": [
+      "Virtual, COGs above 4000 x 4000 pixels",
+      "Virtual (warped VRTs)",
+      "COGs",
+      "Only the shifts"
+     ],
+     "help": "Virtual: warped VRTs, nothing written, the warp computed when the series is read. COGs: the same warp written (what 'automatic' does above 4000 x 4000 pixels, as warped VRTs recompute the warp at every read). Only the shifts: no series."
+    },
+    {
+     "id": "arrow_scale",
+     "label": "Arrows magnified",
+     "type": "float",
+     "default": 100.0,
+     "min": 1.0,
+     "max": 10000.0,
+     "help": "The arrows of the shifts layer are the shift times this (a shift of a third of a pixel is too small to see)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "aligned",
+     "name": "Co-registered",
+     "unit": "as the series",
+     "series": true
+    },
+    {
+     "id": "shifts",
+     "name": "Shifts",
+     "vector": true
+    }
+   ]
+  },
+  {
    "id": "improphe",
    "name": "ImproPhe (FORCE)",
    "category": "Data preparation",

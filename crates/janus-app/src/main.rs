@@ -27,6 +27,7 @@ mod classes;
 mod climate;
 mod composite;
 mod contents;
+mod coregister_ui;
 mod crash;
 mod crash_ui;
 mod cycles;

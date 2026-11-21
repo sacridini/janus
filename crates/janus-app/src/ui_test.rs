@@ -24,6 +24,8 @@ mod calc_detach_tests;
 mod chart_axis_tests;
 #[path = "ui_test_climate.rs"]
 mod climate_tests;
+#[path = "ui_test_coregister.rs"]
+mod coreg_test;
 #[path = "ui_test_crash.rs"]
 mod crash_notice;
 #[path = "ui_test_envi.rs"]
@@ -124,6 +126,8 @@ pub struct UiTest {
     envi: envi::EnviTest,
     /// stages 370-374: the topographic correction (ui_test_topocorr.rs)
     topo: topocorr_test::TopoTest,
+    /// stages 375-379: the co-registration of dates (ui_test_coregister.rs)
+    coreg: coreg_test::CoregTest,
     /// stages 330-334: the notice after a failure (ui_test_crash.rs)
     crash: crash_notice::CrashTest,
     /// stages 345-349: the Welcome window (ui_test_welcome.rs); 350-354: the chart's right axis (ui_test_chart_axis.rs);
@@ -1081,6 +1085,7 @@ impl State {
             355..=364 => return self.test_tune(st, t0, ctx),
             365..=369 => return self.test_climate(st, t0, ctx),
             370..=374 => return self.test_topocorr(st, t0, ctx),
+            375..=379 => return self.test_coregister(st, t0, ctx),
             385..=399 => return self.test_calc_detach(st, t0, ctx),
             400..=406 => return self.test_envi(st, t0, ctx),
             407..=409 => return self.test_omnibus(st, t0, ctx),

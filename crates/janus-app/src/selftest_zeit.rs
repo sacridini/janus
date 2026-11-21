@@ -90,6 +90,17 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                 why = Some("not a regular series (a constant step of whole days)".into());
             }
         }
+        if tool.id == "topocorr" {
+            // each date's sun comes from angle bands, the granule's metadata, a STAC item, an MTL or an acquisition
+            // time, and the elevation model is downloaded: the UI self-test (370-374) and its tests cover it
+            why = Some("needs each date's sun from the scenes' metadata and downloads an elevation model".into());
+        }
+        if tool.id == "radcal" {
+            // its fit needs pixels the iMAD finds unchanged between the two dates; the made-up dates differ
+            // everywhere (the UI self-test's stages 400-406 run it on a pair made for it)
+            why =
+                Some("needs two dates with unchanged ground (invariant pixels), which a made-up series has not".into());
+        }
         let missing: Vec<&String> =
             tool.requires.bands.iter().flatten().filter(|r| !roles.contains_key(r.as_str())).collect();
         if why.is_none() && !missing.is_empty() {
@@ -255,7 +266,23 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                 println!("  raster job (512 x 512 px x {n} dates): {:.0} ms (gate: < 1500 ms)", ms(tb));
             }
             let tool_params = Params::with_defaults(&tool.id, &params).unwrap_or_default();
-            if result.outputs.len() != active_outputs(tool, &tool_params).len() {
+            // the ENVI tools' outputs follow the data (the MNF's components kept, the CVA's direction by sign or by
+            // sector, a MAD a band): each must be one the manifest declares, as many as the run gave
+            let by_data = matches!(tool.id.as_str(), "mnf" | "cva" | "imad" | "radcal" | "omnibus");
+            if by_data {
+                if result.outputs.is_empty() {
+                    return fail(format!("{}: the job returned no outputs", tool.id));
+                }
+                for o in &result.outputs {
+                    let id = o["id"].as_str().unwrap_or("");
+                    let declared = tool.outputs.iter().any(|d| {
+                        id == d.id || id.strip_prefix(d.id.as_str()).is_some_and(|rest| rest.starts_with('_'))
+                    });
+                    if !declared {
+                        return fail(format!("{}: the job returned an output it does not declare: {id}", tool.id));
+                    }
+                }
+            } else if result.outputs.len() != active_outputs(tool, &tool_params).len() {
                 return fail(format!("{}: the job returned another set of outputs", tool.id));
             }
             for o in &result.outputs {

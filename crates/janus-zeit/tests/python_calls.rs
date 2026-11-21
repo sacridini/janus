@@ -299,3 +299,62 @@ fn the_topographic_correction_has_a_python_call_with_the_dem_and_the_sun_of_each
         "{compact}"
     );
 }
+
+#[test]
+fn the_co_registration_has_a_python_call_on_the_bands_with_the_quality_band_left_out() {
+    let given = |v: &[(&str, Value)]| -> Params {
+        Params::with_defaults("coregister", &v.iter().map(|(k, x)| (k.to_string(), x.clone())).collect()).unwrap()
+    };
+    let input = PixelInput {
+        years: vec![2020.0, 2020.5, 2021.0, 2021.5],
+        days: Some(vec![18262, 18444, 18628, 18809]),
+        values: vec![0.1, 0.2, 0.3, 0.4],
+        band_numbers: [("red", 3), ("nir", 4)].iter().map(|(r, b)| (r.to_string(), *b)).collect(),
+        // six bands and a quality band the 7th
+        bands_per_date: 7,
+        qa_band: 7,
+        sensors: vec!["LND08".into(), "SEN2".into(), "SEN2".into(), "SEN2".into()],
+        ..Default::default()
+    };
+    // global, date 2: the NIR, the quality band not in the cube, the margin grown, Zeit's defaults left out of the compact call
+    let g = given(&[("ref_date", json!(2)), ("mask_buffer", json!(0))]);
+    let (c, inputs) = calls("coregister", &g, &input).unwrap();
+    assert_eq!(inputs, vec!["bands_all"]);
+    assert!(c.contains("cube = bands_all.sel(band=['b001', 'b002', 'b003', 'b004', 'b005', 'b006'])"), "{c}");
+    assert!(c.contains("ref = cube.sel(band='b004').isel(time=1)  # the reference: date 2"), "{c}");
+    assert!(
+        c.contains("result1, shifts = zeit.coregister(cube, ref, window_size=256, max_shift=5, max_iter=5, band='b004', resampling='cubic', min_reliability=None, nodata=None, n_jobs=1)"),
+        "{c}"
+    );
+    assert!(!c.contains("binary_dilation"), "no margin, no dilation: {c}");
+    let compact = janus_zeit::python::tool_call("coregister", &g, &input).unwrap().compact("").0;
+    assert!(compact.contains("zeit.coregister(cube, ref, band='b004')"), "{compact}");
+    assert!(!compact.contains("window_size") && !compact.contains("n_jobs"), "{compact}");
+    // the date with the most clear pixels, with the margin Janus puts around the clouds
+    let (c, _) = calls("coregister", &given(&[]), &input).unwrap();
+    assert!(c.contains("clear = bands_all.sel(band='b004').notnull().sum(['y', 'x'])"), "{c}");
+    assert!(c.contains("ref = cube.sel(band='b004').isel(time=int(clear.argmax('time')))"), "{c}");
+    assert!(c.contains("binary_dilation") && c.contains("cube = grow(cube, 2)"), "{c}");
+    // the composite of the dates of the most frequent sensor (three of Sentinel-2), a pixel needing three
+    let (c, _) = calls("coregister", &given(&[("reference", json!("composite"))]), &input).unwrap();
+    assert!(c.contains("stack = bands_all.sel(band='b004').isel(time=[1, 2, 3])"), "{c}");
+    assert!(c.contains("ref = stack.median('time').where(stack.notnull().sum('time') >= 3)"), "{c}");
+    // local: a polynomial's order, AROSICS' 60 for the least reliability, the tie points' table
+    let l = given(&[
+        ("mode", json!("local")),
+        ("ref_date", json!(1)),
+        ("warp", json!("poly2")),
+        ("grid_res", json!(100)),
+        ("window_size", json!(128)),
+        ("band", json!("red")),
+    ]);
+    let (c, _) = calls("coregister", &l, &input).unwrap();
+    assert!(
+        c.contains("result1, points = zeit.coregister_local(cube, ref, grid_res=100, window_size=128, max_shift=5, max_iter=5, min_reliability=60, tie_point_filter_level=3, rs_max_outlier=10, rs_tolerance=2.5, rs_random_state=0, warp='polynomial', order=2, min_points=5, band='b003', resampling='cubic', arosics_compat=False, nodata=None, n_jobs=1)"),
+        "{c}"
+    );
+    assert!(c.contains("points.to_csv('tie_points.csv')"), "{c}");
+    // the reference layer (another series) has no call; neither has a band that is not mapped
+    assert!(calls("coregister", &given(&[("reference", json!("layer"))]), &input).is_none());
+    assert!(calls("coregister", &given(&[("band", json!("swir1"))]), &input).is_none());
+}
