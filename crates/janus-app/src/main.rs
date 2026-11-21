@@ -39,6 +39,7 @@ mod export_map;
 mod exports;
 mod fields_ui;
 mod figure;
+mod figure_gpu;
 mod figure_ui;
 mod files;
 mod fit;

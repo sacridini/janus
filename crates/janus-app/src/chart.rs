@@ -1418,7 +1418,10 @@ impl State {
         if save_figure {
             self.open_figure(crate::figure_ui::Source::Chart);
         }
-        if let Some(nt) = self.series_plot(ui, false)
+        let seen = crate::figure::mark(ui, crate::figure_ui::Source::Chart.key());
+        let picked = self.series_plot(ui, false);
+        seen.end(ui);
+        if let Some(nt) = picked
             && nt != self.display.t
         {
             self.set_date(nt);
@@ -1480,6 +1483,7 @@ impl State {
             ];
         }
         let mut plot = Plot::new(("series", info.id))
+            .id(chart_plot_id(info.id))
             .allow_drag(false)
             .allow_scroll(false)
             .allow_boxed_zoom(false)
@@ -1612,7 +1616,7 @@ impl State {
             bar_slot: std::cell::Cell::new(0),
             // a marker every 7 points at least (the chart's width less its Y axis)
             markers: (ui.available_width() - 60.0) / n.max(1) as f32 >= 7.0,
-            halo: if figure {
+            halo: if figure && crate::figure::active() {
                 Color32::WHITE
             } else if crate::theme::plot_fill() == Color32::TRANSPARENT {
                 ui.visuals().panel_fill
@@ -1864,6 +1868,25 @@ impl State {
         // a click or a drag on the chart picks the nearest date
         response.inner.map(|p| info.nearest_layer(p.x))
     }
+}
+
+/// The chart's plot id: its own, not one made from the panel's place (the figure draws it in another context and
+/// takes the legend's hidden series across).
+pub(crate) fn chart_plot_id(info_id: u64) -> egui::Id {
+    egui::Id::new(("series plot", info_id))
+}
+
+/// The series hidden in the legend of the chart `info_id`, copied from `main`'s memory to `ctx` (after a pass of the
+/// figure, which has made the plot's memory there).
+pub(crate) fn copy_hidden_series(main: &egui::Context, ctx: &egui::Context, info_id: u64) {
+    let id = chart_plot_id(info_id);
+    let Some(shown) = egui_plot::PlotMemory::load(main, id) else { return };
+    if let Some(mut m) = egui_plot::PlotMemory::load(ctx, id) {
+        m.hidden_items = shown.hidden_items.clone();
+        m.store(ctx, id);
+    }
+    let hidden: Vec<egui::Id> = shown.hidden_items.into_iter().collect();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("chart hidden series"), hidden));
 }
 
 #[cfg(test)]

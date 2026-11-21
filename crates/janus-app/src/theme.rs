@@ -971,6 +971,11 @@ pub fn figure_fonts() -> FontDefinitions {
     font_defs(INTER)
 }
 
+/// The fonts the interface is drawn with now (a figure as shown draws in a context of its own with them).
+pub fn current_fonts() -> FontDefinitions {
+    font_defs(FACE.load(Ordering::Relaxed).max(0))
+}
+
 /// The data colours and the look of a figure: the modern interface's light theme on opaque panels, whatever the
 /// interface's own, until the guard is dropped (the colours are read from the theme in use, on this thread's drawing).
 pub struct FigureScope(usize, u32);

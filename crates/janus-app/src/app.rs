@@ -867,7 +867,11 @@ impl TabViewer for Tabs<'_> {
             }
             Tab::TimeSeries if !self.s.chart_shown() => self.s.values_ui(ui),
             Tab::TimeSeries => self.s.series_ui(ui),
-            Tab::Transect => self.s.transect_ui(ui),
+            Tab::Transect => {
+                let seen = crate::figure::mark(ui, crate::figure_ui::Source::Transect.key());
+                self.s.transect_ui(ui);
+                seen.end(ui);
+            }
             Tab::Analysis => self.s.analysis_ui(ui),
             Tab::Embeddings => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.embeddings_ui(ui));

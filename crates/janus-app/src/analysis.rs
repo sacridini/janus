@@ -390,7 +390,9 @@ impl State {
             }
         });
         ui.separator();
+        let seen = crate::figure::mark(ui, crate::figure_ui::Source::Analysis(shown).key());
         self.analysis_tab(ui, shown);
+        seen.end(ui);
     }
 
     /// Tab `k`'s content: in the panel, or as a figure (its controls left out, `figure::chrome`).

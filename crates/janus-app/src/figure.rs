@@ -34,9 +34,25 @@ impl Format {
     }
 }
 
+/// How a figure is made.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Mode {
+    /// The panel as it is on screen: the interface's own look, fonts and size in points, drawn by the GPU through
+    /// egui_wgpu (the renderer the app uses), at 1 to 4 pixels per screen pixel (`FigureOptions::scale`).
+    AsShown,
+    /// A light figure at a size in mm, a font in pt and a resolution in dpi, drawn by our own rasterizer.
+    #[default]
+    Publication,
+}
+
 /// A figure's choices.
 #[derive(Clone, Debug)]
 pub struct FigureOptions {
+    pub mode: Mode,
+    /// as shown: pixels per screen pixel (1 to 4); the layout is the screen's, only the pixels are more
+    pub scale: u32,
+    /// as shown: the chart keeps the line of the current date (it is on the screen)
+    pub moment: bool,
     pub width_mm: f32,
     pub height_mm: f32,
     /// pixels per inch of a PNG (150, 300, 600)
@@ -51,6 +67,9 @@ pub struct FigureOptions {
 impl Default for FigureOptions {
     fn default() -> Self {
         FigureOptions {
+            mode: Mode::Publication,
+            scale: 1,
+            moment: true,
             width_mm: 85.0,
             height_mm: 60.0,
             dpi: 300,
@@ -91,38 +110,158 @@ impl FigureOptions {
 }
 
 thread_local! {
-    static ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static MODE: Cell<Option<Mode>> = const { Cell::new(None) };
+    /// The strip of controls at the top of the panel being marked or drawn: (the y where the panel starts, the y under
+    /// its leading controls).
+    static STRIP: Cell<Option<(f32, f32)>> = const { Cell::new(None) };
 }
 
-/// Whether a figure is being drawn on this thread: the panels leave their controls out.
+/// Whether a publication figure is being drawn on this thread: the panels leave their controls out, and what is of
+/// the moment, and fit their text to a column.
 pub fn active() -> bool {
-    ACTIVE.with(Cell::get)
+    MODE.with(Cell::get) == Some(Mode::Publication)
+}
+
+/// Whether a figure of any mode is being drawn on this thread.
+pub fn rendering() -> bool {
+    MODE.with(Cell::get).is_some()
 }
 
 struct ActiveGuard;
 
 impl ActiveGuard {
-    fn enter() -> Self {
-        ACTIVE.with(|a| a.set(true));
+    fn enter(mode: Mode) -> Self {
+        MODE.with(|a| a.set(Some(mode)));
         ActiveGuard
     }
 }
 
 impl Drop for ActiveGuard {
     fn drop(&mut self) {
-        ACTIVE.with(|a| a.set(false));
+        MODE.with(|a| a.set(None));
+        STRIP.with(|s| s.set(None));
     }
 }
 
-/// A panel's controls: drawn as usual on screen; in a figure they run in an invisible `Ui` away from the figure (their
-/// choices are still read, nothing of them is painted, no room taken).
+/// Adds a row of controls spanning `from` to `to` to the strip, if it is the strip's next row.
+fn strip_row(ui: &Ui, from: f32, to: f32) {
+    STRIP.with(|s| {
+        if let Some((top, below)) = s.get()
+            && from - below <= ui.spacing().item_spacing.y + 2.0
+        {
+            s.set(Some((top, to.max(below))));
+        }
+    });
+}
+
+/// A panel's controls. On screen they are drawn as usual. In a publication figure they run in an invisible `Ui` away
+/// from the figure (their choices are still read, nothing of them is painted, no room taken). In a figure as shown
+/// they run invisible where they are and keep their room, so that what is under them has the size it has on screen;
+/// the figure is then cut under them (`Rendered::crop`).
 pub fn chrome<R>(ui: &mut Ui, f: impl FnOnce(&mut Ui) -> R) -> R {
-    if !active() {
-        return f(ui);
+    match MODE.with(Cell::get) {
+        None => {
+            let from = ui.cursor().min.y;
+            let r = f(ui);
+            strip_row(ui, from, ui.min_rect().max.y);
+            r
+        }
+        Some(Mode::Publication) => {
+            let away = Rect::from_min_size(pos2(-1.0e5, -1.0e5), vec2(ui.available_width().max(200.0), 1.0e4));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(away).invisible());
+            f(&mut child)
+        }
+        Some(Mode::AsShown) => {
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(ui.available_rect_before_wrap()).invisible());
+            let r = f(&mut child);
+            let used = child.min_rect();
+            ui.allocate_rect(used, egui::Sense::hover());
+            strip_row(ui, used.min.y, used.max.y);
+            r
+        }
     }
-    let away = Rect::from_min_size(pos2(-1.0e5, -1.0e5), vec2(ui.available_width().max(200.0), 1.0e4));
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(away).invisible());
-    f(&mut child)
+}
+
+/// A panel as it is on screen, in points: what a figure as shown takes its size from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PanelSeen {
+    /// the panel's content: its width and its height
+    pub size: Vec2,
+    /// the height of the controls at its top, which a figure leaves out
+    pub crop: f32,
+    /// where its top left corner is in the window
+    pub at: Pos2,
+    /// the frame it was drawn in (`Context::cumulative_frame_nr`): a panel behind another tab is not drawn
+    pub frame: u64,
+}
+
+impl PanelSeen {
+    /// What a panel not yet seen on screen is drawn in.
+    pub const FALLBACK: PanelSeen = PanelSeen { size: Vec2::new(640.0, 380.0), crop: 0.0, at: Pos2::ZERO, frame: 0 };
+
+    /// The figure's size in points: the panel's, less its controls.
+    pub fn figure_size(&self) -> Vec2 {
+        vec2(self.size.x, (self.size.y - self.crop).max(8.0))
+    }
+
+    /// The figure's size in pixels at `ppp` pixels per point.
+    pub fn pixels(&self, ppp: f32) -> [u32; 2] {
+        let s = self.figure_size() * ppp;
+        [(s.x.round() as u32).max(1), (s.y.round() as u32).max(1)]
+    }
+}
+
+fn seen_id(key: u32) -> egui::Id {
+    egui::Id::new(("figure panel as seen", key))
+}
+
+/// The panel `key` as it was last drawn on screen.
+pub fn seen(ctx: &Context, key: u32) -> Option<PanelSeen> {
+    ctx.data(|d| d.get_temp(seen_id(key)))
+}
+
+/// A panel being drawn on screen, to be recorded (`PanelSeen`) when it ends.
+pub struct Mark {
+    key: u32,
+    start: Rect,
+    live: bool,
+}
+
+/// Starts to record the panel `key` drawn into `ui` (nothing is recorded while a figure is drawn).
+pub fn mark(ui: &Ui, key: u32) -> Mark {
+    let live = !rendering();
+    let start = ui.available_rect_before_wrap();
+    if live {
+        STRIP.with(|s| s.set(Some((start.min.y, start.min.y))));
+    }
+    Mark { key, start, live }
+}
+
+impl Mark {
+    /// Records the panel: the width it was given, the height it took (at most the height it was given).
+    pub fn end(self, ui: &Ui) {
+        if !self.live {
+            return;
+        }
+        let below = STRIP.with(|s| s.take()).map_or(self.start.min.y, |(_, b)| b);
+        let used = (ui.min_rect().max.y - self.start.min.y).max(0.0);
+        let h = if self.start.height().is_finite() && self.start.height() < 1.0e6 {
+            used.min(self.start.height())
+        } else {
+            used
+        };
+        let w = if self.start.width().is_finite() && self.start.width() < 1.0e6 {
+            self.start.width()
+        } else {
+            ui.min_rect().width()
+        };
+        if w < 8.0 || h < 8.0 {
+            return;
+        }
+        let crop = (below - self.start.min.y).clamp(0.0, (h - 16.0).max(0.0));
+        let seen = PanelSeen { size: vec2(w, h), crop, at: self.start.min, frame: ui.ctx().cumulative_frame_nr() };
+        ui.ctx().data_mut(|d| d.insert_temp(seen_id(self.key), seen));
+    }
 }
 
 /// `ui.horizontal_wrapped` of a panel's controls (see `chrome`).
@@ -164,21 +303,69 @@ impl<'a> FigurePlot<'a> for egui_plot::Plot<'a> {
 
 /// A figure drawn: the shapes of its screen and the textures they use.
 pub struct Rendered {
-    ctx: Context,
-    shapes: Vec<ClippedShape>,
+    pub(crate) ctx: Context,
+    pub(crate) shapes: Vec<ClippedShape>,
     textures: Textures,
-    ppp: f32,
+    /// every texture change the passes made, in order (what the GPU needs to draw the shapes)
+    pub(crate) deltas: Vec<(TextureId, egui::epaint::ImageDelta)>,
+    pub(crate) ppp: f32,
     /// the screen, in points
-    size: Vec2,
+    pub(crate) size: Vec2,
+    /// as shown: the height at the top of the screen that is left out (the panel's controls), in points
+    pub(crate) crop: f32,
+    /// the screen's colour under the shapes (as shown: the panel's)
+    pub(crate) background: Color32,
+    pub mode: Mode,
     pub transparent: bool,
     pub dpi: u32,
 }
 
-/// Runs `draw` in a context of its own, as `o` says, and keeps what it paints. The closure runs a few times (the
-/// plots measure their axes in one frame and use them in the next); the last frame is the figure.
+/// Draws the passes of a figure in `ctx` (the plots measure their axes in one frame and use them in the next; the
+/// last frame is the figure). `after` runs after each pass.
+fn run_passes(
+    ctx: &Context,
+    size: Vec2,
+    ppp: f32,
+    crop_strip: bool,
+    after: &dyn Fn(&Context),
+    draw: &mut dyn FnMut(&mut Ui),
+) -> (Vec<ClippedShape>, Vec<(TextureId, egui::epaint::ImageDelta)>, f32) {
+    let mut deltas = Vec::new();
+    let mut shapes = Vec::new();
+    let mut crop = 0.0;
+    for pass in 0..(if crop_strip { 4 } else { 3 }) {
+        let mut input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+            time: Some(f64::from(pass) * 0.05),
+            ..Default::default()
+        };
+        input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
+        STRIP.with(|s| s.set(crop_strip.then_some((0.0, 0.0))));
+        let mut out = ctx.run_ui(input, |ui| draw(ui));
+        crop = STRIP.with(|s| s.take()).map_or(0.0, |(_, below)| below);
+        let mut delta = std::mem::take(&mut out.textures_delta);
+        for (id, parts) in std::mem::take(&mut delta.set) {
+            deltas.extend(parts.into_iter().map(|d| (id, d)));
+        }
+        delta.clear();
+        shapes = out.shapes;
+        after(ctx);
+    }
+    (shapes, deltas, crop)
+}
+
+fn textures_of(deltas: &[(TextureId, egui::epaint::ImageDelta)]) -> Textures {
+    let mut t = Textures::default();
+    for (id, d) in deltas {
+        t.apply(*id, d);
+    }
+    t
+}
+
+/// Runs `draw` in a context of its own, as `o` says, and keeps what it paints (a publication figure).
 pub fn render(o: &FigureOptions, draw: &mut dyn FnMut(&mut Ui)) -> Rendered {
     let _look = crate::theme::FigureScope::enter();
-    let _active = ActiveGuard::enter();
+    let _active = ActiveGuard::enter(Mode::Publication);
     let ctx = Context::default();
     ctx.set_fonts(crate::theme::figure_fonts());
     ctx.set_theme(egui::Theme::Light);
@@ -203,47 +390,88 @@ pub fn render(o: &FigureOptions, draw: &mut dyn FnMut(&mut Ui)) -> Rendered {
     // room at the edges for the last tick's label (centred on the edge of the plot)
     let side = (pt * 0.4).round().clamp(1.0, 12.0) as i8;
     let margin = egui::Margin { left: side, right: (pt * 1.6).round().clamp(2.0, 30.0) as i8, top: side, bottom: side };
-    let mut textures = Textures::default();
-    let mut shapes = Vec::new();
-    for pass in 0..3 {
-        let mut input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
-            time: Some(f64::from(pass) * 0.05),
-            ..Default::default()
-        };
-        input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
-        let mut out = ctx.run_ui(input, |ui| {
-            egui::Frame::NONE.inner_margin(margin).show(ui, |ui| draw(ui));
-        });
-        let mut delta = std::mem::take(&mut out.textures_delta);
-        for (id, parts) in std::mem::take(&mut delta.set) {
-            for d in parts {
-                textures.apply(id, &d);
-            }
-        }
-        delta.clear();
-        shapes = out.shapes;
-    }
+    let (mut shapes, deltas, _) = run_passes(&ctx, size, ppp, false, &|_| {}, &mut |ui| {
+        egui::Frame::NONE.inner_margin(margin).show(ui, |ui| draw(ui));
+    });
     // what was painted away from the figure (a panel's controls) is not part of it
     let screen = Rect::from_min_size(Pos2::ZERO, size);
     shapes.retain(|s| s.clip_rect.intersects(screen) && s.shape.visual_bounding_rect().intersects(screen));
-    Rendered { ctx, shapes, textures, ppp, size, transparent: o.transparent, dpi: o.dpi }
+    let textures = textures_of(&deltas);
+    Rendered {
+        ctx,
+        shapes,
+        textures,
+        deltas,
+        ppp,
+        size,
+        crop: 0.0,
+        background: Color32::WHITE,
+        mode: Mode::Publication,
+        transparent: o.transparent,
+        dpi: o.dpi,
+    }
+}
+
+/// A panel drawn as it is on screen: in a context of its own with the interface's style, fonts and pixels per point
+/// (times `scale`), into a screen of the panel's size in points (`seen`). `seed` copies what the panel keeps in the
+/// main context's memory (which series are hidden...) into the new one, after each pass. The panel's leading controls
+/// keep their room and are cut off (`Rendered::crop`).
+pub fn render_as_shown(
+    main: &Context,
+    seen: PanelSeen,
+    scale: u32,
+    transparent: bool,
+    seed: &dyn Fn(&Context),
+    draw: &mut dyn FnMut(&mut Ui),
+) -> Rendered {
+    let _active = ActiveGuard::enter(Mode::AsShown);
+    let ctx = Context::default();
+    ctx.set_fonts(crate::theme::current_fonts());
+    let theme = main.theme();
+    ctx.set_theme(theme);
+    ctx.set_style_of(theme, main.global_style());
+    ctx.style_mut_of(theme, |s| s.animation_time = 0.0);
+    let ppp = main.pixels_per_point() * scale.clamp(1, 4) as f32;
+    let size = seen.size;
+    let (mut shapes, deltas, crop) = run_passes(&ctx, size, ppp, true, seed, &mut |ui| {
+        let r = Rect::from_min_size(Pos2::ZERO, size);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| draw(ui));
+    });
+    let crop = crop.clamp(0.0, (size.y - 8.0).max(0.0));
+    let screen = Rect::from_min_max(pos2(0.0, crop), pos2(size.x, size.y));
+    shapes.retain(|s| s.clip_rect.intersects(screen) && s.shape.visual_bounding_rect().intersects(screen));
+    let fill = main.global_style().visuals.panel_fill;
+    let textures = textures_of(&deltas);
+    Rendered {
+        ctx,
+        shapes,
+        textures,
+        deltas,
+        ppp,
+        size,
+        crop,
+        background: Color32::from_rgb(fill.r(), fill.g(), fill.b()),
+        mode: Mode::AsShown,
+        transparent,
+        dpi: (96.0 * ppp).round() as u32,
+    }
 }
 
 impl Rendered {
     /// The figure's size in pixels.
     pub fn pixels(&self) -> [usize; 2] {
-        [(self.size.x * self.ppp).round() as usize, (self.size.y * self.ppp).round() as usize]
+        [(self.size.x * self.ppp).round() as usize, ((self.size.y - self.crop) * self.ppp).round().max(1.0) as usize]
     }
 
     /// The figure drawn by the CPU: RGBA8 rows top-down, not premultiplied.
     pub fn to_rgba(&self) -> (Vec<u8>, usize, usize) {
         let [w, h] = self.pixels();
-        let mut r = Raster::new(w, h, if self.transparent { [0; 4] } else { [255; 4] });
+        let bg = self.background.to_array();
+        let mut r = Raster::new(w, h, if self.transparent { [0; 4] } else { bg });
         let prims = self.ctx.tessellate(self.shapes.clone(), self.ppp);
         for p in &prims {
             if let Primitive::Mesh(m) = &p.primitive {
-                r.mesh(m, Pos2::ZERO, self.ppp, p.clip_rect, &self.textures);
+                r.mesh(m, pos2(0.0, self.crop), self.ppp, p.clip_rect, &self.textures);
             }
         }
         (r.straight(), w, h)
@@ -263,6 +491,16 @@ impl Rendered {
 
     /// The figure as an SVG document: `width` and `height` in millimetres, its user units the points.
     pub fn to_svg(&self, width_mm: f32, height_mm: f32) -> String {
+        self.svg_document(&format!("{}mm", num(width_mm)), &format!("{}mm", num(height_mm)))
+    }
+
+    /// The figure as an SVG document of the size the screen had, in points.
+    pub fn to_svg_shown(&self) -> String {
+        let h = self.size.y - self.crop;
+        self.svg_document(&num(self.size.x), &num(h))
+    }
+
+    fn svg_document(&self, width: &str, height: &str) -> String {
         let mut w = Svg { clips: Vec::new(), body: String::new(), r: self };
         let screen = Rect::from_min_size(Pos2::ZERO, self.size);
         for s in &self.shapes {
@@ -281,14 +519,13 @@ impl Rendered {
             }
         }
         let mut out = String::new();
-        let (sw, sh) = (num(self.size.x), num(self.size.y));
+        let (sw, sh) = (num(self.size.x), num(self.size.y - self.crop));
+        let top = num(self.crop);
         let _ = writeln!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         let _ = writeln!(
             out,
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{}mm\" \
-             height=\"{}mm\" viewBox=\"0 0 {sw} {sh}\" font-family=\"{SANS}\">",
-            num(width_mm),
-            num(height_mm)
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{width}\" \
+             height=\"{height}\" viewBox=\"0 {top} {sw} {sh}\" font-family=\"{SANS}\">"
         );
         if !w.clips.is_empty() {
             out += "<defs>\n";
@@ -305,7 +542,8 @@ impl Rendered {
             out += "</defs>\n";
         }
         if !self.transparent {
-            let _ = writeln!(out, "<rect width=\"{sw}\" height=\"{sh}\" fill=\"#ffffff\"/>");
+            let [r, g, b, _] = self.background.to_array();
+            let _ = writeln!(out, "<rect y=\"{top}\" width=\"{sw}\" height=\"{sh}\" fill=\"#{r:02x}{g:02x}{b:02x}\"/>");
         }
         out += &w.body;
         out += "</svg>\n";
@@ -972,5 +1210,68 @@ mod tests {
         assert_eq!(check_xml(&svg).get("path"), Some(&1));
         // and on screen (not a figure) the closure just runs
         assert!(!active());
+    }
+
+    #[test]
+    fn as_shown_keeps_the_controls_room_and_cuts_them() {
+        let main = Context::default();
+        let seen = PanelSeen { size: vec2(300.0, 200.0), crop: 0.0, at: Pos2::ZERO, frame: 0 };
+        let mut under = 0.0;
+        let r = render_as_shown(&main, seen, 1, false, &|_| {}, &mut |ui: &mut Ui| {
+            crate::figure::controls(ui, |ui| {
+                let _ = ui.button("Copy CSV");
+            });
+            under = ui.available_height();
+        });
+        assert_eq!(r.mode, Mode::AsShown);
+        // the controls' row is cut off; what is under it has the room it has on screen
+        assert!(r.crop > 8.0 && r.crop < 60.0, "crop {}", r.crop);
+        assert!(under < 200.0 - r.crop + 0.5 && under > 200.0 - r.crop - 14.0, "room {under}, crop {}", r.crop);
+        let svg = r.to_svg_shown();
+        assert!(!svg.contains("Copy CSV"), "{svg}");
+        // the figure's size: the panel's width, its height less the controls; 2x has twice the pixels
+        let ppp = main.pixels_per_point();
+        assert_eq!(r.pixels()[0], (300.0 * ppp).round() as usize);
+        assert_eq!(r.pixels()[1], ((200.0 - r.crop) * ppp).round() as usize);
+        let r2 = render_as_shown(&main, seen, 2, false, &|_| {}, &mut |ui: &mut Ui| {
+            crate::figure::controls(ui, |ui| {
+                let _ = ui.button("Copy CSV");
+            });
+        });
+        assert_eq!(r2.pixels()[0], 2 * r.pixels()[0]);
+        assert!(r2.pixels()[1].abs_diff(2 * r.pixels()[1]) <= 1);
+        // the interface's colours, not the light figure's
+        assert!(!active() && !rendering());
+    }
+
+    #[test]
+    fn a_panel_on_screen_is_recorded() {
+        let ctx = Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            let m = mark(ui, 7);
+            controls(ui, |ui| {
+                ui.label("controls");
+            });
+            ui.allocate_space(vec2(100.0, 80.0));
+            m.end(ui);
+        });
+        let s = seen(&ctx, 7).expect("the panel should be recorded");
+        assert!((s.size.x - 400.0).abs() < 1.0, "{s:?}");
+        assert!(s.crop > 8.0 && s.crop < 60.0, "{s:?}");
+        assert!(s.size.y > s.crop + 80.0 && s.size.y <= 300.0, "{s:?}");
+        assert_eq!(s.figure_size(), vec2(s.size.x, s.size.y - s.crop));
+        assert_eq!(s.pixels(2.0), [(s.size.x * 2.0).round() as u32, ((s.size.y - s.crop) * 2.0).round() as u32]);
+        assert!(seen(&ctx, 8).is_none());
+    }
+
+    #[test]
+    fn publication_is_the_default_of_the_options_and_as_shown_of_the_dialog() {
+        assert_eq!(FigureOptions::default().mode, Mode::Publication);
+        assert_eq!(FigureOptions::default().scale, 1);
+        assert_eq!(crate::figure_ui::FigureUi::default().opts.mode, Mode::AsShown);
     }
 }

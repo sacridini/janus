@@ -1,5 +1,6 @@
-//! The Save figure dialog (figure.rs): the size in mm (one column, two columns or free), the resolution, the font in
-//! pt, white or transparent, PNG or SVG, the file (as the export dialogs: typed or chosen, a warning before it
+//! The Save figure dialog (figure.rs): the panel as it is on screen (the default: its size in points, the GPU's
+//! pixels at 1 to 4 times the screen's) or a publication figure (the size in mm (one column, two columns or free), the
+//! resolution, the font in pt, white or transparent), PNG or SVG, the file (as the export dialogs: typed or chosen, a warning before it
 //! replaces one), Save (written in the background, in the Exports window) and Copy image. The same dialog serves the
 //! series chart, the Analysis tabs and the transect; each says what it draws in `State::render_figure`.
 
@@ -7,7 +8,7 @@ use egui::Context;
 
 use crate::app::State;
 use crate::exports::{sanitize, start_export_job, write_text_file};
-use crate::figure::{FigureOptions, Format, Rendered, render};
+use crate::figure::{FigureOptions, Format, Mode, PanelSeen, Rendered, render, render_as_shown};
 
 /// What a figure is of.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -21,7 +22,6 @@ pub enum Source {
 }
 
 /// The dialog's state (in `ExportUi`).
-#[derive(Default)]
 pub struct FigureUi {
     /// what the dialog is open for (None: closed)
     pub source: Option<Source>,
@@ -33,6 +33,19 @@ pub struct FigureUi {
     /// the file, as typed
     pub path: String,
     message: String,
+}
+
+impl Default for FigureUi {
+    fn default() -> Self {
+        FigureUi {
+            source: None,
+            opening: false,
+            opts: FigureOptions { mode: Mode::AsShown, ..Default::default() },
+            width_choice: 0,
+            path: String::new(),
+            message: String::new(),
+        }
+    }
 }
 
 /// One column of a journal, two columns.
@@ -60,8 +73,17 @@ fn write_bytes(path: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 impl Source {
+    /// The key the panel's size on screen is kept under (figure::mark).
+    pub fn key(self) -> u32 {
+        match self {
+            Source::Chart => 1,
+            Source::Transect => 2,
+            Source::Analysis(k) => 100 + k as u32,
+        }
+    }
+
     /// The dialog's title and the file name's tail.
-    fn names(self) -> (String, String) {
+    pub(crate) fn names(self) -> (String, String) {
         match self {
             Source::Chart => ("Series chart".into(), "chart".into()),
             Source::Transect => ("Transect".into(), "transect".into()),
@@ -81,9 +103,26 @@ impl State {
         f.opening = true;
     }
 
-    /// The figure of `source` drawn as `o` says (None: there is nothing to draw).
-    pub(crate) fn render_figure(&mut self, source: Source, o: &FigureOptions) -> Option<Rendered> {
-        self.session.as_ref()?;
+    /// The figure of `source` drawn as `o` says (None: there is nothing to draw). `ctx` is the interface's, whose
+    /// style and size in pixels a figure as shown takes.
+    pub(crate) fn render_figure(&mut self, source: Source, o: &FigureOptions, ctx: &Context) -> Option<Rendered> {
+        let info_id = self.session.as_ref()?.info.id;
+        if o.mode == Mode::AsShown {
+            let seen = crate::figure::seen(ctx, source.key()).unwrap_or(PanelSeen::FALLBACK);
+            let main = ctx.clone();
+            let seed = move |c: &Context| {
+                if source == Source::Chart {
+                    crate::chart::copy_hidden_series(&main, c, info_id);
+                }
+            };
+            return Some(render_as_shown(ctx, seen, o.scale, o.transparent, &seed, &mut |ui| match source {
+                Source::Chart => {
+                    self.series_plot(ui, !o.moment);
+                }
+                Source::Analysis(k) => self.analysis_tab(ui, k),
+                Source::Transect => self.transect_ui(ui),
+            }));
+        }
         Some(match source {
             Source::Chart => render(o, &mut |ui| {
                 self.series_plot(ui, true);
@@ -118,6 +157,57 @@ impl State {
         let modal = crate::panels::modal(egui::Id::new("figure dialog"), "Save figure").show(ctx, |ui| {
             ui.heading(format!("Save figure: {title}"));
             ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Look:");
+                ui.radio_value(&mut o.mode, Mode::AsShown, "As on screen");
+                ui.radio_value(&mut o.mode, Mode::Publication, "Publication (size in mm)");
+            });
+            ui.add_space(4.0);
+            if o.mode == Mode::AsShown {
+                let seen = crate::figure::seen(ctx, source.key());
+                let ppp = ctx.pixels_per_point() * o.scale as f32;
+                let seen = seen.unwrap_or(PanelSeen::FALLBACK);
+                let [w, h] = seen.pixels(ppp);
+                ui.horizontal(|ui| {
+                    ui.label("Format:");
+                    ui.radio_value(&mut o.format, Format::Png, "PNG");
+                    ui.radio_value(&mut o.format, Format::Svg, "SVG (text stays text)");
+                });
+                ui.add_enabled_ui(o.format == Format::Png, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Scale:");
+                        for k in 1..=4 {
+                            ui.radio_value(&mut o.scale, k, format!("{k}x"));
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Background:");
+                    ui.radio_value(&mut o.transparent, false, "As on screen");
+                    ui.radio_value(&mut o.transparent, true, "Transparent");
+                });
+                if source == Source::Chart {
+                    ui.checkbox(&mut o.moment, "The current date's line, as on screen");
+                }
+                let fits = w <= crate::figure::MAX_SIDE_PX
+                    && h <= crate::figure::MAX_SIDE_PX
+                    && f64::from(w) * f64::from(h) <= crate::figure::MAX_PIXELS;
+                if o.format == Format::Svg {
+                    ui.weak("Vector: the panel's size in points, the shapes as paths, the text as text, the interface's colours.");
+                } else if fits {
+                    ui.weak(format!(
+                        "{w} x {h} px: the panel as it is on screen now ({:.0} x {:.0} points), drawn by the GPU.",
+                        seen.figure_size().x,
+                        seen.figure_size().y
+                    ));
+                } else {
+                    ui.colored_label(
+                        crate::theme::warning(),
+                        format!("{w} x {h} px is too large: lower the scale."),
+                    );
+                    can = false;
+                }
+            } else {
             ui.label("Size:");
             ui.radio_value(&mut choice, 0, "One column (85 mm)");
             ui.radio_value(&mut choice, 1, "Two columns (180 mm)");
@@ -168,6 +258,7 @@ impl State {
                 }
             } else {
                 ui.weak("Vector: the paper's size is kept, the shapes as paths, the text as text.");
+            }
             }
             crate::panels::section(ui, "Save to");
             let ext = o.format.ext();
@@ -230,8 +321,11 @@ impl State {
                 save = ui.add_enabled(can, egui::Button::new("Save").min_size(egui::vec2(100.0, 0.0))).clicked()
                     || (enter && can);
                 copy = ui
-                    .add_enabled(o.fits(), egui::Button::new("Copy image").min_size(egui::vec2(100.0, 0.0)))
-                    .on_hover_text("The figure as a PNG image in the clipboard (at the size and dpi above)")
+                    .add_enabled(
+                        o.mode == Mode::AsShown || o.fits(),
+                        egui::Button::new("Copy image").min_size(egui::vec2(100.0, 0.0)),
+                    )
+                    .on_hover_text("The figure as a PNG image in the clipboard (at the size above)")
                     .clicked();
                 cancel = ui.add(egui::Button::new("Cancel").min_size(egui::vec2(100.0, 0.0))).clicked();
             });
@@ -249,9 +343,19 @@ impl State {
         }
         if copy {
             let png = FigureOptions { format: Format::Png, ..o.clone() };
-            if let Some(r) = self.render_figure(source, &png) {
-                ctx.copy_image(r.to_color_image());
-                self.export.figure.message = "Copied to the clipboard.".into();
+            if let Some(r) = self.render_figure(source, &png, ctx) {
+                let image = if r.mode == Mode::AsShown {
+                    r.to_color_image_gpu(&self.render_state)
+                } else {
+                    Ok(r.to_color_image())
+                };
+                match image {
+                    Ok(image) => {
+                        ctx.copy_image(image);
+                        self.export.figure.message = "Copied to the clipboard.".into();
+                    }
+                    Err(e) => self.export.figure.message = e,
+                }
             }
         }
         if save {
@@ -264,16 +368,21 @@ impl State {
 
     /// Draws the figure now (the panels are State's) and writes it in the background, in the Exports window.
     pub(crate) fn save_figure(&mut self, source: Source, o: FigureOptions, path: String, ctx: &Context) {
-        let Some(r) = self.render_figure(source, &o) else { return };
-        let [w, h] = o.pixels();
-        let title = match o.format {
-            Format::Png => format!("{} as PNG, {w} x {h} px", source.names().0),
-            Format::Svg => format!("{} as SVG, {} x {} mm", source.names().0, o.width_mm, o.height_mm),
+        let Some(r) = self.render_figure(source, &o, ctx) else { return };
+        let shown = o.mode == Mode::AsShown;
+        let [w, h] = if shown { r.pixels().map(|v| v as u32) } else { o.pixels() };
+        let title = match (o.format, shown) {
+            (Format::Png, _) => format!("{} as PNG, {w} x {h} px", source.names().0),
+            (Format::Svg, true) => format!("{} as SVG, as on screen", source.names().0),
+            (Format::Svg, false) => format!("{} as SVG, {} x {} mm", source.names().0, o.width_mm, o.height_mm),
         };
         let p = path.clone();
-        let job = start_export_job(title, path, ctx, move |_| match o.format {
-            Format::Png => write_bytes(&p, &r.to_png()?),
-            Format::Svg => write_text_file(&p, &r.to_svg(o.width_mm, o.height_mm)),
+        let rs = self.render_state.clone();
+        let job = start_export_job(title, path, ctx, move |_| match (o.format, shown) {
+            (Format::Png, true) => write_bytes(&p, &r.to_png_gpu(&rs)?),
+            (Format::Png, false) => write_bytes(&p, &r.to_png()?),
+            (Format::Svg, true) => write_text_file(&p, &r.to_svg_shown()),
+            (Format::Svg, false) => write_text_file(&p, &r.to_svg(o.width_mm, o.height_mm)),
         });
         self.exports.push(job);
         self.show_exports = true;
