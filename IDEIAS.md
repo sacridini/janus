@@ -2450,6 +2450,13 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   cenas e o DEM é baixado) e a normalização radiométrica (as datas sintéticas não têm pixels
   invariantes), e aceita as saídas que o MNF, o CVA, o iMAD e o omnibus decidem pelos dados (cada
   uma declarada no manifesto); os binários da 1.22.0.
+- 1.23.0: o Save figure "como na tela" por padrão (o painel no tamanho em que está, desenhado pela
+  GPU em 1x a 4x, o SVG das mesmas formas; o visual de publicação em mm continua como opção;
+  autoteste 341-342, o PNG 1x contra uma captura real); os menus da barra trocam por hover quando um
+  está aberto (autoteste 410-412); as janelas destacadas lembram posição e tamanho entre execuções
+  (janus-rs.ini, pelo título; nenhuma abre destacada no início; autoteste 413-419); o CSV do driver
+  da correlação defasada escolhe a coluna (y_column; o padrão pula year e filled, e o pcs.csv da EOF
+  dava a coluna year).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
