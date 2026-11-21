@@ -474,7 +474,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
-| Charts as figures | **Save figure...** in the Time series and Transect panels and in Analysis' plots: PNG or SVG, size in mm, dpi, font in pt, light colours; see [Figures](#figures) |
+| Charts as figures | **Save figure...** in the Time series and Transect panels and in Analysis' plots: PNG or SVG exactly as on screen (the interface's own look, 1x to 4x), or for a paper (size in mm, dpi, font in pt, light colours); see [Figures](#figures) |
 | Zeit tools | The **?** at the top right of each tool's window (the Zeit tools, the raster calculator, Time series analysis, Analysis-ready data, Classification, Field delineation, STAC, the validation panel and its Alerts tab, and the data preparation and vector windows) opens that tool's guide on the site in the browser (the method's page, or its place in the list of methods). Hover a parameter for its help and its default. **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; *Change detection*: CAT (change, aftereffect, trend) and the others; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in **Pixel values** (in the chart's place while a map is shown over its series) |
@@ -2100,7 +2100,20 @@ For a paper, the charts leave Janus as figures, not only as CSV. **Save
 figure...** (the series chart's toolbar, and the button after the tabs of
 Analysis: Seasonal, Cycles, Bands, Classes (the view shown: the shares, the
 Sankey flows or the transitions), Scatter, Areas and Zonal; and the Transect
-panel's) opens one small window:
+panel's) opens one small window, whose first choice is the **look**:
+
+- **As on screen** (the default): the panel exactly as you see it, drawn by the
+  same renderer as the interface (the GPU, through egui_wgpu), with the
+  interface's theme (dark or light), fonts and text sizes, and the size the
+  panel has on screen in points, with the same legend and hidden series. The
+  panel's controls are left out (the plot keeps the size it has on screen).
+  **Scale** 1x to 4x gives more pixels, not another layout (at 1x the PNG is the
+  screenshot of the panel); the chart can keep or leave out the current date's
+  line; the background is the panel's or transparent. **SVG** has the same
+  shapes, with the interface's colours. **Copy image** uses the same picture.
+- **Publication (size in mm)**: a figure for a paper, as follows.
+
+In the publication look:
 
 - **Size**: one column (85 mm), two columns (180 mm) or free, and the height in
   mm; the **font** in points (the figure's own, 8 pt by default); **white** or

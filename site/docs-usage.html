@@ -558,7 +558,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Export progress</td><td>File → Exports (<code>Ctrl+J</code>; opens by itself with each export): progress, cancel, open the folder</td></tr>
 <tr><td>Shortcuts on a Mac</td><td><code>Command</code> instead of <code>Ctrl</code> (e.g. <code>Command+E</code>, <code>Command+Shift+S</code>)</td></tr>
 <tr><td>Series as text</td><td><strong>Copy CSV</strong> in the Time series and Transect panels</td></tr>
-<tr><td>Charts as figures</td><td><strong>Save figure...</strong> in the Time series and Transect panels and in Analysis' plots: PNG or SVG, size in mm, dpi, font in pt, light colours; see <a href="#figures">Figures</a></td></tr>
+<tr><td>Charts as figures</td><td><strong>Save figure...</strong> in the Time series and Transect panels and in Analysis' plots: PNG or SVG exactly as on screen (the interface's own look, 1x to 4x), or for a paper (size in mm, dpi, font in pt, light colours); see <a href="#figures">Figures</a></td></tr>
 <tr><td>Zeit tools</td><td>The <strong>?</strong> at the top right of each tool's window (the Zeit tools, the raster calculator, Time series analysis, Analysis-ready data, Classification, Field delineation, STAC, the validation panel and its Alerts tab, and the data preparation and vector windows) opens that tool's guide on the site in the browser (the method's page, or its place in the list of methods). Hover a parameter for its help and its default. <strong>Tools</strong> menu, grouped by the question asked in the order of a workflow (<em>Data preparation</em>: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; <em>Spectral analysis</em>: NDFI, spectral unmixing; <em>Temporal dynamics</em>: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; <em>Change detection</em>: CAT (change, aftereffect, trend) and the others; <em>Spatial pattern analysis</em>: emerging hot spots, SNIC, texture; <em>Classification &amp; pattern recognition</em>: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in <strong>Tools → Tasks</strong></td></tr>
 <tr><td>Zeit logs</td><td><strong>Tools → Log</strong> (or <strong>Log</strong> next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder</td></tr>
 <tr><td>Tool results</td><td>layers of their own in the <strong>Layers</strong> panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in <strong>Pixel values</strong> (in the chart's place while a map is shown over its series)</td></tr>
@@ -2157,7 +2157,20 @@ too (the same choices as the PNG figure's).</p>
 figure...</strong> (the series chart's toolbar, and the button after the tabs of
 Analysis: Seasonal, Cycles, Bands, Classes (the view shown: the shares, the
 Sankey flows or the transitions), Scatter, Areas and Zonal; and the Transect
-panel's) opens one small window:</p>
+panel's) opens one small window, whose first choice is the <strong>look</strong>:</p>
+<ul>
+<li><strong>As on screen</strong> (the default): the panel exactly as you see it, drawn by the
+same renderer as the interface (the GPU, through egui_wgpu), with the
+interface's theme (dark or light), fonts and text sizes, and the size the
+panel has on screen in points, with the same legend and hidden series. The
+panel's controls are left out (the plot keeps the size it has on screen).
+<strong>Scale</strong> 1x to 4x gives more pixels, not another layout (at 1x the PNG is the
+screenshot of the panel); the chart can keep or leave out the current date's
+line; the background is the panel's or transparent. <strong>SVG</strong> has the same
+shapes, with the interface's colours. <strong>Copy image</strong> uses the same picture.</li>
+<li><strong>Publication (size in mm)</strong>: a figure for a paper, as follows.</li>
+</ul>
+<p>In the publication look:</p>
 <ul>
 <li><strong>Size</strong>: one column (85 mm), two columns (180 mm) or free, and the height in
 mm; the <strong>font</strong> in points (the figure's own, 8 pt by default); <strong>white</strong> or
