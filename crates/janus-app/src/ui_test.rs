@@ -38,6 +38,8 @@ mod figures;
 mod fullres;
 #[path = "ui_test_interface.rs"]
 mod interface;
+#[path = "ui_test_menus.rs"]
+mod menus;
 #[path = "ui_test_misc.rs"]
 mod misc;
 #[path = "ui_test_roi.rs"]
@@ -1089,6 +1091,7 @@ impl State {
             385..=399 => return self.test_calc_detach(st, t0, ctx),
             400..=406 => return self.test_envi(st, t0, ctx),
             407..=409 => return self.test_omnibus(st, t0, ctx),
+            410..=414 => return self.test_menus(st, t0, ctx),
             _ => {}
         }
         None

@@ -2083,7 +2083,7 @@ impl State {
             ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(keys)).clicked()
         };
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
+            bar_menu(ui, "File", |ui| {
                 self.project_menu(ui);
                 ui.separator();
                 // each opens a series (an image, or files of dates) as a new layer of the map
@@ -2179,8 +2179,8 @@ impl State {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-            ui.menu_button("Edit", |ui| self.edit_menu(ui));
-            ui.menu_button("View", |ui| {
+            bar_menu(ui, "Edit", |ui| self.edit_menu(ui));
+            bar_menu(ui, "View", |ui| {
                 if ui
                     .add(egui::Button::new("Command palette...").shortcut_text("Ctrl+K"))
                     .on_hover_text("Search every command: menus, tools, indices, layers, panels")
@@ -2299,17 +2299,17 @@ impl State {
                     act.reset_layout = true;
                 }
             });
-            let r = ui.menu_button("Tools", |ui| {
+            let r = bar_menu(ui, "Tools", |ui| {
                 self.tools_menu(ui);
                 ui.min_rect()
             });
             self.shots_menu("Tools", r.response.rect, r.inner);
-            let r = ui.menu_button(crate::palette::VALIDATION, |ui| {
+            let r = bar_menu(ui, crate::palette::VALIDATION, |ui| {
                 self.validation_menu(ui);
                 ui.min_rect()
             });
             self.shots_menu("Validation", r.response.rect, r.inner);
-            ui.menu_button("Help", |ui| {
+            bar_menu(ui, "Help", |ui| {
                 if ui.button("Welcome").on_hover_text("Sample data, the guides and the recent projects").clicked() {
                     self.open_welcome();
                 }
@@ -2557,6 +2557,46 @@ fn floating_tabs(dock: &mut DockState<Tab>) -> Vec<Vec<Tab>> {
         }
     }
     out
+}
+
+/// Where the menu bar's top menus are, by label: the buttons' rectangles of the last frame (the self-test points
+/// the pointer at them).
+pub(crate) fn bar_menu_rects(ctx: &egui::Context) -> Vec<(String, egui::Rect)> {
+    ctx.data(|d| d.get_temp::<Vec<(String, egui::Rect)>>(Id::new("bar menu rects"))).unwrap_or_default()
+}
+
+/// Is one of the menu bar's top menus open?
+pub(crate) fn bar_menu_open(ctx: &egui::Context) -> Option<String> {
+    let ids = ctx.data(|d| d.get_temp::<Vec<(String, Id)>>(Id::new("bar menu ids"))).unwrap_or_default();
+    ids.into_iter().find(|(_, id)| egui::Popup::is_id_open(ctx, *id)).map(|(l, _)| l)
+}
+
+/// A top menu of the menu bar. egui opens a menu only by a click; as in the desktop's menu bars, once one of the
+/// bar's menus is open, hovering another one opens that one in its place (and, with none open, hovering does
+/// nothing).
+fn bar_menu<R>(ui: &mut Ui, label: &str, add_contents: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<Option<R>> {
+    let ctx = ui.ctx().clone();
+    let (ids_key, rects_key) = (Id::new("bar menu ids"), Id::new("bar menu rects"));
+    let was_open = bar_menu_open(&ctx);
+    let r = ui.menu_button(label, add_contents);
+    let id = egui::Popup::default_response_id(&r.response);
+    ctx.data_mut(|d| {
+        let ids = d.get_temp_mut_or_default::<Vec<(String, Id)>>(ids_key);
+        match ids.iter_mut().find(|(l, _)| l == label) {
+            Some(e) => e.1 = id,
+            None => ids.push((label.to_owned(), id)),
+        }
+        let rects = d.get_temp_mut_or_default::<Vec<(String, egui::Rect)>>(rects_key);
+        match rects.iter_mut().find(|(l, _)| l == label) {
+            Some(e) => e.1 = r.response.rect,
+            None => rects.push((label.to_owned(), r.response.rect)),
+        }
+    });
+    if was_open.is_some_and(|l| l != label) && r.response.hovered() && !egui::Popup::is_id_open(&ctx, id) {
+        egui::Popup::open_id(&ctx, id);
+        ctx.request_repaint();
+    }
+    r
 }
 
 impl eframe::App for JanusApp {

@@ -1116,7 +1116,7 @@ impl State {
                 let _ = std::fs::remove_dir_all(&st.envi.dir);
                 st.envi = Default::default();
                 next(st, "omnibus: the layers, the pin, the run and the files removed");
-                st.stage = 299;
+                st.stage = 410; // the menu bar's hover switching (410-412, ui_test_menus.rs), then 299
                 None
             }
             _ => None,
