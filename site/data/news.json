@@ -1,5 +1,15 @@
 [
   {
+    "tag": "v1.23.1",
+    "version": "1.23.1",
+    "date": "2026-11-22",
+    "blocks": [
+      {
+        "p": "links open the browser again (in the Rust build they never did: eframe without its \"links\" feature, ctx.open_url only logged \"Cannot open url\"): the Download of Help > Check for updates on macOS and Linux (and on Windows outside the installer), the Releases page, the release's page, the tools' \"?\" guides, About's links and the crash notice's issue; versions before this one cannot open the new package from the updates' window, download it once from the releases page. Two runs of a tool on the same input within the same second no longer share a results folder (the second gets -2, -3...): on the Linux runner the UI self-test's local co-registration (stage 378) started in the global run's second and read its shifts.csv"
+      }
+    ]
+  },
+  {
     "tag": "v1.23.0",
     "version": "1.23.0",
     "date": "2026-11-21",
