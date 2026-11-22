@@ -2001,6 +2001,16 @@ pub(crate) fn timestamp() -> String {
     format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
+/// A run's folder in `results`: `name`, or `name-2`, `name-3`... when a run of the same tool on the same input started
+/// within the same second (the timestamp's) already has it, so two runs never share a folder (and its shifts.csv).
+pub(crate) fn new_run_dir(results: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let first = results.join(name);
+    if !first.exists() {
+        return first;
+    }
+    (2u32..).map(|i| results.join(format!("{name}-{i}"))).find(|p| !p.exists()).unwrap_or(first)
+}
+
 /// A file or folder name from the series' inputs.
 pub(crate) fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
     let p = std::path::PathBuf::from(if inputs.len() == 1 { inputs[0].clone() } else { info.first_path.clone() });
@@ -2507,7 +2517,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 (spec.window, scope_name) = (Some(w), "preview".into());
                 dir.to_path_buf()
             }
-            None => self.results_dir().join(format!("{name}_{}_{}", tool.id, timestamp())),
+            None => new_run_dir(&self.results_dir(), &format!("{name}_{}_{}", tool.id, timestamp())),
         };
         if let Err(e) = std::fs::create_dir_all(&out) {
             self.error_popup = Some(format!("could not create {}: {e}", out.display()));
@@ -3530,6 +3540,21 @@ impl ResultLayer {
 #[cfg(test)]
 mod multi_tests {
     use super::*;
+
+    #[test]
+    fn two_runs_in_the_same_second_get_two_folders() {
+        let results = std::env::temp_dir().join(format!("janus-run-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&results);
+        let name = "s_coregister_20261122-101010";
+        let a = new_run_dir(&results, name);
+        assert_eq!(a, results.join(name));
+        std::fs::create_dir_all(&a).unwrap();
+        let b = new_run_dir(&results, name);
+        assert_eq!(b, results.join(format!("{name}-2")));
+        std::fs::create_dir_all(&b).unwrap();
+        assert_eq!(new_run_dir(&results, name), results.join(format!("{name}-3")));
+        let _ = std::fs::remove_dir_all(&results);
+    }
 
     fn opts(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()

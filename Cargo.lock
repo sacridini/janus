@@ -3008,6 +3008,7 @@ dependencies = [
  "raw-window-handle",
  "smithay-clipboard",
  "web-time",
+ "webbrowser",
  "winit",
 ]
 
@@ -4613,7 +4614,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "janus-app"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "ab_glyph",
  "earcut",
@@ -4649,7 +4650,7 @@ dependencies = [
 
 [[package]]
 name = "janus-cache"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "bytemuck",
  "gdal",
@@ -4663,7 +4664,7 @@ dependencies = [
 
 [[package]]
 name = "janus-cube"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4675,7 +4676,7 @@ dependencies = [
 
 [[package]]
 name = "janus-embed"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4689,7 +4690,7 @@ dependencies = [
 
 [[package]]
 name = "janus-gdal"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal-sys",
  "libc",
@@ -4697,7 +4698,7 @@ dependencies = [
 
 [[package]]
 name = "janus-geo"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4710,7 +4711,7 @@ dependencies = [
 
 [[package]]
 name = "janus-gpu"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "bytemuck",
  "pollster 0.4.0",
@@ -4719,7 +4720,7 @@ dependencies = [
 
 [[package]]
 name = "janus-ml"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "burn",
  "gdal",
@@ -4734,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "janus-session"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "janus-cache",
@@ -4744,7 +4745,7 @@ dependencies = [
 
 [[package]]
 name = "janus-validation"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -4756,7 +4757,7 @@ dependencies = [
 
 [[package]]
 name = "janus-zeit"
-version = "1.23.0"
+version = "1.23.1"
 dependencies = [
  "gdal",
  "gdal-sys",
@@ -8855,6 +8856,22 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webbrowser"
+version = "1.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73e91ccd4698f2647d6137e8eb17a3f1dcfd63810be9029fb2398f507279b95b"
+dependencies = [
+ "jni",
+ "log",
+ "ndk-context",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "url",
+ "web-sys",
 ]
 
 [[package]]

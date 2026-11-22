@@ -2457,6 +2457,14 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   (janus-rs.ini, pelo título; nenhuma abre destacada no início; autoteste 413-419); o CSV do driver
   da correlação defasada escolhe a coluna (y_column; o padrão pula year e filled, e o pcs.csv da EOF
   dava a coluna year).
+- 1.23.1: os links abrem o navegador (no app em Rust nunca abriram: o eframe sem a feature "links",
+  o open_url só escrevia "Cannot open url" no log); o Download da janela de atualizações no macOS e
+  no Linux (e no Windows fora do instalador), Releases page, a página da release, os "?" dos guias,
+  os links do About e a issue do aviso de crash. As versões anteriores não abrem o pacote novo pela
+  janela de atualizações: baixar uma vez pela página de releases. Duas execuções da mesma ferramenta
+  sobre a mesma entrada no mesmo segundo não dividem mais a pasta de resultados (a segunda ganha -2,
+  -3...): no runner Linux o co-registro local do autoteste 378 começava no segundo do global e lia o
+  shifts.csv dele.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
