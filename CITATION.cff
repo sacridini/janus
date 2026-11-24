@@ -6,8 +6,14 @@ abstract: "Janus is a desktop application for satellite image time series: it sh
 authors:
   - family-names: "Lacerda"
     given-names: "Eduardo"
+    orcid: "https://orcid.org/0000-0003-3803-5842"
 version: "1.23.1"
 date-released: "2026-11-22"
+doi: "10.5281/zenodo.24515398"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24515398"
+    description: "The concept DOI of Janus on Zenodo: it resolves to the latest version, and each version has its own DOI."
 license: "GPL-3.0-or-later"
 repository-code: "https://github.com/sacridini/janus"
 url: "https://sacridini.github.io/janus/"

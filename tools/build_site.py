@@ -421,6 +421,8 @@ def cite_bibtex(page):
         "  title   = {Janus: raster time series analysis},\n"
         f"  version = {{{version}}},\n"
         f"  year    = {{{year}}},\n"
+        "  publisher = {Zenodo},\n"
+        "  doi     = {10.5281/zenodo.24515398},\n"
         "  url     = {https://sacridini.github.io/janus/},\n"
         "  note    = {Source code at https://github.com/sacridini/janus}\n"
         "}"
