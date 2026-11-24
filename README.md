@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/sacridini/janus/actions/workflows/build.yml"><img src="https://github.com/sacridini/janus/actions/workflows/build.yml/badge.svg" alt="build"></a>
   <a href="https://github.com/sacridini/janus/releases/latest"><img src="https://img.shields.io/github/v/release/sacridini/janus" alt="latest release"></a>
-  <a href="https://doi.org/10.5281/zenodo.24515398"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24515398.svg" alt="DOI 10.5281/zenodo.24515398"></a>
+  <a href="https://doi.org/10.5281/zenodo.24515398"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.24515398-1682D4" alt="DOI 10.5281/zenodo.24515398"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-4296FA" alt="Windows, macOS, Linux">
 </p>
 
